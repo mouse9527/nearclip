@@ -1,3 +1,0 @@
-[workspace]
-members = ["clip_core", "bindings"]
-resolver = "2"
