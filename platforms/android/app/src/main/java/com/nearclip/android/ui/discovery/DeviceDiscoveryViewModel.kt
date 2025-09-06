@@ -122,8 +122,9 @@ class DeviceDiscoveryViewModel @Inject constructor(
             return
         }
         
-        Log.d("DeviceDiscoveryVM", "Starting BLE scan...")
+        Log.d("DeviceDiscoveryVM", "Starting BLE scan and advertising...")
         bleService?.startScan()
+        bleService?.startAdvertising()
     }
     
     fun stopScan() {

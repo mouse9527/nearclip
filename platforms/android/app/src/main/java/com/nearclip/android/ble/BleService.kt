@@ -4,6 +4,10 @@ import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.AdvertiseCallback
+import android.bluetooth.le.AdvertiseData
+import android.bluetooth.le.AdvertiseSettings
+import android.bluetooth.le.BluetoothLeAdvertiser
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
@@ -45,6 +49,10 @@ class BleService : Service() {
         bluetoothAdapter?.bluetoothLeScanner
     }
     
+    private val bluetoothLeAdvertiser: BluetoothLeAdvertiser? by lazy {
+        bluetoothAdapter?.bluetoothLeAdvertiser
+    }
+    
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     // 扫描状态
@@ -58,6 +66,10 @@ class BleService : Service() {
     // 扫描错误
     private val _scanError = MutableStateFlow<String?>(null)
     val scanError: StateFlow<String?> = _scanError.asStateFlow()
+    
+    // 广播状态
+    private val _isAdvertising = MutableStateFlow(false)
+    val isAdvertising: StateFlow<Boolean> = _isAdvertising.asStateFlow()
     
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -85,6 +97,32 @@ class BleService : Service() {
             serviceScope.launch {
                 _scanError.value = errorMessage
                 _isScanning.value = false
+            }
+        }
+    }
+    
+    private val advertiseCallback = object : AdvertiseCallback() {
+        override fun onStartSuccess(settingsInEffect: AdvertiseSettings?) {
+            super.onStartSuccess(settingsInEffect)
+            Log.d(TAG, "BLE 广播启动成功")
+            serviceScope.launch {
+                _isAdvertising.value = true
+            }
+        }
+        
+        override fun onStartFailure(errorCode: Int) {
+            super.onStartFailure(errorCode)
+            val errorMessage = when (errorCode) {
+                ADVERTISE_FAILED_ALREADY_STARTED -> "广播已经开始"
+                ADVERTISE_FAILED_DATA_TOO_LARGE -> "广播数据过大"
+                ADVERTISE_FAILED_FEATURE_UNSUPPORTED -> "设备不支持 BLE 广播"
+                ADVERTISE_FAILED_INTERNAL_ERROR -> "内部错误"
+                ADVERTISE_FAILED_TOO_MANY_ADVERTISERS -> "广播器过多"
+                else -> "未知错误: $errorCode"
+            }
+            Log.e(TAG, "BLE 广播启动失败: $errorMessage")
+            serviceScope.launch {
+                _isAdvertising.value = false
             }
         }
     }
@@ -216,6 +254,69 @@ class BleService : Service() {
         }
     }
     
+    fun startAdvertising() {
+        if (_isAdvertising.value) {
+            Log.w(TAG, "广播已在进行中")
+            return
+        }
+        
+        val adapter = bluetoothAdapter
+        val advertiser = bluetoothLeAdvertiser
+        
+        if (adapter == null || !adapter.isEnabled) {
+            Log.e(TAG, "蓝牙未启用，无法开始广播")
+            return
+        }
+        
+        if (advertiser == null) {
+            Log.e(TAG, "设备不支持 BLE 广播")
+            return
+        }
+        
+        // 配置广播设置
+        val settings = AdvertiseSettings.Builder()
+            .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
+            .setTxPowerLevel(AdvertiseSettings.ADVERTISE_TX_POWER_MEDIUM)
+            .setConnectable(true)
+            .setTimeout(0) // 持续广播
+            .build()
+        
+        // 配置广播数据
+        val data = AdvertiseData.Builder()
+            .setIncludeDeviceName(false)
+            .setIncludeTxPowerLevel(false)
+            .addServiceUuid(ParcelUuid(NEARCLIP_SERVICE_UUID))
+            .build()
+        
+        try {
+            advertiser.startAdvertising(settings, data, advertiseCallback)
+            Log.d(TAG, "开始 BLE 广播")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "缺少蓝牙广播权限", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "启动广播失败", e)
+        }
+    }
+    
+    fun stopAdvertising() {
+        if (!_isAdvertising.value) {
+            Log.w(TAG, "广播未在进行中")
+            return
+        }
+        
+        try {
+            bluetoothLeAdvertiser?.stopAdvertising(advertiseCallback)
+            serviceScope.launch {
+                _isAdvertising.value = false
+            }
+            Log.d(TAG, "停止 BLE 广播")
+        } catch (e: SecurityException) {
+            Log.e(TAG, "停止广播时缺少权限", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "停止广播失败", e)
+        }
+    }
+    
     inner class LocalBinder : Binder() {
         fun getService(): BleService = this@BleService
     }
@@ -229,5 +330,6 @@ class BleService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopScan()
+        stopAdvertising()
     }
 }
