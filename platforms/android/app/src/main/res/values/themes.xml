@@ -1,0 +1,12 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- Base application theme. -->
+    <style name="Theme.NearClip" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- Primary brand color. -->
+        <item name="android:colorPrimary">#6200EE</item>
+        <item name="android:colorPrimaryDark">#3700B3</item>
+        <item name="android:colorAccent">#03DAC5</item>
+        <!-- Status bar color. -->
+        <item name="android:statusBarColor">#3700B3</item>
+        <!-- Customize your theme here. -->
+    </style>
+</resources>
