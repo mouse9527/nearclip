@@ -1,6 +1,6 @@
 use crate::{DeviceType, DeviceStatus, DeviceCapability};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Device {
     id: String,
     name: String,
