@@ -631,12 +631,12 @@ pub trait TransportSelector: Send + Sync {
 
 ## 依赖任务
 
-- Task 0103: 实现传输层抽象
-- Task 0104: 实现mDNS发现
-- Task 0105: 实现BLE发现
+- [Task 0103: 实现传输层抽象接口](0103-transport-abstraction.md)
+- [Task 0104: 实现mDNS发现](0104-mdns-discovery.md)
+- [Task 0105: 实现BLE发现](0105-ble-discovery.md)
 
 ## 后续任务
 
-- Task 0107: 实现设备连接管理
-- Task 0108: 实现安全配对机制
-- Task 0109: 实现混合传输管理
+- [Task 0107: 实现设备连接管理](0107-device-connection-manager.md)
+- [Task 0108: 实现安全配对机制](0108-secure-pairing.md)
+- [Task 0109: 实现混合传输管理](0109-hybrid-transport-management.md)

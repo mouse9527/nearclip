@@ -537,6 +537,6 @@ pub struct TransferPacket {
 
 ## 后续任务
 
-- Task 0306: 实现传输进度跟踪
-- Task 0307: 实现传输状态监控
-- Task 0308: 实现传输数据压缩
+- [Task 0306: 实现传输进度跟踪](0306-transfer-progress-tracking.md)
+- [Task 0307: 实现传输状态监控](0307-transfer-status-monitor.md)
+- [Task 0308: 实现传输数据压缩](0308-transfer-data-compression.md)

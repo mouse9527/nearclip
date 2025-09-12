@@ -1023,6 +1023,6 @@ pub struct ConflictResolver {
 
 ## 后续任务
 
-- Task 0405: 实现同步历史记录
-- Task 0406: 实现内容过滤机制
-- Task 0407: 实现同步性能优化
+- [Task 0405: 实现同步历史记录](0405-sync-history.md)
+- [Task 0406: 实现内容过滤机制](0406-content-filter.md)
+- [Task 0407: 实现同步性能优化](0407-sync-performance-optimization.md)

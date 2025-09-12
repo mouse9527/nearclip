@@ -830,6 +830,6 @@ pub struct DeviceStateManager {
 
 ## 后续任务
 
-- Task 0504: 实现设备信任机制
-- Task 0505: 实现设备生命周期管理
-- Task 0506: 实现设备群组管理
+- [Task 0504: 实现设备信任机制](0504-device-trust-mechanism.md)
+- [Task 0505: 实现设备生命周期管理](0505-device-lifecycle.md)
+- [Task 0506: 实现设备群组管理](0506-device-group-management.md)

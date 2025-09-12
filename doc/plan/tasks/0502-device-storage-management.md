@@ -634,6 +634,6 @@ pub struct DeviceStorage {
 
 ## 后续任务
 
-- Task 0503: 实现设备状态管理
-- Task 0504: 实现设备信任机制
-- Task 0505: 实现设备生命周期管理
+- [Task 0503: 实现设备状态管理](0503-device-state-management.md)
+- [Task 0504: 实现设备信任机制](0504-device-trust-mechanism.md)
+- [Task 0505: 实现设备生命周期管理](0505-device-lifecycle.md)

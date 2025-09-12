@@ -414,6 +414,6 @@ pub struct TransferQueue {
 
 ## 后续任务
 
-- Task 0305: 实现传输协议处理
-- Task 0306: 实现传输进度跟踪
-- Task 0307: 实现传输状态监控
+- [Task 0305: 实现传输协议处理](0305-transfer-protocol-handling.md)
+- [Task 0306: 实现传输进度跟踪](0306-transfer-progress-tracking.md)
+- [Task 0307: 实现传输状态监控](0307-transfer-status-monitor.md)

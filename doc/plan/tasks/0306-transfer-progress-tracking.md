@@ -558,6 +558,6 @@ pub struct ProgressTracker {
 
 ## 后续任务
 
-- Task 0307: 实现传输状态监控
-- Task 0308: 实现传输数据压缩
-- Task 0309: 实现传输重试机制
+- [Task 0307: 实现传输状态监控](0307-transfer-status-monitor.md)
+- [Task 0308: 实现传输数据压缩](0308-transfer-data-compression.md)
+- [Task 0309: 实现传输重试机制](0309-transfer-retry-mechanism.md)

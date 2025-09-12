@@ -380,11 +380,11 @@ pub trait Transport: ConnectionManager + DataTransfer {
 
 ## 依赖任务
 
-- Task 0101: 实现设备抽象层
-- Task 0102: 实现设备发现服务
+- [Task 0101: 定义设备类型枚举](0101-device-enum-definition.md)
+- [Task 0102: 定义设备状态枚举](0102-device-status-enum.md)
 
 ## 后续任务
 
-- Task 0104: 实现WiFi传输
-- Task 0105: 实现BLE传输
-- Task 0106: 实现智能传输选择器
+- [Task 0104: 实现mDNS发现](0104-mdns-discovery.md)
+- [Task 0105: 实现BLE发现](0105-ble-discovery.md)
+- [Task 0106: 实现智能传输选择器](0106-intelligent-transport-selector.md)

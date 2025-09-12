@@ -348,6 +348,6 @@ pub struct TransferEvent {
 
 ## 后续任务
 
-- Task 0304: 实现传输队列管理
-- Task 0305: 实现传输协议处理
-- Task 0306: 实现传输进度跟踪
+- [Task 0304: 实现传输队列管理](0304-transfer-queue-management.md)
+- [Task 0305: 实现传输协议处理](0305-transfer-protocol-handling.md)
+- [Task 0306: 实现传输进度跟踪](0306-transfer-progress-tracking.md)

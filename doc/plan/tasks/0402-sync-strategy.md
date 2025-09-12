@@ -545,6 +545,6 @@ pub struct SyncStrategy {
 
 ## 后续任务
 
-- Task 0403: 实现内容变化检测
-- Task 0404: 实现同步冲突处理
-- Task 0405: 实现同步历史记录
+- [Task 0403: 实现内容变化检测](0403-content-change-detection.md)
+- [Task 0404: 实现同步冲突处理](0404-sync-conflict-handling.md)
+- [Task 0405: 实现同步历史记录](0405-sync-history.md)

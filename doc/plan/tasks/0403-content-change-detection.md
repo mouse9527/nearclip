@@ -557,6 +557,6 @@ pub struct ContentChangeDetector {
 
 ## 后续任务
 
-- Task 0404: 实现同步冲突处理
-- Task 0405: 实现同步历史记录
-- Task 0406: 实现内容过滤机制
+- [Task 0404: 实现同步冲突处理](0404-sync-conflict-handling.md)
+- [Task 0405: 实现同步历史记录](0405-sync-history.md)
+- [Task 0406: 实现内容过滤机制](0406-content-filter.md)

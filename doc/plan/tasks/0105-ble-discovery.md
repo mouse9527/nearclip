@@ -523,11 +523,11 @@ pub trait BleConnector: Send + Sync {
 
 ## 依赖任务
 
-- Task 0102: 实现设备发现服务
-- Task 0103: 实现传输层抽象
+- [Task 0102: 定义设备状态枚举](0102-device-status-enum.md)
+- [Task 0103: 实现传输层抽象接口](0103-transport-abstraction.md)
 
 ## 后续任务
 
-- Task 0106: 实现智能传输选择器
-- Task 0107: 实现设备连接管理
-- Task 0108: 实现安全配对机制
+- [Task 0106: 实现智能传输选择器](0106-intelligent-transport-selector.md)
+- [Task 0107: 实现设备连接管理](0107-device-connection-manager.md)
+- [Task 0108: 实现安全配对机制](0108-secure-pairing.md)
