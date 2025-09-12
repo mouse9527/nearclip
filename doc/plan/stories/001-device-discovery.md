@@ -8,6 +8,7 @@
 
 ## 验收标准
 
+### 通用验收标准
 - [ ] 应用能够自动发现网络中的其他 NearClip 设备
 - [ ] 支持同时通过 WiFi 和 BLE 进行设备发现
 - [ ] 发现的设备显示在用户界面中，包含设备名称和连接状态
@@ -17,15 +18,25 @@
 - [ ] 发现响应时间 < 3秒
 - [ ] 设备名称在不同设备间保持一致，确保A、B设备看到的C设备名称相同
 
-## 依赖任务
+### Android平台特定验收标准
+- [ ] Android应用在后台和前台都能正常进行设备发现
+- [ ] 适配Android Doze模式和App Standby的设备发现策略
+- [ ] 在Android 10+上正确处理蓝牙和WiFi权限
+- [ ] Android应用在锁屏状态下保持BLE扫描能力
+- [ ] 适配不同Android版本的蓝牙和WiFi API
+- [ ] Android通知系统正确显示设备发现状态
+- [ ] 在Android低电量模式下智能降低扫描频率
+- [ ] Android应用在多用户环境下正常工作
 
-参见相关的开发任务文件：
-- [设备抽象层](../tasks/0101-device-abstraction-layer.md)
-- [设备发现服务](../tasks/0102-device-discovery-service.md)
-- [传输层抽象](../tasks/0103-transport-abstraction.md)
-- [mDNS发现](../tasks/0104-mdns-discovery.md)
-- [BLE发现](../tasks/0105-ble-discovery.md)
-- [智能传输选择器](../tasks/0106-intelligent-transport-selector.md)
+### macOS平台特定验收标准
+- [ ] macOS应用在后台和前台都能正常进行设备发现
+- [ ] 正确处理macOS系统休眠和唤醒后的设备重发现
+- [ ] 适配macOS安全机制（网络访问、蓝牙权限）
+- [ ] 在macOS菜单栏应用中显示设备发现状态
+- [ ] 支持macOS多个桌面空间的设备发现一致性
+- [ ] 适配不同macOS版本的网络和蓝牙API
+- [ ] macOS应用在低电量模式下优化设备发现
+- [ ] 支持macOS系统偏好设置中的网络配置变化
 
 ## 非功能性需求
 
