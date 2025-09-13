@@ -24,14 +24,13 @@ class DeviceDiscoveryService : Service() {
     private var isDiscovering = false
 
     // 核心组件
-    private lateinit var bleScanner: BLEScannerManager
-    private lateinit var wifiDiscovery: WiFiDiscoveryManager
+    private lateinit var unifiedDiscoveryManager: UnifiedDiscoveryManager
     private lateinit var permissionManager: PermissionManager
     private lateinit var batteryManager: BatteryOptimizationManager
     private lateinit var notificationManager: DiscoveryNotificationManager
 
     // 设备发现状态
-    private val discoveredDevices = mutableMapOf<String, Device>()
+    private val discoveredDevices = mutableMapOf<String, UnifiedDevice>()
     private val discoveryLock = Mutex()
 
     override fun onCreate() {
@@ -67,8 +66,7 @@ class DeviceDiscoveryService : Service() {
         val bluetoothAdapter = BluetoothAdapter.getDefaultAdapter()
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
-        bleScanner = BLEScannerManager(this, bluetoothAdapter)
-        wifiDiscovery = WiFiDiscoveryManager(this, connectivityManager)
+        unifiedDiscoveryManager = UnifiedDiscoveryManager(this, bluetoothAdapter, connectivityManager)
         permissionManager = PermissionManager(this as Context)
         batteryManager = BatteryOptimizationManager(this)
         notificationManager = DiscoveryNotificationManager(this)
@@ -147,39 +145,19 @@ class DeviceDiscoveryService : Service() {
             return
         }
 
-        // 并行启动BLE和WiFi发现
-        val bleJob = launchBLEDiscovery()
-        val wifiJob = launchWiFiDiscovery()
-
-        // 等待任一发现方式完成
-        select {
-            bleJob.join()
-            wifiJob.join()
+        if (batteryManager.shouldEnableBackgroundDiscovery()) {
+            // 使用统一发现管理器
+            unifiedDiscoveryManager.startDiscovery().collect { unifiedDevice ->
+                handleDiscoveredDevice(unifiedDevice)
+            }
         }
     }
 
     private suspend fun stopDeviceScanning() {
-        bleScanner.stopScan()
-        wifiDiscovery.stopDiscovery()
+        // 统一发现管理器会在停止时自动处理
     }
 
-    private suspend fun launchBLEDiscovery() = serviceScope.launch {
-        if (batteryManager.shouldEnableBackgroundDiscovery()) {
-            bleScanner.startScan().collect { device ->
-                handleDiscoveredDevice(device)
-            }
-        }
-    }
-
-    private suspend fun launchWiFiDiscovery() = serviceScope.launch {
-        if (batteryManager.shouldEnableBackgroundDiscovery()) {
-            wifiDiscovery.startDiscovery().collect { device ->
-                handleDiscoveredDevice(device)
-            }
-        }
-    }
-
-    private fun handleDiscoveredDevice(device: Device) {
+    private fun handleDiscoveredDevice(device: UnifiedDevice) {
         serviceScope.launch {
             discoveryLock.withLock {
                 val existingDevice = discoveredDevices[device.id]
@@ -203,7 +181,7 @@ class DeviceDiscoveryService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun notifyDeviceDiscovered(device: Device) {
+    private fun notifyDeviceDiscovered(device: UnifiedDevice) {
         // 通知UI更新
         LocalBroadcastManager.getInstance(this).sendBroadcast(
             Intent(ACTION_DEVICE_DISCOVERED).apply {
@@ -225,7 +203,7 @@ class DeviceDiscoveryService : Service() {
 
     fun isRunning(): Boolean = isRunning
     fun isDiscovering(): Boolean = isDiscovering
-    fun getDiscoveredDevices(): List<Device> = discoveredDevices.values.toList()
+    fun getDiscoveredDevices(): List<UnifiedDevice> = discoveredDevices.values.toList()
 
     // 保持测试兼容性
     fun canRunInBackground(): Boolean = true
