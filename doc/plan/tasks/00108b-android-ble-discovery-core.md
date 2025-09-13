@@ -1,4 +1,4 @@
-# Task 00108a: Android BLE 设备发现核心
+# Task 00108b: Android BLE 设备发现核心
 
 ## 任务描述
 
@@ -201,5 +201,5 @@ data class BLEScanConfig(
 - [Story 001: 设备发现与连接](../stories/001-device-discovery.md)
 
 ## 后续任务
-- [Task 00108b: Android WiFi 设备发现核心](00108b-android-wifi-discovery-core.md)
-- [Task 00108c: Android 权限管理](00108c-android-permission-management.md)
+- [Task 00108c: Android WiFi 设备发现核心](00108c-android-wifi-discovery-core.md)
+- [Task 00108d: Android 权限管理](00108d-android-permission-management.md)
