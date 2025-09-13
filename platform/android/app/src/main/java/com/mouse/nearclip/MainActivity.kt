@@ -1,13 +1,17 @@
-package com.example.nearclip
+package com.mouse.nearclip
 
 import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.content.Context
+import android.content.pm.PackageManager
+import android.Manifest
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -18,6 +22,20 @@ class MainActivity : AppCompatActivity() {
     private lateinit var bleScannerManager: BLEScannerManager
     private lateinit var statusText: TextView
     private lateinit var scanButton: Button
+    
+    // Runtime permission launcher for Bluetooth permissions
+    private val requestBluetoothPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        if (allGranted) {
+            updateStatus("Bluetooth permissions granted - Ready to scan")
+            scanButton.isEnabled = true
+        } else {
+            updateStatus("Bluetooth permissions denied. Please enable in Settings.")
+            scanButton.isEnabled = false
+        }
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,12 +58,46 @@ class MainActivity : AppCompatActivity() {
         // Initialize BLE scanner
         bleScannerManager = BLEScannerManager(this, bluetoothAdapter)
         
+        // Check and request Bluetooth permissions
+        checkAndRequestBluetoothPermissions()
+        
         // Set up scan button
         scanButton.setOnClickListener {
             toggleScanning()
         }
         
         updateBluetoothStatus()
+    }
+    
+    private fun checkAndRequestBluetoothPermissions() {
+        val permissionsToRequest = mutableListOf<String>()
+        
+        // Check Bluetooth Scan permission (Android 12+)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) 
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.BLUETOOTH_SCAN)
+        }
+        
+        // Check Bluetooth Connect permission (Android 12+)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) 
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        
+        // Check location permission (for Android < 12)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) 
+            != PackageManager.PERMISSION_GRANTED) {
+            permissionsToRequest.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+        
+        if (permissionsToRequest.isNotEmpty()) {
+            updateStatus("Requesting Bluetooth permissions...")
+            scanButton.isEnabled = false
+            requestBluetoothPermissions.launch(permissionsToRequest.toTypedArray())
+        } else {
+            updateStatus("Bluetooth permissions already granted - Ready to scan")
+            scanButton.isEnabled = true
+        }
     }
     
     private fun toggleScanning() {

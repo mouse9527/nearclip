@@ -1,4 +1,4 @@
-package com.example.nearclip
+package com.mouse.nearclip
 
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.le.BluetoothLeScanner
