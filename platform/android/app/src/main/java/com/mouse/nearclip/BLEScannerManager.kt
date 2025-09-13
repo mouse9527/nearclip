@@ -8,6 +8,10 @@ import android.bluetooth.le.ScanSettings
 import android.bluetooth.le.ScanFilter
 import android.os.ParcelUuid
 import android.content.Context
+import android.content.pm.PackageManager
+import android.Manifest
+import android.annotation.SuppressLint
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -76,6 +80,7 @@ data class BLEScanConfig(
     }
 }
 
+@SuppressLint("MissingPermission")
 class BLEScannerManager(
     private val context: Context,
     private val bluetoothAdapter: BluetoothAdapter,
@@ -133,7 +138,7 @@ class BLEScannerManager(
         // Real BLE scanning
         if (realScanner != null) {
             val scanCallback = object : ScanCallback() {
-                override fun onScanResult(callbackType: Int, result: ScanResult) {
+                      override fun onScanResult(callbackType: Int, result: ScanResult) {
                     val device = result.device
                     if (isNearClipDevice(result)) {
                         // Refactoring: Add device deduplication and signal quality assessment
