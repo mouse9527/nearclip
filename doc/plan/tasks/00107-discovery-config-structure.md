@@ -233,4 +233,4 @@ impl DiscoveryConfig {
 - [Story 001: 设备发现与连接](../stories/001-device-discovery.md)
 
 ## 后续任务
-- [Task 00108: 定义设备过滤器结构](00108-device-filter-structure.md)
+- [Task 00108: Android 设备发现实现](00108-android-device-discovery.md)
