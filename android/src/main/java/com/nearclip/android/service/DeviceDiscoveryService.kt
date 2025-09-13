@@ -25,6 +25,7 @@ class DeviceDiscoveryService : Service() {
 
     // 核心组件
     private lateinit var unifiedDiscoveryManager: UnifiedDiscoveryManager
+    private lateinit var connectionManager: DeviceConnectionManager
     private lateinit var permissionManager: PermissionManager
     private lateinit var batteryManager: BatteryOptimizationManager
     private lateinit var notificationManager: DiscoveryNotificationManager
@@ -58,6 +59,8 @@ class DeviceDiscoveryService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopDiscovery()
+        disconnectAllDevices()
+        connectionManager.cleanup()
         serviceScope.cancel()
         isRunning = false
     }
@@ -67,6 +70,7 @@ class DeviceDiscoveryService : Service() {
         val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
 
         unifiedDiscoveryManager = UnifiedDiscoveryManager(this, bluetoothAdapter, connectivityManager)
+        connectionManager = DeviceConnectionManager(this, connectivityManager)
         permissionManager = PermissionManager(this as Context)
         batteryManager = BatteryOptimizationManager(this)
         notificationManager = DiscoveryNotificationManager(this)
@@ -204,6 +208,41 @@ class DeviceDiscoveryService : Service() {
     fun isRunning(): Boolean = isRunning
     fun isDiscovering(): Boolean = isDiscovering
     fun getDiscoveredDevices(): List<UnifiedDevice> = discoveredDevices.values.toList()
+
+    // 连接管理方法
+    suspend fun connectToDevice(deviceId: String): Result<Unit> {
+        val device = discoveredDevices[deviceId]
+            ?: return Result.failure(Exception("Device not found"))
+
+        return connectionManager.connectToDevice(device)
+    }
+
+    suspend fun disconnectFromDevice(deviceId: String): Result<Unit> {
+        return connectionManager.disconnectFromDevice(deviceId)
+    }
+
+    fun getConnectionState(deviceId: String): ConnectionState {
+        return connectionManager.getConnectionState(deviceId)
+    }
+
+    fun getActiveTransport(deviceId: String): TransportType? {
+        return connectionManager.getActiveTransport(deviceId)
+    }
+
+    fun getConnectionQuality(deviceId: String): ConnectionQuality? {
+        return connectionManager.getConnectionQuality(deviceId)
+    }
+
+    fun getActiveConnections(): List<DeviceConnection> {
+        return connectionManager.getActiveConnections()
+    }
+
+    private suspend fun disconnectAllDevices() {
+        val deviceIds = getActiveConnections().map { it.device.id }
+        deviceIds.forEach { deviceId ->
+            runCatching { disconnectFromDevice(deviceId) }
+        }
+    }
 
     // 保持测试兼容性
     fun canRunInBackground(): Boolean = true
