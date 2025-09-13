@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Bluetooth permissions for Android 12+ -->
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" 
@@ -22,6 +23,19 @@
     
     <!-- Network Service Discovery permission -->
     <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+    
+    <!-- Battery optimization permissions for Android 6+ -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    
+    <!-- Battery status monitoring permissions -->
+    <uses-permission android:name="android.permission.BATTERY_STATS" 
+                     tools:ignore="ProtectedPermissions" />
+    
+    <!-- Wake lock for background operations -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- Foreground service for background discovery -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
 
     <application
         android:allowBackup="true"
@@ -30,6 +44,12 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.NearClip">
+        
+        <!-- Request to be excluded from battery optimizations -->
+        <meta-data
+            android:name="android.battery_optimization"
+            android:value="true" />
+        
         <activity
             android:name=".MainActivity"
             android:exported="true">

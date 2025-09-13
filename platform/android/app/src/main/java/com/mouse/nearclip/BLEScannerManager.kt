@@ -84,7 +84,8 @@ data class BLEScanConfig(
 class BLEScannerManager(
     private val context: Context,
     private val bluetoothAdapter: BluetoothAdapter,
-    private val scanConfig: BLEScanConfig = BLEScanConfig.default()
+    private val scanConfig: BLEScanConfig = BLEScanConfig.default(),
+    private val batteryManager: BatteryOptimizationManager = BatteryOptimizationManager(context)
 ) {
     private var isScanning = false
     private val discoveredDevices = mutableMapOf<String, DiscoveredDevice>()
@@ -104,6 +105,11 @@ class BLEScannerManager(
             return Result.failure(BLEDiscoveryError.BluetoothDisabled)
         }
         
+        // 检查是否应该减少发现频率
+        if (batteryManager.shouldReduceDiscoveryFrequency()) {
+            return Result.failure(BLEDiscoveryError.ScanFailed(0)) // 自定义错误码表示电池限制
+        }
+        
         // Refactoring: Initialize scan statistics
         scanStartTime = System.currentTimeMillis()
         totalDevicesDiscovered = 0
@@ -119,11 +125,39 @@ class BLEScannerManager(
     
     fun isScanning(): Boolean = isScanning
     
+    // 添加电池优化相关的方法
+    fun getBatteryOptimizationStatus(): Boolean {
+        return batteryManager.isBatteryOptimizationEnabled()
+    }
+    
+    fun getBatteryLevel(): Int {
+        return batteryManager.getBatteryLevel()
+    }
+    
+    fun isLowPowerMode(): Boolean {
+        return batteryManager.isLowPowerMode()
+    }
+    
+    fun getCurrentDiscoveryStrategy(): DiscoveryStrategy {
+        return batteryManager.getOptimalDiscoveryStrategy()
+    }
+    
+    fun getBatteryMetrics(): BatteryMetrics {
+        return batteryManager.getPerformanceMetrics()
+    }
+    
+    suspend fun requestBatteryOptimization(): Boolean {
+        return batteryManager.requestDisableBatteryOptimization()
+    }
+    
     suspend fun startScanFlow(): Flow<DiscoveredDevice> = callbackFlow {
         if (!bluetoothAdapter.isEnabled) {
             close(BLEDiscoveryError.BluetoothDisabled)
             return@callbackFlow
         }
+        
+        // 使用电池优化的扫描参数
+        val optimizedParams = batteryManager.getScanParameters()
         
         // For testing purposes, combine both real BLE scanning and mock devices
         val realScanner = bluetoothAdapter.bluetoothLeScanner
@@ -173,8 +207,9 @@ class BLEScannerManager(
                 }
             }
             
+            // 使用电池优化的扫描参数
             val scanSettings = ScanSettings.Builder()
-                .setScanMode(scanConfig.scanMode)
+                .setScanMode(optimizedParams.mode)
                 .build()
             
             val scanFilter = ScanFilter.Builder()
