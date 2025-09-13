@@ -39,7 +39,7 @@ class WiFiDiscoveryManagerTest {
     
     @Test
     fun testWiFiDiscoveryStartStop() {
-        // GREEN: 测试WiFi发现启动停止
+        // RED: 测试WiFi发现启动停止
         val manager = WiFiDiscoveryManager(mockContext, mockConnectivityManager)
         
         assertFalse(manager.isActive())
@@ -53,7 +53,7 @@ class WiFiDiscoveryManagerTest {
 
     @Test
     fun testWiFiDeviceDiscovery() {
-        // GREEN: 测试WiFi设备发现
+        // RED: 测试WiFi设备发现
         val manager = WiFiDiscoveryManager(mockContext, mockConnectivityManager)
         
         runBlocking {
@@ -93,7 +93,7 @@ class WiFiDiscoveryManagerTest {
     
     @Test
     fun testNetworkNotAvailable() {
-        // GREEN: 测试网络不可用情况
+        // RED: 测试网络不可用情况
         `when`(mockNetworkInfo.isConnected).thenReturn(false)
         val manager = WiFiDiscoveryManager(mockContext, mockConnectivityManager)
         
@@ -125,7 +125,7 @@ class WiFiDiscoveryManagerTest {
     
     @Test
     fun testWiFiDiscoveryConfigurations() {
-        // GREEN: 测试WiFi发现配置
+        // RED: 测试WiFi发现配置
         val defaultConfig = WiFiDiscoveryConfig.default()
         assertEquals("_nearclip._tcp", defaultConfig.serviceType)
         assertEquals(30000L, defaultConfig.discoveryTimeout)
@@ -147,7 +147,7 @@ class WiFiDiscoveryManagerTest {
     
     @Test
     fun testWiFiDiscoveryErrorHandling() {
-        // GREEN: 测试WiFi发现错误处理
+        // RED: 测试WiFi发现错误处理
         val networkError = WiFiDiscoveryError.NetworkNotAvailable
         assertEquals("Network not available", networkError.message)
         

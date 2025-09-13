@@ -1,41 +1,60 @@
-# Task 00108f: Android 发现UI组件
+# Task 00108f: Android 统一设备发现UI
 
 ## 任务描述
 
-实现Android平台设备发现的UI组件，使用Jetpack Compose创建设备列表界面和状态指示器。
+实现Android平台统一设备发现的UI组件，使用Jetpack Compose创建透明的设备发现界面。用户无需区分BLE和WiFi传输方式，系统自动合并和显示设备。
 
 ## TDD开发要求
 
 ### RED阶段 - 编写失败的测试
 ```kotlin
-class DeviceDiscoveryScreenTest {
+class UnifiedDeviceDiscoveryScreenTest {
     @Test
-    fun testDeviceListDisplay() {
-        // RED: 测试设备列表显示
+    fun testUnifiedDeviceDisplay() {
+        // RED: 测试统一设备显示（不区分传输方式）
         composeTestRule.setContent {
-            DeviceDiscoveryScreen(
-                discoveryState = MockDiscoveryState(),
+            UnifiedDeviceDiscoveryScreen(
+                discoveryState = MockUnifiedDiscoveryState(),
                 onDeviceSelected = {},
                 onRefresh = {}
             )
         }
         
-        composeTestRule.onNodeWithText("Test Device").assertExists()
-        composeTestRule.onNodeWithText("Connected").assertExists()
+        composeTestRule.onNodeWithText("My Phone").assertExists()
+        // 应该不显示传输方式信息
+        composeTestRule.onNodeWithText("BLE").assertDoesNotExist()
+        composeTestRule.onNodeWithText("WiFi").assertDoesNotExist()
     }
 
     @Test
-    fun testDiscoveryStatusIndicator() {
-        // RED: 测试发现状态指示器
+    fun testDeviceMergingDisplay() {
+        // RED: 测试设备合并显示
         composeTestRule.setContent {
-            DiscoveryStatusIndicator(
-                isScanning = true,
-                discoveredDeviceCount = 3
+            UnifiedDeviceDiscoveryScreen(
+                discoveryState = MockMergedDiscoveryState(),
+                onDeviceSelected = {},
+                onRefresh = {}
             )
         }
         
-        composeTestRule.onNodeWithText("发现中...").assertExists()
-        composeTestRule.onNodeWithText("3个设备").assertExists()
+        // 同一个设备即使通过多种方式发现也只显示一次
+        composeTestRule.onAllNodesWithText("My Phone").fetchSemanticsNodes()
+            .let { nodes -> assertEquals(1, nodes.size) }
+    }
+
+    @Test
+    fun testIntelligentDiscoveryStatus() {
+        // RED: 测试智能发现状态显示
+        composeTestRule.setContent {
+            DiscoveryStatusHeader(
+                isScanning = true,
+                strategy = DiscoveryStrategy.WIFI_PRIMARY_BLE_SECONDARY,
+                deviceCount = 2
+            )
+        }
+        
+        composeTestRule.onNodeWithText("WiFi优先").assertExists()
+        composeTestRule.onNodeWithText("2个设备").assertExists()
     }
 }
 ```
@@ -43,30 +62,31 @@ class DeviceDiscoveryScreenTest {
 ### GREEN阶段 - 最小实现
 ```kotlin
 @Composable
-fun DeviceDiscoveryScreen(
-    discoveryState: DiscoveryState,
-    onDeviceSelected: (Device) -> Unit,
+fun UnifiedDeviceDiscoveryScreen(
+    discoveryState: UnifiedDiscoveryState,
+    onDeviceSelected: (UnifiedDevice) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier.fillMaxSize()
     ) {
-        // 顶部状态栏
-        DiscoveryStatusHeader(
+        // 智能发现状态栏
+        IntelligentDiscoveryHeader(
             isScanning = discoveryState.isScanning,
+            strategy = discoveryState.strategy,
             deviceCount = discoveryState.discoveredDevices.size,
             onRefresh = onRefresh
         )
         
-        // 设备列表
+        // 统一设备列表
         if (discoveryState.discoveredDevices.isEmpty()) {
             EmptyStateView(
                 isScanning = discoveryState.isScanning,
                 onRefresh = onRefresh
             )
         } else {
-            DeviceListView(
+            UnifiedDeviceListView(
                 devices = discoveryState.discoveredDevices,
                 onDeviceSelected = onDeviceSelected
             )
@@ -75,8 +95,9 @@ fun DeviceDiscoveryScreen(
 }
 
 @Composable
-fun DiscoveryStatusHeader(
+fun IntelligentDiscoveryHeader(
     isScanning: Boolean,
+    strategy: DiscoveryStrategy,
     deviceCount: Int,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
@@ -85,49 +106,107 @@ fun DiscoveryStatusHeader(
         modifier = modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.primaryContainer
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(16.dp)
         ) {
-            Column {
-                Text(
-                    text = "设备发现",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = if (isScanning) "发现中..." else "已停止",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isScanning) 
-                        MaterialTheme.colorScheme.primary 
-                    else 
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = "$deviceCount 个设备",
-                    style = MaterialTheme.typography.bodyMedium
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(onClick = onRefresh) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "刷新"
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "设备发现",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = getStrategyText(strategy, isScanning),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isScanning) 
+                            MaterialTheme.colorScheme.primary 
+                        else 
+                            MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "$deviceCount 个设备",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    IconButton(onClick = onRefresh) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "刷新"
+                        )
+                    }
+                }
             }
+            
+            // 策略指示器
+            StrategyIndicator(strategy = strategy)
         }
     }
 }
 
 @Composable
-fun DeviceListView(
-    devices: List<Device>,
-    onDeviceSelected: (Device) -> Unit,
+fun StrategyIndicator(
+    strategy: DiscoveryStrategy,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.padding(top = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val (icon, text, color) = when (strategy) {
+            DiscoveryStrategy.WIFI_PRIMARY_BLE_SECONDARY -> 
+                Triple(Icons.Default.Wifi, "WiFi优先", MaterialTheme.colorScheme.primary)
+            DiscoveryStrategy.BLE_PRIMARY_WIFI_SECONDARY -> 
+                Triple(Icons.Default.Bluetooth, "BLE优先", MaterialTheme.colorScheme.primary)
+            DiscoveryStrategy.BLE_ONLY -> 
+                Triple(Icons.Default.Bluetooth, "仅BLE", MaterialTheme.colorScheme.secondary)
+            DiscoveryStrategy.WIFI_ONLY -> 
+                Triple(Icons.Default.Wifi, "仅WiFi", MaterialTheme.colorScheme.secondary)
+            DiscoveryStrategy.NONE -> 
+                Triple(Icons.Default.Error, "无传输", MaterialTheme.colorScheme.error)
+        }
+        
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            modifier = Modifier.size(16.dp),
+            tint = color
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodySmall,
+            color = color
+        )
+    }
+}
+
+private fun getStrategyText(strategy: DiscoveryStrategy, isScanning: Boolean): String {
+    return if (isScanning) {
+        when (strategy) {
+            DiscoveryStrategy.WIFI_PRIMARY_BLE_SECONDARY -> "WiFi优先搜索中..."
+            DiscoveryStrategy.BLE_PRIMARY_WIFI_SECONDARY -> "BLE优先搜索中..."
+            DiscoveryStrategy.BLE_ONLY -> "BLE搜索中..."
+            DiscoveryStrategy.WIFI_ONLY -> "WiFi搜索中..."
+            DiscoveryStrategy.NONE -> "搜索已停止"
+        }
+    } else {
+        "搜索已停止"
+    }
+}
+
+@Composable
+fun UnifiedDeviceListView(
+    devices: List<UnifiedDevice>,
+    onDeviceSelected: (UnifiedDevice) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -137,7 +216,7 @@ fun DeviceListView(
             items = devices,
             key = { it.id }
         ) { device ->
-            DeviceListItem(
+            UnifiedDeviceListItem(
                 device = device,
                 onClick = { onDeviceSelected(device) }
             )
@@ -146,8 +225,8 @@ fun DeviceListView(
 }
 
 @Composable
-fun DeviceListItem(
-    device: Device,
+fun UnifiedDeviceListItem(
+    device: UnifiedDevice,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -172,7 +251,7 @@ fun DeviceListItem(
             
             Spacer(modifier = Modifier.width(16.dp))
             
-            // 设备信息
+            // 设备信息（不显示传输方式）
             Column(
                 modifier = Modifier.weight(1f)
             ) {
@@ -186,26 +265,87 @@ fun DeviceListItem(
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // 设备状态
                     DeviceStatusBadge(
                         status = device.status,
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     
-                    Text(
-                        text = device.transportType.displayName,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    // 可用传输方式图标（小型指示器）
+                    TransportAvailabilityIndicator(
+                        transports = device.transports,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    
+                    // 连接质量
+                    ConnectionQualityIndicator(
+                        quality = device.quality,
+                        modifier = Modifier.padding(end = 8.dp)
                     )
                 }
             }
             
-            // 信号强度
-            SignalStrengthIndicator(
-                rssi = device.rssi,
-                modifier = Modifier.padding(start = 8.dp)
+            // 操作按钮
+            IconButton(
+                onClick = onClick,
+                modifier = Modifier.size(40.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ConnectWithoutContact,
+                    contentDescription = "连接设备",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TransportAvailabilityIndicator(
+    transports: Set<TransportType>,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (transports.contains(TransportType.WIFI)) {
+            Icon(
+                imageVector = Icons.Default.Wifi,
+                contentDescription = "WiFi可用",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+        }
+        if (transports.contains(TransportType.BLE)) {
+            Spacer(modifier = Modifier.width(2.dp))
+            Icon(
+                imageVector = Icons.Default.Bluetooth,
+                contentDescription = "BLE可用",
+                modifier = Modifier.size(14.dp),
+                tint = MaterialTheme.colorScheme.primary
             )
         }
     }
+}
+
+@Composable
+fun ConnectionQualityIndicator(
+    quality: Float,
+    modifier: Modifier = Modifier
+) {
+    val color = when {
+        quality > 0.8f -> MaterialTheme.colorScheme.primary
+        quality > 0.5f -> MaterialTheme.colorScheme.secondary
+        else -> MaterialTheme.colorScheme.outline
+    }
+    
+    Text(
+        text = "${(quality * 100).toInt()}%",
+        style = MaterialTheme.typography.bodySmall,
+        color = color,
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -330,33 +470,50 @@ fun SignalStrengthIndicator(
 }
 
 // ViewModel和状态管理
-class DiscoveryViewModel : ViewModel() {
-    private val _discoveryState = MutableStateFlow(DiscoveryState())
-    val discoveryState: StateFlow<DiscoveryState> = _discoveryState.asStateFlow()
+class UnifiedDiscoveryViewModel : ViewModel() {
+    private val _discoveryState = MutableStateFlow(UnifiedDiscoveryState())
+    val discoveryState: StateFlow<UnifiedDiscoveryState> = _discoveryState.asStateFlow()
     
-    private val discoveryManager: DeviceDiscoveryManager = // 注入或创建
+    private val unifiedDiscoveryManager: UnifiedDiscoveryManager = // 注入或创建
     
     fun startDiscovery() {
         viewModelScope.launch {
-            discoveryManager.startDiscovery().collect { event ->
+            unifiedDiscoveryManager.startDiscovery().collect { event ->
                 when (event) {
-                    is DiscoveryEvent.DeviceDiscovered -> {
+                    is UnifiedDiscoveryEvent.DeviceDiscovered -> {
+                        // 智能合并设备
+                        val currentDevices = _discoveryState.value.discoveredDevices
+                        val existingDevice = currentDevices.find { it.id == event.device.id }
+                        
+                        val updatedDevices = if (existingDevice != null) {
+                            // 合并设备信息
+                            val mergedDevice = mergeDeviceInfo(existingDevice, event.device)
+                            currentDevices.map { if (it.id == mergedDevice.id) mergedDevice else it }
+                        } else {
+                            currentDevices + event.device
+                        }
+                        
                         _discoveryState.value = _discoveryState.value.copy(
                             isScanning = true,
-                            discoveredDevices = _discoveryState.value.discoveredDevices + event.device
+                            discoveredDevices = updatedDevices.sortedByDescending { it.quality }
                         )
                     }
-                    is DiscoveryEvent.DeviceLost -> {
+                    is UnifiedDiscoveryEvent.DeviceLost -> {
                         _discoveryState.value = _discoveryState.value.copy(
                             discoveredDevices = _discoveryState.value.discoveredDevices.filter { 
                                 it.id != event.deviceId 
                             }
                         )
                     }
-                    is DiscoveryEvent.ScanStarted -> {
+                    is UnifiedDiscoveryEvent.StrategyChanged -> {
+                        _discoveryState.value = _discoveryState.value.copy(
+                            strategy = event.newStrategy
+                        )
+                    }
+                    is UnifiedDiscoveryEvent.ScanStarted -> {
                         _discoveryState.value = _discoveryState.value.copy(isScanning = true)
                     }
-                    is DiscoveryEvent.ScanStopped -> {
+                    is UnifiedDiscoveryEvent.ScanStopped -> {
                         _discoveryState.value = _discoveryState.value.copy(isScanning = false)
                     }
                 }
@@ -365,19 +522,38 @@ class DiscoveryViewModel : ViewModel() {
     }
     
     fun stopDiscovery() {
-        discoveryManager.stopDiscovery()
+        unifiedDiscoveryManager.stopDiscovery()
     }
     
     fun refreshDevices() {
         stopDiscovery()
         startDiscovery()
     }
+    
+    private fun mergeDeviceInfo(existing: UnifiedDevice, new: UnifiedDevice): UnifiedDevice {
+        return existing.copy(
+            transports = existing.transports + new.transports,
+            quality = maxOf(existing.quality, new.quality),
+            lastSeen = maxOf(existing.lastSeen, new.lastSeen),
+            attributes = existing.attributes + new.attributes
+        )
+    }
 }
 
-data class DiscoveryState(
+data class UnifiedDiscoveryState(
     val isScanning: Boolean = false,
-    val discoveredDevices: List<Device> = emptyList()
+    val strategy: DiscoveryStrategy = DiscoveryStrategy.WIFI_PRIMARY_BLE_SECONDARY,
+    val discoveredDevices: List<UnifiedDevice> = emptyList()
 )
+
+// 统一事件类型
+sealed class UnifiedDiscoveryEvent {
+    data class DeviceDiscovered(val device: UnifiedDevice) : UnifiedDiscoveryEvent()
+    data class DeviceLost(val deviceId: String) : UnifiedDiscoveryEvent()
+    data class StrategyChanged(val newStrategy: DiscoveryStrategy) : UnifiedDiscoveryEvent()
+    object ScanStarted : UnifiedDiscoveryEvent()
+    object ScanStopped : UnifiedDiscoveryEvent()
+}
 ```
 
 ### REFACTOR阶段
@@ -389,17 +565,20 @@ data class DiscoveryState(
 ```
 
 ## 验收标准
-- [ ] 设备列表正确显示
-- [ ] 状态指示器工作正常
+- [ ] 统一设备列表正确显示（不区分传输方式）
+- [ ] 智能发现状态指示器显示当前策略
+- [ ] 同一设备通过多种传输方式发现时只显示一次
+- [ ] 设备质量评分和传输可用性指示器工作正常
 - [ ] 刷新功能可用
 - [ ] 空状态处理正确
 - [ ] 设备选择功能正常
+- [ ] 策略切换时状态实时更新
 
 ## 所属故事
 - [Story 001: 设备发现与连接](../stories/001-device-discovery.md)
 
 ## 前置任务
-- [Task 00108d: Android 电池优化](00108d-android-battery-optimization.md)
+- [Task 00108h: Android 统一设备发现管理](00108h-android-unified-discovery.md)
 
 ## 后续任务
-- [Task 00108f: Android 后台服务](00108f-android-background-service.md)
+- [Task 00108i: Android 设备连接管理](00108i-android-device-connection.md)

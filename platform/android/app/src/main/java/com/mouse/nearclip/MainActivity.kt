@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var wifiDiscoveryManager: WiFiDiscoveryManager
     private lateinit var statusText: TextView
     private lateinit var scanButton: Button
+    private lateinit var modeButton: Button
     
     // Discovery mode state
     private var discoveryMode = DiscoveryMode.BLE
@@ -68,6 +69,7 @@ class MainActivity : AppCompatActivity() {
         // Initialize UI elements
         statusText = findViewById(R.id.statusText)
         scanButton = findViewById(R.id.scanButton)
+        modeButton = findViewById(R.id.modeButton)
         
         // Initialize Bluetooth
         val bluetoothManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
@@ -93,6 +95,14 @@ class MainActivity : AppCompatActivity() {
         scanButton.setOnClickListener {
             toggleScanning()
         }
+        
+        // Set up mode button
+        modeButton.setOnClickListener {
+            toggleDiscoveryMode()
+        }
+        
+        // Update mode button text
+        updateModeButton()
         
         updateBluetoothStatus()
     }
@@ -322,6 +332,42 @@ class MainActivity : AppCompatActivity() {
     private fun updateStatus(message: String) {
         statusText.text = message
         Log.i("NearClip", "Status: $message")
+    }
+    
+    private fun toggleDiscoveryMode() {
+        // Stop current scanning if active
+        if (scanButton.text.contains("Stop", ignoreCase = true)) {
+            toggleScanning()
+        }
+        
+        // Switch mode
+        discoveryMode = when (discoveryMode) {
+            DiscoveryMode.BLE -> DiscoveryMode.WIFI
+            DiscoveryMode.WIFI -> DiscoveryMode.BOTH
+            DiscoveryMode.BOTH -> DiscoveryMode.BLE
+        }
+        
+        // Update UI
+        updateModeButton()
+        checkAndRequestPermissions()
+        
+        // Update title based on mode
+        val title = when (discoveryMode) {
+            DiscoveryMode.BLE -> "NearClip BLE Scanner"
+            DiscoveryMode.WIFI -> "NearClip WiFi Scanner"
+            DiscoveryMode.BOTH -> "NearClip Hybrid Scanner"
+        }
+        this.title = title
+        
+        updateStatus("Switched to ${discoveryMode.name} mode")
+    }
+    
+    private fun updateModeButton() {
+        modeButton.text = when (discoveryMode) {
+            DiscoveryMode.BLE -> "BLE Mode"
+            DiscoveryMode.WIFI -> "WiFi Mode"
+            DiscoveryMode.BOTH -> "Both Mode"
+        }
     }
     
     override fun onDestroy() {
