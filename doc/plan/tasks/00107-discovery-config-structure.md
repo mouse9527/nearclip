@@ -233,4 +233,5 @@ impl DiscoveryConfig {
 - [Story 001: 设备发现与连接](../stories/001-device-discovery.md)
 
 ## 后续任务
-- [Task 00108a: Android BLE 设备发现核心](00108a-android-ble-discovery-core.md)
+- [Task 00108a: Android 应用构建](00108a-android-app-build-verification.md)
+- [Task 00108b: Android BLE 设备发现核心](00108b-android-ble-discovery-core.md)
