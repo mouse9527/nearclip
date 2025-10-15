@@ -547,299 +547,263 @@ graph TD
 - **信息：** 蓝色背景（#007AFF）信息图标
 
 **状态：**
-- **Appearing:** Slide in from top with fade effect
-- **Visible:** Full opacity for duration (2-5 seconds)
-- **Disappearing:** Fade out with slide up effect
-- **Persistent:** Requires user action to dismiss
+- **出现：** 从顶部滑入带淡入效果
+- **可见：** 持续时间内完全不透明（2-5秒）
+- **消失：** 淡出带向上滑动效果
+- **持久：** 需要用户操作才能关闭
 
-**Usage Guidelines:** Maximum width 280dp, dismissible with swipe or tap, auto-dismiss for non-critical messages.
+**使用指南：** 最大宽度 280dp，可通过滑动或点击关闭，非关键消息自动关闭。
 
-## Branding & Style Guide
+## 品牌和风格指南
 
-### Visual Identity
+### 视觉识别
 
-**Brand Guidelines:** NearClip maintains a clean, professional visual identity that emphasizes reliability and simplicity. The brand guidelines are documented in the project's brand assets folder and should be followed strictly across all touchpoints.
+**品牌指南：** NearClip 保持干净、专业的视觉识别，强调可靠性和简洁性。品牌指南记录在项目的品牌资产文件夹中，应在所有接触点严格遵循。
 
-### Color Palette
+### 调色板
 
-| Color Type | Hex Code | Usage |
-|------------|----------|-------|
-| Primary | #007AFF | Primary buttons, links, emphasis |
-| Secondary | #5AC8FA | Secondary actions, highlights |
-| Accent | #5AC8FA | Status indicators, highlights |
-| Success | #34C759 | Positive feedback, confirmations |
-| Warning | #FF9500 | Cautions, important notices |
-| Error | #FF3B30 | Errors, destructive actions |
-| Neutral | #F8F9FA | Backgrounds, subtle borders |
-| Text | #212529 | Primary text, headings |
-| Subtext | #6C757D | Secondary text, descriptions |
+| 颜色类型 | 十六进制代码 | 用途 |
+|----------|-------------|------|
+| 主要色 | #007AFF | 主要按钮、链接、强调 |
+| 次要色 | #5AC8FA | 次要操作、高亮 |
+| 强调色 | #5AC8FA | 状态指示器、高亮 |
+| 成功色 | #34C759 | 正面反馈、确认 |
+| 警告色 | #FF9500 | 警告、重要通知 |
+| 错误色 | #FF3B30 | 错误、破坏性操作 |
+| 中性色 | #F8F9FA | 背景、细微边框 |
+| 文本色 | #212529 | 主要文本、标题 |
+| 副文本色 | #6C757D | 次要文本、描述 |
 
-### Typography
+### 版式设计
 
-#### Font Families
+#### 字体族
 
-- **Primary:** Inter (Web), SF Pro (macOS), Roboto (Android)
-- **Secondary:** SF Mono (macOS), Roboto Mono (Android)
-- **Monospace:** Menlo (macOS), Consolas (Windows)
+- **主要字体：** Inter (Web)、SF Pro (macOS)、Roboto (Android)
+- **次要字体：** SF Mono (macOS)、Roboto Mono (Android)
+- **等宽字体：** Menlo (macOS)、Consolas (Windows)
 
-#### Type Scale
+#### 字体比例
 
-| Element | Size | Weight | Line Height |
-|---------|------|--------|-------------|
-| H1 | 32px | Bold | 40px |
-| H2 | 24px | Bold | 32px |
-| H3 | 20px | Semibold | 28px |
-| H4 | 18px | Semibold | 24px |
-| Body | 16px | Regular | 24px |
-| Caption | 14px | Regular | 20px |
-| Small | 12px | Regular | 16px |
+| 元素 | 大小 | 粗细 | 行高 |
+|------|------|------|------|
+| H1 | 32px | 粗体 | 40px |
+| H2 | 24px | 粗体 | 32px |
+| H3 | 20px | 半粗体 | 28px |
+| H4 | 18px | 半粗体 | 24px |
+| 正文 | 16px | 常规 | 24px |
+| 说明 | 14px | 常规 | 20px |
+| 小字 | 12px | 常规 | 16px |
 
-### Iconography
+### 图标设计
 
-**Icon Library:** Custom NearClip icon set built from SF Symbols and Material Icons, with additional custom icons for unique device types and status indicators.
+**图标库：** 基于 SF Symbols 和 Material Icons 构建的自定义 NearClip 图标集，为独特设备类型和状态指示器添加了额外的自定义图标。
 
-**Usage Guidelines:** Icons should be simple, modern, and immediately recognizable. Maintain consistent stroke weight (2px) and use the NearClip color palette. Minimum size 16px for touch targets, 24px for detailed views.
+**使用指南：** 图标应简单、现代且立即可识别。保持一致的笔画粗细（2px）并使用 NearClip 调色板。触摸目标最小尺寸 16px，详细视图 24px。
 
-### Spacing & Layout
+### 间距和布局
 
-**Grid System:** 8px grid system with consistent spacing scale
-- **XS:** 4px (0.25rem) - Fine adjustments
-- **S:** 8px (0.5rem) - Component spacing
-- **M:** 16px (1rem) - Standard spacing
-- **L:** 24px (1.5rem) - Section spacing
-- **XL:** 32px (2rem) - Large spacing
-- **XXL:** 48px (3rem) - Page spacing
+**网格系统：** 8px 网格系统，一致的间距比例
+- **XS：** 4px (0.25rem) - 精细调整
+- **S：** 8px (0.5rem) - 组件间距
+- **M：** 16px (1rem) - 标准间距
+- **L：** 24px (1.5rem) - 节间距
+- **XL：** 32px (2rem) - 大间距
+- **XXL：** 48px (3rem) - 页面间距
 
-## Accessibility Requirements
+## 无障碍要求
 
-### Compliance Target
+### 合规目标
 
-**Standard:** WCAG 2.1 Level AA compliance across all platforms
+**标准：** 所有平台 WCAG 2.1 AA 级合规
 
-### Key Requirements
+### 关键要求
 
-**Visual:**
-- Color contrast ratios: 4.5:1 for normal text, 3:1 for large text (18pt+)
-- Focus indicators: 2px solid outline with high contrast (#007AFF)
-- Text sizing: Minimum 16px for body text, scalable up to 200%
-- Color independence: Information not conveyed by color alone
+**视觉：**
+- 颜色对比度：普通文本 4.5:1，大文本（18pt+）3:1
+- 焦点指示器：2px 实心轮廓高对比度（#007AFF）
+- 文本大小：正文最小 16px，可缩放至 200%
+- 颜色独立性：信息不仅通过颜色传达
 
-**Interaction:**
-- Keyboard navigation: Full keyboard access to all interactive elements
-- Screen reader support: Comprehensive ARIA labels and descriptions
-- Touch targets: Minimum 44dp × 44dp for mobile, 24px × 24px for desktop
-- Voice control: Voice control commands for primary actions
+**交互：**
+- 键盘导航：所有交互元素的完整键盘访问
+- 屏幕阅读器支持：全面的 ARIA 标签和描述
+- 触摸目标：移动设备最小 44dp × 44dp，桌面设备 24px × 24px
+- 语音控制：主要操作的语音控制命令
 
-**Content:**
-- Alternative text: Meaningful alt text for all images and icons
-- Heading structure: Proper heading hierarchy (h1-h6) without skipping levels
-- Form labels: All form inputs have associated labels
-- Error messages: Clear, actionable error descriptions
+**内容：**
+- 替代文本：所有图像和图标的有意义的 alt 文本
+- 标题结构：正确的标题层次结构（h1-h6）不跳级
+- 表单标签：所有表单输入都有关联标签
+- 错误消息：清晰、可操作的错误描述
 
-### Testing Strategy
+### 测试策略
 
-**Automated Testing:**
-- axe-core for automated accessibility testing
-- Color contrast analyzers for all color combinations
-- Screen reader testing with VoiceOver (macOS) and TalkBack (Android)
+**自动化测试：**
+- axe-core 用于自动化无障碍测试
+- 所有颜色组合的颜色对比度分析器
+- 使用 VoiceOver (macOS) 和 TalkBack (Android) 进行屏幕阅读器测试
 
-**Manual Testing:**
-- Keyboard-only navigation testing
-- Screen reader comprehensive testing
-- Voice control testing with Siri and Google Assistant
-- User testing with participants with disabilities
+**手动测试：**
+- 仅键盘导航测试
+- 屏幕阅读器综合测试
+- 使用 Siri 和 Google Assistant 进行语音控制测试
+- 与残疾参与者进行用户测试
 
-**Performance Testing:**
-- Reduced motion preference support
-- High contrast mode compatibility
-- Large text mode compatibility
-- Battery usage impact on accessibility features
+**性能测试：**
+- 减少动作偏好支持
+- 高对比度模式兼容性
+- 大文本模式兼容性
+- 无障碍功能的电池使用影响
 
-## Responsiveness Strategy
+## 响应式策略
 
-### Breakpoints
+### 断点
 
-| Breakpoint | Min Width | Max Width | Target Devices |
-|------------|------------|------------|-----------------|
-| Mobile | 320px | 767px | Smartphones, small tablets |
-| Tablet | 768px | 1023px | Tablets, small laptops |
-| Desktop | 1024px | 1439px | Laptops, small desktops |
-| Wide | 1440px | - | Large desktops, external monitors |
+| 断点 | 最小宽度 | 最大宽度 | 目标设备 |
+|------|----------|----------|----------|
+| 移动设备 | 320px | 767px | 智能手机、小平板电脑 |
+| 平板电脑 | 768px | 1023px | 平板电脑、小型笔记本电脑 |
+| 桌面设备 | 1024px | 1439px | 笔记本电脑、小型台式机 |
+| 宽屏设备 | 1440px | - | 大型台式机、外接显示器 |
 
-### Adaptation Patterns
+### 适配模式
 
-**Layout Changes:**
-- **Mobile:** Single column layout, bottom navigation, full-width components
-- **Tablet:** Two-column layout where appropriate, side navigation, adaptive component widths
-- **Desktop:** Multi-column layouts, hover states, richer interactions
-- **Wide:** Maximum content widths, enhanced visual hierarchy, advanced features
+**布局变化：**
+- **移动设备：** 单列布局、底部导航、全宽组件
+- **平板电脑：** 适当的双列布局、侧边导航、自适应组件宽度
+- **桌面设备：** 多列布局、悬停状态、更丰富的交互
+- **宽屏设备：** 最大内容宽度、增强视觉层次、高级功能
 
-**Navigation Changes:**
-- **Mobile:** Bottom tab bar, slide-out drawer for secondary navigation
-- **Tablet:** Combination of top tabs and side navigation
-- **Desktop:** Persistent sidebar with comprehensive navigation options
-- **Wide:** Multi-level navigation with keyboard shortcuts
+**导航变化：**
+- **移动设备：** 底部标签栏、滑出抽屉式次要导航
+- **平板电脑：** 顶部标签和侧边导航的组合
+- **桌面设备：** 持久侧边栏带全面导航选项
+- **宽屏设备：** 多级导航带键盘快捷键
 
-**Content Priority:**
-- **Mobile:** Essential functions first, progressive disclosure of advanced features
-- **Tablet:** Balanced content hierarchy with more information density
-- **Desktop:** Full feature set with detailed information and advanced controls
-- **Wide:** Maximum information density with comprehensive feature access
+**内容优先级：**
+- **移动设备：** 首先显示基本功能，渐进式展示高级功能
+- **平板电脑：** 平衡的内容层次结构，更高信息密度
+- **桌面设备：** 完整功能集带详细信息和高级控件
+- **宽屏设备：** 最大信息密度，全面功能访问
 
-**Interaction Changes:**
-- **Mobile:** Touch-optimized interactions, larger tap targets, gesture support
-- **Tablet:** Combination of touch and pointer interactions, adaptive layouts
-- **Desktop:** Pointer-optimized interactions, hover states, keyboard shortcuts
-- **Wide:** Advanced keyboard shortcuts, multi-window support, enhanced productivity features
+**交互变化：**
+- **移动设备：** 触摸优化交互、更大触摸目标、手势支持
+- **平板电脑：** 触摸和指针交互的组合、自适应布局
+- **桌面设备：** 指针优化交互、悬停状态、键盘快捷键
+- **宽屏设备：** 高级键盘快捷键、多窗口支持、增强生产力功能
 
-## Animation & Micro-interactions
+## 动画和微交互
 
-### Motion Principles
+### 动作原则
 
-- **Purposeful Motion:** Every animation serves a clear purpose - providing feedback, guiding attention, or creating continuity
-- **Performance First:** Animations maintain 60fps performance and respect device capabilities
-- **Accessibility Aware:** Honor user's reduced motion preferences
-- **Consistent Timing:** Standardized durations create predictable user experience
+- **有目的的动作：** 每个动画都有明确目的 - 提供反馈、引导注意力或创建连续性
+- **性能优先：** 动画保持 60fps 性能并尊重设备能力
+- **无障碍感知：** 尊重用户的减少动作偏好
+- **一致的时间：** 标准化的持续时间创建可预测的用户体验
 
-### Key Animations
+### 关键动画
 
-- **Device Connection:** Smooth scale and color transition (300ms, ease-out) when device connects successfully
-- **Sync Completion:** Brief pulse effect (150ms, ease-out) with checkmark icon when sync completes
-- **Error Appearance:** Subtle shake animation (200ms, ease-in-out) with color transition to red
-- **Loading States:** Rotating spinner animation (1s infinite, linear) for ongoing operations
-- **Page Transitions:** Slide transition (300ms, ease-in-out) between major screens
+- **设备连接：** 设备成功连接时的平滑缩放和颜色过渡（300ms，ease-out）
+- **同步完成：** 同步完成时的短暂脉冲效果（150ms，ease-out）带对勾图标
+- **错误出现：** 微妙震动动画（200ms，ease-in-out）带红色过渡
+- **加载状态：** 持续操作的旋转动画（1s 无限，线性）
+- **页面过渡：** 主要屏幕间的滑动过渡（300ms，ease-in-out）
 
-### Micro-interactions Design
+### 微交互设计
 
-#### **Button Interaction**
-- **Hover state**：轻微阴影 + 颜色变化
-- **Press state**：轻微缩放 (0.95) + 颜色加深
-- **Disabled state**：降低不透明度 + 移除交互
-- **Loading state**：旋转动画 + 文本变化
+#### **按钮交互**
+- **悬停状态：** 轻微阴影 + 颜色变化
+- **按下状态：** 轻微缩放 (0.95) + 颜色加深
+- **禁用状态：** 降低不透明度 + 移除交互
+- **加载状态：** 旋转动画 + 文本变化
 
-#### **Card Interaction**
-- **Hover effect**：阴影增强 + 轻微上移
-- **Selected effect**：边框高亮 + 背景变化
-- **Drag effect**：透明度变化 + 阴影变化
-- **Expand effect**：平滑的高度变化
+#### **卡片交互**
+- **悬停效果：** 阴影增强 + 轻微上移
+- **选中效果：** 边框高亮 + 背景变化
+- **拖拽效果：** 透明度变化 + 阴影变化
+- **展开效果：** 平滑的高度变化
 
 #### **输入框交互**
-- **Focus effect**：边框高亮 + 蓝色边框
-- **Input effect**：实时验证反馈
-- **Error effect**：红色边框 + 错误图标
-- **Success effect**：绿色边框 + 成功图标
+- **焦点效果：** 边框高亮 + 蓝色边框
+- **输入效果：** 实时验证反馈
+- **错误效果：** 红色边框 + 错误图标
+- **成功效果：** 绿色边框 + 成功图标
 
-## Performance Considerations
+## 性能考虑
 
-### Performance Goals
+### 性能目标
 
-- **Page Load:** Initial app launch under 2 seconds, subsequent launches under 1 second
-- **Interaction Response:** User interactions respond within 100ms with visual feedback
-- **Animation FPS:** All animations maintain 60fps on target devices
-- **Memory Usage:** App stays under 100MB RAM usage on mobile devices
+- **页面加载：** 初始应用启动 2 秒内，后续启动 1 秒内
+- **交互响应：** 用户交互在 100ms 内响应带视觉反馈
+- **动画帧率：** 所有动画在目标设备上保持 60fps
+- **内存使用：** 应用在移动设备上保持 100MB 以下 RAM 使用
 
-### Design Strategies
+### 设计策略
 
-- **Component Lazy Loading:** Components loaded only when needed
-- **Image Optimization:** Use WebP format with appropriate sizing and compression
-- **Animation Optimization:** Use CSS transforms and opacity for better performance
-- **State Management:** Efficient state updates to avoid unnecessary re-renders
-- **Resource Caching:** Intelligent caching of frequently used resources
+- **组件懒加载：** 仅在需要时加载组件
+- **图像优化：** 使用 WebP 格式，适当大小和压缩
+- **动画优化：** 使用 CSS 变换和不透明度获得更好性能
+- **状态管理：** 高效状态更新避免不必要的重新渲染
+- **资源缓存：** 频繁使用资源的智能缓存
 
-## Next Steps
+## 下一步
 
-### Immediate Actions
+### 即时行动
 
-1. **Review with Stakeholders:** Present complete UI/UX specification to project stakeholders for validation and approval
-2. **Create Visual Designs:** Develop detailed visual designs in Figma based on this specification
-3. **Prototype Key Flows:** Build interactive prototypes for critical user flows to validate design decisions
-4. **Prepare Design Handoff:** Organize design assets and documentation for frontend development team
+1. **利益相关者审查：** 向项目利益相关者展示完整的 UI/UX 规范以进行验证和批准
+2. **创建视觉设计：** 基于此规范在 Figma 中开发详细的视觉设计
+3. **原型关键流程：** 为关键用户流程构建交互式原型以验证设计决策
+4. **准备设计交接：** 为前端开发团队组织设计资产和文档
 
-### Design Handoff Checklist
+### 设计交接检查清单
 
-- ✅ All user flows documented with detailed step-by-step interactions
-- ✅ Component inventory complete with states and variations
-- ✅ Accessibility requirements defined with testing strategy
-- ✅ Responsive strategy clear with breakpoints and adaptations
-- ✅ Brand guidelines incorporated with color and typography specifications
-- ✅ Performance goals established with optimization strategies
-- ✅ Animation specifications defined with timing and easing functions
-- ✅ Cross-platform consistency ensured with platform-specific adaptations
-
----
-
-## Checklist Results
-
-### UX/UX Specification Review
-
-**✅ Requirements Coverage**
-- All PRD functional requirements addressed in UI design
-- User flows mapped to detailed interface specifications
-- Accessibility requirements fully defined with testing strategy
-- Performance considerations integrated into design decisions
-
-**✅ Design System Completeness**
-- Comprehensive component library with all required states
-- Detailed visual design specifications with color and typography systems
-- Animation and micro-interaction specifications with performance guidelines
-- Cross-platform adaptation strategies for Android and macOS
-
-**✅ User Experience Quality**
-- User flows optimized for simplicity and efficiency
-- Error handling and edge cases thoroughly addressed
-- Accessibility compliance with WCAG AA standards
-- Responsive design strategy supporting all target devices
-
-**✅ Technical Implementation Ready**
-- Detailed component specifications for frontend development
-- AI UI generation prompts prepared for multiple tools
-- Performance optimization strategies integrated
-- Cross-platform compatibility ensured
-
-### Overall Assessment
-
-**🎯 UX Specification Quality: Excellent**
-
-The NearClip UI/UX specification provides a comprehensive foundation for frontend development. The design system is well-structured, user-centered, and technically sound. All critical user flows have been thoroughly mapped, and the component library provides everything needed for consistent implementation across platforms.
+- ✅ 所有用户流程都有详细的逐步交互文档
+- ✅ 组件清单完整，包含所有状态和变体
+- ✅ 无障碍要求已定义，包含测试策略
+- ✅ 响应式策略清晰，包含断点和适配
+- ✅ 品牌指南已整合，包含颜色和版式规范
+- ✅ 性能目标已建立，包含优化策略
+- ✅ 动画规范已定义，包含时间和缓动函数
+- ✅ 确保跨平台一致性，包含平台特定适配
 
 ---
 
-## Checklist Results
+## 检查清单结果
 
-### UX/UX Specification Review
+### UI/UX 规范审查
 
-**✅ Requirements Coverage**
-- All PRD functional requirements addressed in UI design
-- User flows mapped to detailed interface specifications
-- Accessibility requirements fully defined with testing strategy
-- Performance considerations integrated into design decisions
+**✅ 需求覆盖**
+- 所有 PRD 功能需求都在 UI 设计中得到解决
+- 用户流程映射到详细的界面规范
+- 无障碍要求完全定义，包含测试策略
+- 性能考虑整合到设计决策中
 
-**✅ Design System Completeness**
-- Comprehensive component library with all required states
-- Detailed visual design specifications with color and typography systems
-- Animation and micro-interaction specifications with performance guidelines
-- Cross-platform adaptation strategies for Android and macOS
+**✅ 设计系统完整性**
+- 全面的组件库，包含所有必需状态
+- 详细的视觉设计规范，包含颜色和版式系统
+- 动画和微交互规范，包含性能指南
+- Android 和 macOS 的跨平台适配策略
 
-**✅ User Experience Quality**
-- User flows optimized for simplicity and efficiency
-- Error handling and edge cases thoroughly addressed
-- Accessibility compliance with WCAG AA standards
-- Responsive design strategy supporting all target devices
+**✅ 用户体验质量**
+- 用户流程为简单和效率进行了优化
+- 错误处理和边缘案例得到彻底解决
+- 符合 WCAG AA 标准的无障碍合规性
+- 支持所有目标设备的响应式设计策略
 
-**✅ Technical Implementation Ready**
-- Detailed component specifications for frontend development
-- AI UI generation prompts prepared for multiple tools
-- Performance optimization strategies integrated
-- Cross-platform compatibility ensured
+**✅ 技术实现就绪**
+- 前端开发的详细组件规范
+- 为多种工具准备的 AI UI 生成提示
+- 性能优化策略已整合
+- 确保跨平台兼容性
 
-### Overall Assessment
+### 整体评估
 
-**🎯 UX Specification Quality: Excellent**
+**🎯 UX 规范质量：优秀**
 
-The NearClip UI/UX specification provides a comprehensive foundation for frontend development. The design system is well-structured, user-centered, and technically sound. All critical user flows have been thoroughly mapped, and the component library provides everything needed for consistent implementation across platforms.
+NearClip UI/UX 规范为前端开发提供了全面的基础。设计系统结构良好、以用户为中心且技术合理。所有关键用户流程都已彻底映射，组件库为跨平台一致实现提供了所需的一切。
 
 ---
 
-*Generated by BMAD™ UX Expert - Sally*
-*Date: 2025-01-15*
-*Version: 1.0*
+*由 BMAD™ UX 专家 Sally 生成*
+*日期：2025-01-15*
+*版本：1.0*
