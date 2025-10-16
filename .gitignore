@@ -111,3 +111,67 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# NearClip specific additions
+
+# 编译输出
+target/
+build/
+*.build/
+DerivedData/
+
+# macOS
+*.dSYM/
+*.dSYM.zip
+*.xcarchive
+build/
+DerivedData/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+xcuserdata/
+*.xccheckout
+*.moved-aside
+
+# Xcode Patch
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcodeproj/project.xcworkspace/
+*.xcodeproj/project.xcworkspace/*
+!*.xcodeproj/project.xcworkspace/contents.xcworkspacedata
+!*.xcodeproj/project.xcworkspace/xcshareddata/
+
+# Rust
+Cargo.lock
+**/*.rs.bk
+
+# Protocol Buffers
+*.pb.go
+*.pb.h
+*.pb.cc
+*_pb2.py
+*_pb2.pyi
+
+# 密钥和证书
+keys/
+certificates/
+secrets/
+*.pem
+*.key
+*.crt
+
+# 应用数据
+device_data/
+sync_cache/
+logs/
+crash_reports/
+
+# 测试输出
+test_results/
+coverage_reports/
