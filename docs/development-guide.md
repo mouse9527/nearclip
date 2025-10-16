@@ -6,9 +6,10 @@
 
 ### 文档范围
 
-- Monorepo 结构搭建和基础配置
-- 核心通信协议实现指导
-- 具体代码模板和实施示例
+- 多语言 Monorepo 结构搭建和基础配置
+- Rust 共享逻辑库开发指导
+- Protocol Buffers 跨平台协议实现
+- FFI 集成和平台特定代码开发
 - 测试策略和验证方法
 - 最佳实践和常见陷阱
 
@@ -17,16 +18,165 @@
 | 日期 | 版本 | 描述 | 作者 |
 |------|------|------|------|
 | 2025-01-15 | 1.0 | 初始开发指导文档 | Winston (BMAD Architect) |
+| 2025-10-16 | 2.0 | 重大架构调整：Rust 共享逻辑 + Protocol Buffers + FFI 集成 | Sarah (PO) |
 
 ## 快速参考 - 关键文件和模板
 
 ### 核心实现文件优先级
 
-1. **Protocol Buffers 定义**: `shared/protobuf/` - 跨平台消息协议
-2. **Rust 核心逻辑**: `shared/rust/src/` - 加密、传输控制
-3. **生成代码**: `shared/generated/` - 自动生成的 Kotlin/Swift 代码
-4. **Android 集成**: `android/app/src/main/java/com/nearclip/`
-5. **Mac 集成**: `mac/NearClip/Sources/`
+1. **Protocol Buffers 定义**: `src/shared/protocol/` - 跨平台消息协议
+2. **Rust 核心逻辑**: `src/shared/rust/src/` - 加密、传输控制、设备管理
+3. **FFI 绑定**: `src/shared/rust/src/ffi/` - Android JNI 和 Mac C ABI 绑定
+4. **生成代码**: `src/shared/generated/` - 自动生成的 Kotlin/Swift 代码
+5. **Android 集成**: `src/platform/android/app/src/main/java/com/nearclip/`
+6. **Mac 集成**: `src/platform/mac/NearClip/Sources/`
+
+## 多语言开发环境设置
+
+### 必需工具
+
+#### Rust 开发环境
+```bash
+# 安装 Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 安装工具链
+rustup target add aarch64-apple-darwin
+rustup target add x86_64-apple-darwin
+rustup target add aarch64-linux-android
+rustup target add armv7-linux-androideabi
+rustup target add i686-linux-android
+rustup target add x86_64-linux-android
+
+# 安装代码生成工具
+cargo install cbindgen
+cargo install prost-build
+```
+
+#### Protocol Buffers 编译器
+```bash
+# macOS
+brew install protobuf
+
+# Ubuntu/Debian
+sudo apt-get install protobuf-compiler
+
+# 验证安装
+protoc --version
+```
+
+#### Android 开发环境
+- Android Studio
+- Android SDK (API level 24+)
+- Android NDK (用于 Rust 交叉编译)
+- Kotlin 1.9.20+
+
+#### macOS 开发环境
+- Xcode 15.0+
+- Swift 5.9+
+- Command Line Tools
+
+### 项目初始化命令
+
+```bash
+# 1. 创建项目结构
+mkdir -p src/{platform/{android,mac},shared/{protocol,rust,generated}}
+
+# 2. 初始化 Rust 项目
+cd src/shared/rust
+cargo init --lib
+
+# 3. 生成 Protocol Buffers 代码
+cd ../../
+protoc --rust_out=rust/src/generated/ \
+       --kotlin_out=../platform/android/app/src/main/java/ \
+       --swift_out=../platform/mac/NearClip/Sources/Generated/ \
+       protocol/*.proto
+
+# 4. 生成 C 头文件
+cd rust
+cbindgen --config cbindgen.toml --crate nearclip-core --output nearclip.h
+```
+
+## Rust 共享逻辑库开发
+
+### 项目结构
+
+```
+src/shared/rust/
+├── Cargo.toml
+├── cbindgen.toml
+├── build.rs
+├── src/
+│   ├── lib.rs                 # 库入口
+│   ├── protocol/              # Protocol Buffers 处理
+│   │   ├── mod.rs
+│   │   ├── device.rs
+│   │   ├── sync.rs
+│   │   └── pairing.rs
+│   ├── ble/                   # BLE 通信
+│   │   ├── mod.rs
+│   │   ├── discovery.rs
+│   │   ├── connection.rs
+│   │   └── advertising.rs
+│   ├── security/              # 安全和加密
+│   │   ├── mod.rs
+│   │   ├── crypto.rs
+│   │   └── key_management.rs
+│   ├── ffi/                   # FFI 接口
+│   │   ├── mod.rs
+│   │   ├── android.rs
+│   │   └── mac.rs
+│   └── utils/                 # 工具函数
+│       ├── mod.rs
+│       ├── logger.rs
+│       └── errors.rs
+└── tests/                     # 集成测试
+    ├── integration_tests.rs
+    └── ffi_tests.rs
+```
+
+### Cargo.toml 配置
+
+```toml
+[package]
+name = "nearclip-core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "nearclip_core"
+crate-type = ["cdylib", "rlib"]  # cdylib for FFI, rlib for Rust
+
+[dependencies]
+# Protocol Buffers
+prost = "0.12"
+prost-types = "0.12"
+
+# BLE 通信
+btleplug = "0.11"
+tokio = { version = "1.0", features = ["full"] }
+
+# 加密和安全
+ring = "0.17"
+ed25519-dalek = "2.0"
+sha2 = "0.10"
+
+# 错误处理
+anyhow = "1.0"
+thiserror = "1.0"
+
+# 日志
+log = "0.4"
+env_logger = "0.10"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+prost-build = "0.12"
+```
 
 ### MVP 实施优先级
 
