@@ -5,15 +5,20 @@ NearClip: Privacy-first P2P clipboard synchronization tool for Android and macOS
 
 ```
 nearclip/
-├── shared/                  # 跨平台共享模块
-│   ├── protobuf/           # Protocol Buffers 定义
-│   ├── rust/               # Rust 核心逻辑
-│   └── generated/          # 自动生成的代码
-├── android/                # Android 应用
-├── mac/                    # macOS 应用
+├── src/                     # 源代码目录
+│   ├── shared/             # 跨平台共享模块
+│   │   ├── protobuf/       # Protocol Buffers 定义
+│   │   ├── rust/           # Rust 核心逻辑
+│   │   └── generated/      # 自动生成的代码
+│   └── platform/           # 平台特定代码
+│       ├── android/        # Android 应用
+│       └── mac/            # macOS 应用
 ├── scripts/                # 构建和工具脚本
 ├── docs/                   # 项目文档
-└── tests/                  # 跨平台集成测试
+├── tests/                  # 跨平台集成测试
+├── README.md               # 项目说明
+├── LICENSE                 # 许可证
+└── .gitignore             # Git 忽略文件
 ```
 
 ## 快速开始

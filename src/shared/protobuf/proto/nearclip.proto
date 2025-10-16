@@ -1,0 +1,99 @@
+syntax = "proto3";
+
+package nearclip;
+
+// NearClip 核心消息定义
+message NearClipMessage {
+  string message_id = 1;
+  MessageType message_type = 2;
+  uint64 timestamp = 3;
+  string sender_id = 4;
+  bytes data = 5;
+  bytes signature = 6;
+}
+
+enum MessageType {
+  MESSAGE_TYPE_UNKNOWN = 0;
+  MESSAGE_TYPE_DISCOVER = 1;
+  MESSAGE_TYPE_PAIR_REQUEST = 2;
+  MESSAGE_TYPE_PAIR_RESPONSE = 3;
+  MESSAGE_TYPE_SYNC_DATA = 4;
+  MESSAGE_TYPE_ACKNOWLEDGMENT = 5;
+  MESSAGE_TYPE_DEVICE_INFO = 6;
+}
+
+// 设备发现消息
+message DiscoverMessage {
+  DeviceInfo device_info = 1;
+  uint64 timestamp = 2;
+}
+
+// 设备信息
+message DeviceInfo {
+  string device_id = 1;
+  string device_name = 2;
+  DeviceType device_type = 3;
+  uint32 protocol_version = 4;
+  bytes public_key = 5;
+  map<string, bytes> capabilities = 6;
+}
+
+enum DeviceType {
+  DEVICE_TYPE_UNKNOWN = 0;
+  DEVICE_TYPE_ANDROID = 1;
+  DEVICE_TYPE_MACOS = 2;
+  DEVICE_TYPE_WINDOWS = 3;
+  DEVICE_TYPE_LINUX = 4;
+}
+
+// 配对请求
+message PairRequestMessage {
+  string message_id = 1;
+  string requester_id = 2;
+  string target_device_id = 3;
+  uint64 timestamp = 4;
+  string pairing_code = 5;
+  bytes public_key = 6;
+  bytes device_info = 7;
+}
+
+// 配对响应
+message PairResponseMessage {
+  string message_id = 1;
+  string responder_id = 2;
+  string requester_id = 3;
+  uint64 timestamp = 4;
+  bool accepted = 5;
+  bytes public_key = 6;
+  bytes device_info = 7;
+}
+
+// 同步数据消息
+message SyncDataMessage {
+  string message_id = 1;
+  string sync_id = 2;
+  string source_device_id = 3;
+  uint64 timestamp = 4;
+  ContentType content_type = 5;
+  bytes encrypted_content = 6;
+  bytes content_hash = 7;
+  uint32 content_size = 8;
+}
+
+enum ContentType {
+  CONTENT_TYPE_UNKNOWN = 0;
+  CONTENT_TYPE_TEXT = 1;
+  CONTENT_TYPE_IMAGE = 2;
+  CONTENT_TYPE_FILE = 3;
+  CONTENT_TYPE_URL = 4;
+}
+
+// 确认消息
+message AckMessage {
+  string message_id = 1;
+  string acked_message_id = 2;
+  string sender_id = 3;
+  uint64 timestamp = 4;
+  bool success = 5;
+  string error_message = 6;
+}

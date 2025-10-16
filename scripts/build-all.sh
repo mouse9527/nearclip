@@ -14,9 +14,9 @@ NC='\033[0m' # No Color
 
 # 项目根目录
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SHARED_RUST_DIR="$PROJECT_ROOT/shared/rust"
-ANDROID_DIR="$PROJECT_ROOT/android"
-MAC_DIR="$PROJECT_ROOT/mac"
+SHARED_RUST_DIR="$PROJECT_ROOT/src/shared/rust"
+ANDROID_DIR="$PROJECT_ROOT/src/platform/android"
+MAC_DIR="$PROJECT_ROOT/src/platform/mac"
 
 # 日志函数
 log_info() {
@@ -135,15 +135,15 @@ build_protobuf() {
     mkdir -p "$ANDROID_DIR/app/src/main/java/com/nearclip/protobuf"
     protoc --java_out="$ANDROID_DIR/app/src/main/java" \
            --grpc-java_out="$ANDROID_DIR/app/src/main/java" \
-           -I proto \
-           proto/*.proto
+           -I "$PROJECT_ROOT/src/shared/protobuf/proto" \
+           "$PROJECT_ROOT/src/shared/protobuf/proto"/*.proto
 
     # 生成 Swift 文件（macOS）
     log_info "生成 Swift Protocol Buffers 代码..."
     mkdir -p "$MAC_DIR/NearClip/Generated"
     protoc --swift_out="$MAC_DIR/NearClip/Generated" \
-           -I proto \
-           proto/*.proto
+           -I "$PROJECT_ROOT/src/shared/protobuf/proto" \
+           "$PROJECT_ROOT/src/shared/protobuf/proto"/*.proto
 
     log_success "Protocol Buffers 构建完成"
 }

@@ -159,7 +159,7 @@ dependencies {
 android.sourceSets {
     main {
         proto {
-            srcDir '../../shared/protobuf/proto'
+            srcDir '../../../shared/protobuf/proto'
         }
     }
 }

@@ -14,8 +14,8 @@ NC='\033[0m'
 
 # 项目路径
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SHARED_RUST_DIR="$PROJECT_ROOT/shared/rust"
-ANDROID_DIR="$PROJECT_ROOT/android"
+SHARED_RUST_DIR="$PROJECT_ROOT/src/shared/rust"
+ANDROID_DIR="$PROJECT_ROOT/src/platform/android"
 
 # 日志函数
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -126,8 +126,8 @@ generate_android_protobuf() {
     # 生成 Java 代码
     protoc --java_out="$output_dir" \
            --grpc-java_out="$output_dir" \
-           -I proto \
-           proto/*.proto
+           -I "$PROJECT_ROOT/src/shared/protobuf/proto" \
+           "$PROJECT_ROOT/src/shared/protobuf/proto"/*.proto
 
     log_success "Android Protocol Buffers 代码生成完成"
 }

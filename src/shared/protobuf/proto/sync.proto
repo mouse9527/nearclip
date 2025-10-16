@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package nearclip;
+
+import "nearclip.proto";
+
+// 同步相关的 Protocol Buffers 定义
+
+// 同步请求消息
+message SyncRequestMessage {
+  string request_id = 1;
+  string requester_id = 2;
+  repeated string target_device_ids = 3;
+  SyncData sync_data = 4;
+  uint64 timestamp = 5;
+  SyncPriority priority = 6;
+}
+
+// 同步响应消息
+message SyncResponseMessage {
+  string request_id = 1;
+  string responder_id = 2;
+  bool accepted = 3;
+  uint64 timestamp = 4;
+  SyncResult result = 5;
+}
+
+enum SyncPriority {
+  SYNC_PRIORITY_UNKNOWN = 0;
+  SYNC_PRIORITY_LOW = 1;
+  SYNC_PRIORITY_NORMAL = 2;
+  SYNC_PRIORITY_HIGH = 3;
+  SYNC_PRIORITY_URGENT = 4;
+}
+
+// 同步数据结构
+message SyncData {
+  string sync_id = 1;
+  ContentType content_type = 2;
+  bytes encrypted_content = 3;
+  bytes content_hash = 4;
+  uint32 content_size = 5;
+  uint64 timestamp = 6;
+  string source_device_id = 7;
+  map<string, string> metadata = 8;
+}
+
+// 同步结果
+message SyncResult {
+  bool success = 1;
+  string error_message = 2;
+  uint64 bytes_transferred = 3;
+  uint64 transfer_time_ms = 4;
+  repeated string failed_device_ids = 5;
+}
+
+// 冲突解决消息
+message ConflictResolutionMessage {
+  string conflict_id = 1;
+  string local_data_id = 2;
+  string remote_data_id = 3;
+  ConflictType conflict_type = 4;
+  ResolutionStrategy strategy = 5;
+  uint64 timestamp = 6;
+}
+
+enum ConflictType {
+  CONFLICT_TYPE_UNKNOWN = 0;
+  CONFLICT_TYPE_CONTENT = 1;
+  CONFLICT_TYPE_METADATA = 2;
+  CONFLICT_TYPE_VERSION = 3;
+}
+
+enum ResolutionStrategy {
+  RESOLUTION_UNKNOWN = 0;
+  RESOLUTION_LOCAL_WINS = 1;
+  RESOLUTION_REMOTE_WINS = 2;
+  RESOLUTION_MERGE = 3;
+  RESOLUTION_MANUAL = 4;
+}
+
+// 同步状态查询
+message SyncStatusQuery {
+  string device_id = 1;
+  repeated string sync_ids = 2;
+}
+
+// 同步状态响应
+message SyncStatusResponse {
+  repeated SyncStatus sync_statuses = 1;
+  uint64 timestamp = 2;
+}
+
+message SyncStatus {
+  string sync_id = 1;
+  SyncStatusValue status = 2;
+  uint64 created_time = 3;
+  uint64 completed_time = 4;
+  int32 progress_percentage = 5;
+  string error_message = 6;
+}
+
+enum SyncStatusValue {
+  SYNC_STATUS_UNKNOWN = 0;
+  SYNC_STATUS_PENDING = 1;
+  SYNC_STATUS_IN_PROGRESS = 2;
+  SYNC_STATUS_COMPLETED = 3;
+  SYNC_STATUS_FAILED = 4;
+  SYNC_STATUS_CANCELLED = 5;
+}

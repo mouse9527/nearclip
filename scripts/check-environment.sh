@@ -199,10 +199,10 @@ fi
 log_info "检查项目结构..."
 
 project_dirs=(
-    "$PROJECT_ROOT/shared/rust"
-    "$PROJECT_ROOT/shared/protobuf"
-    "$PROJECT_ROOT/android"
-    "$PROJECT_ROOT/mac"
+    "$PROJECT_ROOT/src/shared/rust"
+    "$PROJECT_ROOT/src/shared/protobuf"
+    "$PROJECT_ROOT/src/platform/android"
+    "$PROJECT_ROOT/src/platform/mac"
     "$PROJECT_ROOT/scripts"
     "$PROJECT_ROOT/docs"
 )
@@ -215,10 +215,10 @@ done
 log_info "检查核心配置文件..."
 
 core_files=(
-    "$PROJECT_ROOT/shared/rust/Cargo.toml"
-    "$PROJECT_ROOT/shared/rust/src/lib.rs"
-    "$PROJECT_ROOT/android/app/build.gradle"
-    "$PROJECT_ROOT/mac/NearClip.xcodeproj/project.pbxproj"
+    "$PROJECT_ROOT/src/shared/rust/Cargo.toml"
+    "$PROJECT_ROOT/src/shared/rust/src/lib.rs"
+    "$PROJECT_ROOT/src/platform/android/app/build.gradle"
+    "$PROJECT_ROOT/src/platform/mac/NearClip.xcodeproj/project.pbxproj"
     "$PROJECT_ROOT/scripts/build-all.sh"
 )
 
@@ -229,8 +229,8 @@ done
 # Rust 依赖检查
 log_info "检查 Rust 依赖..."
 
-if [ -f "$PROJECT_ROOT/shared/rust/Cargo.toml" ]; then
-    cd "$PROJECT_ROOT/shared/rust"
+if [ -f "$PROJECT_ROOT/src/shared/rust/Cargo.toml" ]; then
+    cd "$PROJECT_ROOT/src/shared/rust"
 
     if cargo check --quiet 2>/dev/null; then
         log_success "Rust 依赖完整"

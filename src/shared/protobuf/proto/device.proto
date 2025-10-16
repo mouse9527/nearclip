@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package nearclip;
+
+import "nearclip.proto";
+
+// 设备管理相关的 Protocol Buffers 定义
+
+// 设备状态更新消息
+message DeviceStatusMessage {
+  string device_id = 1;
+  DeviceStatus status = 2;
+  uint64 timestamp = 3;
+  map<string, string> metadata = 4;
+}
+
+enum DeviceStatus {
+  DEVICE_STATUS_UNKNOWN = 0;
+  DEVICE_STATUS_ONLINE = 1;
+  DEVICE_STATUS_OFFLINE = 2;
+  DEVICE_STATUS_BUSY = 3;
+  DEVICE_STATUS_PAIRING = 4;
+}
+
+// 设备能力查询
+message DeviceCapabilityQuery {
+  string device_id = 1;
+  repeated CapabilityType requested_capabilities = 2;
+}
+
+// 设备能力响应
+message DeviceCapabilityResponse {
+  string device_id = 1;
+  repeated Capability capabilities = 2;
+  bool supports_all_requested = 3;
+}
+
+enum CapabilityType {
+  CAPABILITY_UNKNOWN = 0;
+  CAPABILITY_TEXT_SYNC = 1;
+  CAPABILITY_IMAGE_SYNC = 2;
+  CAPABILITY_FILE_SYNC = 3;
+  CAPABILITY_URL_SYNC = 4;
+  CAPABILITY_ENCRYPTION = 5;
+  CAPABILITY_WIFI_DIRECT = 6;
+}
+
+message Capability {
+  CapabilityType type = 1;
+  bool supported = 2;
+  string version = 3;
+  map<string, string> parameters = 4;
+}
+
+// 设备偏好设置
+message DevicePreferences {
+  string device_id = 1;
+  bool auto_sync = 2;
+  bool encrypt_content = 3;
+  SyncFrequency sync_frequency = 4;
+  repeated ContentType allowed_content_types = 5;
+}
+
+enum SyncFrequency {
+  SYNC_FREQUENCY_UNKNOWN = 0;
+  SYNC_FREQUENCY_REALTIME = 1;
+  SYNC_FREQUENCY_MANUAL = 2;
+  SYNC_FREQUENCY_PERIODIC = 3;
+}

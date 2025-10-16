@@ -14,8 +14,8 @@ NC='\033[0m'
 
 # 项目路径
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SHARED_RUST_DIR="$PROJECT_ROOT/shared/rust"
-MAC_DIR="$PROJECT_ROOT/mac"
+SHARED_RUST_DIR="$PROJECT_ROOT/src/shared/rust"
+MAC_DIR="$PROJECT_ROOT/src/platform/mac"
 
 # 日志函数
 log_info() { echo -e "${BLUE}[INFO]${NC} $1"; }
@@ -159,12 +159,12 @@ generate_macos_protobuf() {
     if [ "$use_swift_grpc" = true ]; then
         protoc --swift_out="$output_dir" \
                --grpc-swift_out="$output_dir" \
-               -I proto \
-               proto/*.proto
+               -I "$PROJECT_ROOT/src/shared/protobuf/proto" \
+               "$PROJECT_ROOT/src/shared/protobuf/proto"/*.proto
     else
         protoc --swift_out="$output_dir" \
-               -I proto \
-               proto/*.proto
+               -I "$PROJECT_ROOT/src/shared/protobuf/proto" \
+               "$PROJECT_ROOT/src/shared/protobuf/proto"/*.proto
     fi
 
     log_success "macOS Protocol Buffers 代码生成完成"
