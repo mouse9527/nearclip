@@ -1,0 +1,25 @@
+<resources>
+    <string name="app_name">NearClip</string>
+    <string name="permission_bluetooth_title">蓝牙权限</string>
+    <string name="permission_bluetooth_message">NearClip需要蓝牙权限来发现和连接附近设备</string>
+    <string name="permission_location_title">位置权限</string>
+    <string name="permission_location_message">NearClip需要位置权限来进行蓝牙设备扫描</string>
+    <string name="permission_clipboard_title">剪贴板权限</string>
+    <string name="permission_clipboard_message">NearClip需要剪贴板权限来同步剪贴板内容</string>
+    <string name="permission_denied_message">权限被拒绝，某些功能可能无法正常工作</string>
+    <string name="grant_permission">授予权限</string>
+    <string name="deny_permission">拒绝</string>
+    <string name="settings">设置</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">首页</string>
+    <string name="nav_devices">设备</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Common -->
+    <string name="loading">加载中...</string>
+    <string name="error_unknown">未知错误</string>
+    <string name="retry">重试</string>
+    <string name="cancel">取消</string>
+    <string name="ok">确定</string>
+</resources>
