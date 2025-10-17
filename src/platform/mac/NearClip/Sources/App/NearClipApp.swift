@@ -20,6 +20,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // 设置应用为后台应用（不显示在Dock中）
         NSApp.setActivationPolicy(.accessory)
 
+        // 恢复应用状态
+        restoreApplicationState()
+
         // 初始化菜单栏
         setupMenuBar()
 
@@ -28,9 +31,51 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         // 清理资源
+        cleanup()
+        print("NearClip 应用即将退出")
+    }
+
+    func applicationWillUnhide(_ notification: Notification) {
+        // 应用从后台回到前台
+        print("NearClip 应用回到前台")
+    }
+
+    func applicationWillResignActive(_ notification: Notification) {
+        // 应用即将进入后台
+        print("NearClip 应用即将进入后台")
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // 用户点击Dock图标时显示菜单
+        showPopover()
+        return true
+    }
+
+    private func cleanup() {
+        // 状态保存和恢复前的清理
+        if popover?.isShown == true {
+            popover?.performClose(nil)
+        }
         statusItem = nil
         popover = nil
-        print("NearClip 应用即将退出")
+
+        // 保存应用状态（如果需要）
+        saveApplicationState()
+    }
+
+    private func saveApplicationState() {
+        // 实现状态保存逻辑
+        let userDefaults = UserDefaults.standard
+        userDefaults.set(Date(), forKey: "lastClosedDate")
+        userDefaults.synchronize()
+    }
+
+    private func restoreApplicationState() {
+        // 实现状态恢复逻辑
+        let userDefaults = UserDefaults.standard
+        if let lastClosedDate = userDefaults.object(forKey: "lastClosedDate") as? Date {
+            print("上次关闭时间: \(lastClosedDate)")
+        }
     }
 
     private func setupMenuBar() {
