@@ -1,9 +1,6 @@
-use std::env;
-use std::path::PathBuf;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Protocol Buffers 源文件目录
-    let proto_dir = "../../protocol";
+    let proto_dir = "../protocol";
 
     // 生成所有协议文件
     prost_build::compile_protos(
