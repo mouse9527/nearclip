@@ -20,3 +20,8 @@ devLoadAlwaysFiles:
 devDebugLog: .ai/debug-log.md
 devStoryLocation: docs/stories
 slashPrefix: BMad
+# 语言偏好设置
+localization:
+  language: zh-CN
+  defaultLanguage: zh
+  forceLanguage: true
