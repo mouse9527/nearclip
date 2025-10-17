@@ -1,20 +1,22 @@
+use std::env;
+use std::path::PathBuf;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Use relative paths from the crate root
-    let proto_files = vec![
-        "../protocol/device_discovery.proto",
-        "../protocol/data_sync.proto",
-        "../protocol/error_handling.proto",
-    ];
+    // Protocol Buffers 源文件目录
+    let proto_dir = "../../protocol";
 
-    // Create src/generated directory if it doesn't exist
-    std::fs::create_dir_all("src/generated")?;
-
+    // 生成所有协议文件
     prost_build::compile_protos(
-        &proto_files,
-        &["../protocol/"],
+        &[
+            format!("{}/discovery.proto", proto_dir),
+            format!("{}/pairing.proto", proto_dir),
+            format!("{}/sync.proto", proto_dir),
+            format!("{}/common.proto", proto_dir),
+        ],
+        &[proto_dir],
     )?;
 
-    println!("cargo:rerun-if-changed=../protocol/");
+    println!("cargo:rerun-if-changed={}", proto_dir);
 
     Ok(())
 }

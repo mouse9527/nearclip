@@ -1,0 +1,73 @@
+syntax = "proto3";
+
+package nearclip.sync;
+
+// 数据类型枚举
+enum DataType {
+  DATA_TYPE_UNKNOWN = 0;
+  DATA_TYPE_TEXT = 1;
+  DATA_TYPE_IMAGE = 2;
+  DATA_TYPE_FILE = 3;
+  DATA_TYPE_URL = 4;
+  DATA_TYPE_RICH_TEXT = 5;
+}
+
+// 同步操作枚举
+enum SyncOperation {
+  SYNC_UNKNOWN = 0;
+  SYNC_CREATE = 1;
+  SYNC_UPDATE = 2;
+  SYNC_DELETE = 3;
+  SYNC_REPLACE = 4;
+}
+
+// 剪贴板数据项
+message ClipboardData {
+  string data_id = 1;
+  DataType type = 2;
+  bytes content = 3;
+  map<string, string> metadata = 4;
+  uint64 created_at = 5;
+  uint64 expires_at = 6;
+  string source_app = 7;
+}
+
+// 数据分片信息
+message DataChunk {
+  string data_id = 1;
+  uint32 chunk_index = 2;
+  uint32 total_chunks = 3;
+  bytes chunk_data = 4;
+  bytes checksum = 5;
+}
+
+// 同步消息
+message SyncMessage {
+  string device_id = 1;
+  SyncOperation operation = 2;
+  ClipboardData data = 3;
+  repeated DataChunk chunks = 4;
+  uint64 timestamp = 5;
+  bytes signature = 6;
+}
+
+// 同步确认
+message SyncAck {
+  string data_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  uint64 timestamp = 4;
+}
+
+// 同步状态查询
+message SyncStatusQuery {
+  string device_id = 1;
+  uint64 since_timestamp = 2;
+}
+
+// 同步状态响应
+message SyncStatusResponse {
+  repeated string pending_data_ids = 1;
+  repeated string completed_data_ids = 2;
+  uint64 last_sync_timestamp = 3;
+}

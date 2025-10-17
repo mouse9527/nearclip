@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package nearclip.discovery;
+
+// 设备能力枚举
+enum DeviceCapability {
+  CAPABILITY_UNKNOWN = 0;
+  CAPABILITY_CLIPBOARD_READ = 1;
+  CAPABILITY_CLIPBOARD_WRITE = 2;
+  CAPABILITY_FILE_TRANSFER = 3;
+  CAPABILITY_ENCRYPTION = 4;
+}
+
+// 设备类型枚举
+enum DeviceType {
+  DEVICE_TYPE_UNKNOWN = 0;
+  DEVICE_TYPE_ANDROID = 1;
+  DEVICE_TYPE_MAC = 2;
+  DEVICE_TYPE_WINDOWS = 3;
+  DEVICE_TYPE_IOS = 4;
+}
+
+// 设备广播消息
+message DeviceBroadcast {
+  string device_id = 1;
+  string device_name = 2;
+  DeviceType device_type = 3;
+  repeated DeviceCapability capabilities = 4;
+  string version = 5;           // 协议版本
+  uint64 timestamp = 6;
+  bytes public_key = 7;         // 用于配对的公钥
+  map<string, string> metadata = 8; // 扩展元数据
+}
+
+// 设备扫描请求
+message ScanRequest {
+  uint32 timeout_seconds = 1;
+  repeated DeviceType filter_types = 2;
+  repeated DeviceCapability required_capabilities = 3;
+}
+
+// 设备扫描响应
+message ScanResponse {
+  repeated DeviceBroadcast devices = 1;
+  uint64 scan_duration_ms = 2;
+}
+
+// 设备查询消息
+message DeviceQuery {
+  string device_id = 1;
+  repeated DeviceCapability capabilities = 2;
+}
+
+// 设备查询响应
+message DeviceQueryResponse {
+  DeviceBroadcast device = 1;
+  bool is_online = 2;
+  uint64 last_seen = 3;
+}

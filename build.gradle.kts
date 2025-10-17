@@ -18,15 +18,15 @@ allprojects {
 
     // 统一编码规范
     tasks.withType<JavaCompile> {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = "17"
+        targetCompatibility = "17"
         options.encoding = "UTF-8"
     }
 
     tasks.withType<Test> {
         testLogging {
             events("passed", "skipped", "failed")
-            exceptionFormat = "full"
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         }
     }
 }
@@ -63,10 +63,12 @@ tasks.register<Exec>("generateProtobuf") {
     }
 
     commandLine("protoc",
-        "--proto_path=src/shared/protocol",
+        "--proto_path=${file("src/shared/protocol").absolutePath}",
         "--kotlin_out=${kotlinOutput.absolutePath}",
         "--swift_out=${swiftOutput.absolutePath}",
         "--rust_out=${rustOutput.absolutePath}",
+        "--rust_opt=experimental-codegen=enabled",
+        "--rust_opt=kernel=cpp",
         fileTree("src/shared/protocol").matching { include("**/*.proto") }.files.map { it.absolutePath }
     )
 }

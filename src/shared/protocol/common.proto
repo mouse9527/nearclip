@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package nearclip.common;
+
+// 错误码枚举
+enum ErrorCode {
+  ERROR_NONE = 0;
+  ERROR_INVALID_MESSAGE = 1;
+  ERROR_INVALID_SIGNATURE = 2;
+  ERROR_EXPIRED_MESSAGE = 3;
+  ERROR_UNSUPPORTED_VERSION = 4;
+  ERROR_DEVICE_NOT_FOUND = 5;
+  ERROR_PAIRING_FAILED = 6;
+  ERROR_ENCRYPTION_FAILED = 7;
+  ERROR_NETWORK_ERROR = 8;
+  ERROR_TIMEOUT = 9;
+  ERROR_QUOTA_EXCEEDED = 10;
+  ERROR_INTERNAL_ERROR = 11;
+}
+
+// 标准错误消息
+message ErrorMessage {
+  ErrorCode code = 1;
+  string message = 2;
+  string details = 3;
+  uint64 timestamp = 4;
+}
+
+// 心跳消息
+message Heartbeat {
+  string device_id = 1;
+  uint64 timestamp = 2;
+  uint32 sequence_number = 3;
+}
+
+// 心跳响应
+message HeartbeatAck {
+  string device_id = 1;
+  uint64 received_timestamp = 2;
+  uint32 sequence_number = 3;
+}
+
+// 协议版本信息
+message ProtocolVersion {
+  uint32 major = 1;
+  uint32 minor = 2;
+  uint32 patch = 3;
+  string build_info = 4;
+}
+
+// 能力协商请求
+message CapabilityNegotiation {
+  ProtocolVersion min_version = 1;
+  ProtocolVersion max_version = 2;
+  repeated string supported_features = 3;
+  repeated string required_features = 4;
+}
+
+// 能力协商响应
+message CapabilityNegotiationResponse {
+  ProtocolVersion selected_version = 1;
+  repeated string supported_features = 2;
+  repeated string unsupported_features = 3;
+  bool compatibility = 4;
+}

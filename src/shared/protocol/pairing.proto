@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package nearclip.pairing;
+
+// 配对请求
+message PairingRequest {
+  string initiator_id = 1;
+  string target_id = 2;
+  bytes public_key = 3;
+  string device_name = 4;
+  bytes nonce = 5;             // 随机数，防止重放攻击
+  uint64 timestamp = 6;
+}
+
+// 配对响应
+message PairingResponse {
+  string responder_id = 1;
+  string initiator_id = 2;
+  bytes public_key = 3;
+  bytes signed_nonce = 4;      // 签名的随机数
+  bytes shared_secret = 5;     // ECDH 共享密钥
+  uint64 timestamp = 6;
+}
+
+// 配对确认
+message PairingConfirmation {
+  string session_id = 1;
+  bytes confirmation_hash = 2; // 确认哈希
+  uint64 timestamp = 3;
+}
+
+// 配对状态枚举
+enum PairingStatus {
+  PAIRING_UNKNOWN = 0;
+  PAIRING_INITIATED = 1;
+  PAIRING_PENDING = 2;
+  PAIRING_CONFIRMED = 3;
+  PAIRING_FAILED = 4;
+  PAIRING_COMPLETED = 5;
+}
+
+// 配对状态更新
+message PairingStatusUpdate {
+  string session_id = 1;
+  PairingStatus status = 2;
+  string error_message = 3;
+  uint64 timestamp = 4;
+}
+
+// 解除配对请求
+message UnpairingRequest {
+  string device_id = 1;
+  string reason = 2;
+  bytes signature = 3;
+}
