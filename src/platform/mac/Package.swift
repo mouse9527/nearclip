@@ -21,23 +21,16 @@ let package = Package(
         .executableTarget(
             name: "NearClip",
             dependencies: [
-                .product(name: "SwiftProtobuf", package: "swift-protobuf"),
-                .target(name: "NearClipCore")
-            ]
-        ),
-        .target(
-            name: "NearClipCore",
-            dependencies: [
                 .product(name: "SwiftProtobuf", package: "swift-protobuf")
             ],
-            path: "Sources/NearClipCore"
+            path: "NearClip/Sources"
         ),
         .testTarget(
             name: "NearClipTests",
             dependencies: [
-                "NearClip",
-                "NearClipCore"
-            ]
+                "NearClip"
+            ],
+            path: "NearClip/Tests/NearClipTests"
         ),
     ]
 )
