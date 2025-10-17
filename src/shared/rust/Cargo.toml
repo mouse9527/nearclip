@@ -1,0 +1,57 @@
+[package]
+name = "nearclip-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["NearClip Team"]
+description = "Core shared library for NearClip cross-platform clipboard synchronization"
+license = "MIT"
+
+[lib]
+name = "nearclip_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Protocol Buffers
+prost = "0.12"
+prost-types = "0.12"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Cryptography
+ring = "0.17"
+base64 = "0.21"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+log = "0.4"
+env_logger = "0.10"
+
+# Bluetooth (platform-specific)
+# For Linux
+[target.'cfg(target_os = "linux")'.dependencies]
+bluez = "0.4"
+
+# For macOS (commented out for now, will add later)
+# [target.'cfg(target_os = "macos")'.dependencies]
+# core-bluetooth-sys = "0.1"
+
+# For Android (via JNI)
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+
+[build-dependencies]
+prost-build = "0.12"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.8"
+
+# Binary targets will be added in future stories

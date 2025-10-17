@@ -175,3 +175,32 @@ crash_reports/
 # 测试输出
 test_results/
 coverage_reports/
+
+# Java/Kotlin
+*.class
+*.jar
+*.war
+*.ear
+*.aar
+
+# Swift
+*.swiftpm/
+*.build/
+Package.resolved
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.production
+
+# AI debug logs
+.ai/
+debug.log
+*.debug
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*~

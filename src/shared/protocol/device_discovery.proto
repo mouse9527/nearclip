@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package nearclip.device;
+
+// Device information structure
+message DeviceInfo {
+  string device_id = 1;
+  string device_name = 2;
+  DeviceType device_type = 3;
+  string platform_version = 4;
+  int64 last_seen_timestamp = 5;
+  int32 signal_strength = 6; // RSSI value in dBm
+  bool is_connectable = 7;
+  map<string, string> metadata = 8;
+}
+
+// Device types enumeration
+enum DeviceType {
+  DEVICE_TYPE_UNSPECIFIED = 0;
+  DEVICE_TYPE_ANDROID = 1;
+  DEVICE_TYPE_MAC = 2;
+  DEVICE_TYPE_WINDOWS = 3;
+  DEVICE_TYPE_LINUX = 4;
+}
+
+// Device discovery request
+message DiscoveryRequest {
+  bool start_discovery = 1;
+  int32 timeout_seconds = 2;
+  repeated DeviceType filter_device_types = 3;
+}
+
+// Device discovery response
+message DiscoveryResponse {
+  bool success = 1;
+  string error_message = 2;
+  repeated DeviceInfo discovered_devices = 3;
+}
+
+// Device connection request
+message ConnectionRequest {
+  string device_id = 1;
+  ConnectionType connection_type = 2;
+  map<string, string> connection_params = 3;
+}
+
+// Device connection response
+message ConnectionResponse {
+  bool success = 1;
+  string error_message = 2;
+  string connection_id = 3;
+  DeviceInfo connected_device = 4;
+}
+
+// Connection types
+enum ConnectionType {
+  CONNECTION_TYPE_UNSPECIFIED = 0;
+  CONNECTION_TYPE_BLE = 1;
+  CONNECTION_TYPE_WIFI_DIRECT = 2;
+  CONNECTION_TYPE_TCP = 3;
+}

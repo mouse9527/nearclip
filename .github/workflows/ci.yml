@@ -1,0 +1,82 @@
+name: NearClip CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-rust:
+    name: Test Rust Core
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Run tests
+      working-directory: src/shared/rust
+      run: cargo test
+
+    - name: Check formatting
+      working-directory: src/shared/rust
+      run: cargo fmt -- --check
+
+    - name: Run clippy
+      working-directory: src/shared/rust
+      run: cargo clippy -- -D warnings
+
+  test-android:
+    name: Test Android
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: Cache Gradle packages
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          ${{ runner.os }}-gradle-
+
+    - name: Run Android tests
+      working-directory: src/platform/android
+      run: ./gradlew test
+
+  test-mac:
+    name: Test Mac
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Run Swift tests
+      working-directory: src/platform/mac
+      run: swift test
+
+  compile-protocol-buffers:
+    name: Compile Protocol Buffers
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install protoc
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
+    - name: Compile protocol buffers
+      working-directory: src/shared/protocol
+      run: |
+        mkdir -p ../rust/src/generated
+        protoc --rust_out=../rust/src/generated *.proto
