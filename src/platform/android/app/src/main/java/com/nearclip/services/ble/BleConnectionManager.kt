@@ -33,6 +33,7 @@ class BleConnectionManager(private val context: Context) {
     private val _receivedMessages = Channel<TestMessage>(capacity = Channel.UNLIMITED)
     private val activeConnections = ConcurrentHashMap<String, BluetoothGatt>()
     private var connectionJobs = ConcurrentHashMap<String, Job>()
+    private val protocolHandler = ProtocolBufferMessageHandler()
 
     val connectionStates: StateFlow<Map<String, ConnectionState>> = _connectionStates.asStateFlow()
     val receivedMessages: Flow<TestMessage> = _receivedMessages.receiveAsFlow()
@@ -251,10 +252,14 @@ class BleConnectionManager(private val context: Context) {
             if (data != null) {
                 try {
                     val message = deserializeMessage(data)
-                    Log.d(TAG, "收到消息: ${message.messageId}")
+                    if (message != null) {
+                        Log.d(TAG, "收到消息: ${message.messageId}")
 
-                    CoroutineScope(Dispatchers.IO).launch {
-                        _receivedMessages.send(message)
+                        CoroutineScope(Dispatchers.IO).launch {
+                            _receivedMessages.send(message)
+                        }
+                    } else {
+                        Log.w(TAG, "消息解析失败，数据长度: ${data.size}")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "解析消息失败", e)
@@ -300,24 +305,20 @@ class BleConnectionManager(private val context: Context) {
      * 序列化消息
      */
     private fun serializeMessage(message: TestMessage): ByteArray {
-        val data = "${message.messageId}|${message.type}|${message.payload}|${message.timestamp}|${message.sequenceNumber}"
-        return data.toByteArray(Charsets.UTF_8)
+        // 验证消息格式
+        if (!protocolHandler.validateMessage(message)) {
+            Log.e(TAG, "消息验证失败: $message")
+            return ByteArray(0)
+        }
+
+        return protocolHandler.serializeMessage(message)
     }
 
     /**
      * 反序列化消息
      */
-    private fun deserializeMessage(data: ByteArray): TestMessage {
-        val messageString = String(data, Charsets.UTF_8)
-        val parts = messageString.split("|")
-
-        return TestMessage(
-            messageId = parts.getOrNull(0) ?: "",
-            type = MessageType.valueOf(parts.getOrNull(1) ?: "DATA"),
-            payload = parts.getOrNull(2) ?: "",
-            timestamp = parts.getOrNull(3)?.toLongOrNull() ?: System.currentTimeMillis(),
-            sequenceNumber = parts.getOrNull(4)?.toIntOrNull() ?: 0
-        )
+    private fun deserializeMessage(data: ByteArray): TestMessage? {
+        return protocolHandler.deserializeMessage(data)
     }
 
     /**

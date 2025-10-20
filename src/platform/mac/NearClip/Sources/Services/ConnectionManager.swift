@@ -27,6 +27,9 @@ class ConnectionManager: NSObject, ObservableObject, CBCentralManagerDelegate, C
     /// 连接超时定时器
     private var connectionTimeouts: [String: Timer] = [:]
 
+    /// Protocol Buffers消息处理器
+    private let protocolHandler = ProtocolBufferMessageHandler()
+
     /// 连接回调
     var onConnectionStateChanged: ((String, ConnectionState) -> Void)?
 
@@ -389,24 +392,18 @@ class ConnectionManager: NSObject, ObservableObject, CBCentralManagerDelegate, C
 
     /// 序列化消息
     private func serializeMessage(_ message: TestMessage) -> Data? {
-        let messageString = "\(message.messageId)|\(message.type.rawValue)|\(message.payload)|\(message.timestamp)|\(message.sequenceNumber)"
-        return messageString.data(using: .utf8)
+        // 验证消息格式
+        guard protocolHandler.validateMessage(message) else {
+            print("❌ 消息验证失败: \(message)")
+            return nil
+        }
+
+        return protocolHandler.serializeMessage(message)
     }
 
     /// 反序列化消息
     private func deserializeMessage(_ data: Data) -> TestMessage? {
-        guard let messageString = String(data: data, encoding: .utf8) else { return nil }
-
-        let parts = messageString.split(separator: "|")
-        guard parts.count >= 5 else { return nil }
-
-        return TestMessage(
-            messageId: String(parts[0]),
-            type: MessageType(rawValue: String(parts[1])) ?? .data,
-            payload: String(parts[2]),
-            timestamp: Double(String(parts[3])) ?? Date().timeIntervalSince1970,
-            sequenceNumber: Int(String(parts[4])) ?? 0
-        )
+        return protocolHandler.deserializeMessage(data)
     }
 
     /// 自动回复消息
