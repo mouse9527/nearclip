@@ -7,6 +7,6 @@ rootProject.name = "nearclip"
 include("shared-rust")
 project(":shared-rust").projectDir = file("src/shared/rust")
 
-// Android 项目暂时排除，以简化配置
-// include("android")
-// project(":android").projectDir = file("src/platform/android")
+// Android 项目
+include("android")
+project(":android").projectDir = file("src/platform/android")
