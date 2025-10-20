@@ -1,0 +1,70 @@
+schema: 1
+story: "1.5"
+story_title: "BLE 通信能力基础验证"
+gate: CONCERNS
+status_reason: "BLE功能基本实现完成，但存在跨平台集成和Protocol Buffers使用一致性问题，需要进一步验证端到端通信功能"
+reviewer: "Quinn (Test Architect)"
+updated: "2025-10-20T14:30:00Z"
+
+top_issues:
+  - severity: medium
+    category: "Integration"
+    description: "Android和Mac端的Protocol Buffers使用不一致，可能影响跨平台通信"
+    impact: "可能导致跨平台消息解析失败"
+    suggested_fix: "统一两端的消息序列化/反序列化实现"
+    references: ["src/platform/android/app/src/main/java/com/nearclip/services/ble/BleConnectionManager.kt", "src/platform/mac/NearClip/Sources/Services/ConnectionManager.swift"]
+  - severity: medium
+    category: "Testing"
+    description: "缺少端到端集成测试，只有单元测试"
+    impact: "跨平台通信功能可能在实际使用中失败"
+    suggested_fix: "添加Android-Mac端到端集成测试"
+    references: ["src/platform/android/app/src/test/java/com/nearclip/ble/", "src/platform/mac/NearClip/Tests/BLETests/"]
+  - severity: low
+    category: "Code Quality"
+    description: "部分代码存在重复，如错误码定义在多处重复"
+    impact: "维护成本增加，可能出现不一致"
+    suggested_fix: "提取共享的错误码和常量定义"
+    references: ["src/platform/android/app/src/main/java/com/nearclip/services/ble/", "src/platform/mac/NearClip/Sources/Services/"]
+
+waiver: { active: false }
+
+# 质量分数计算
+quality_score: 80
+
+# 过期时间（2周后）
+expires: "2025-11-03T14:30:00Z"
+
+evidence:
+  tests_reviewed: 8
+  risks_identified: 3
+  trace:
+    ac_covered: [1, 2, 3, 4, 5]
+    ac_gaps: []
+
+nfr_validation:
+  security:
+    status: CONCERNS
+    notes: "蓝牙权限处理正确，但消息传输加密需要进一步验证"
+  performance:
+    status: CONCERNS
+    notes: "连接建立时间和消息传输延迟有目标但缺少实际性能测试"
+  reliability:
+    status: PASS
+    notes: "错误处理和重连机制实现完整"
+  maintainability:
+    status: CONCERNS
+    notes: "代码结构良好，但存在重复代码需要重构"
+
+recommendations:
+  immediate:
+    - action: "统一Protocol Buffers使用，确保跨平台消息格式一致"
+      refs: ["src/platform/android/app/src/main/java/com/nearclip/services/ble/BleConnectionManager.kt", "src/platform/mac/NearClip/Sources/Services/ConnectionManager.swift"]
+    - action: "添加Android-Mac端到端集成测试验证实际通信功能"
+      refs: ["src/platform/android/app/src/test/", "src/platform/mac/NearClip/Tests/"]
+  future:
+    - action: "考虑创建共享的Protocol Buffers代码生成配置"
+      refs: ["src/shared/protocol/"]
+    - action: "添加性能基准测试验证连接建立时间和消息传输延迟"
+      refs: ["src/platform/android/app/src/test/", "src/platform/mac/NearClip/Tests/"]
+    - action: "重构重复的错误码和常量定义到共享模块"
+      refs: ["src/platform/android/app/src/main/java/com/nearclip/services/ble/", "src/platform/mac/NearClip/Sources/Services/"]
