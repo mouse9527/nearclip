@@ -45,7 +45,7 @@ development_status:
   # ============================================
   epic-1: in-progress
   1-1-init-rust-workspace: done
-  1-2-unified-error-types: backlog
+  1-2-unified-error-types: done
   1-3-structured-logging: backlog
   1-4-message-protocol: backlog
   epic-1-retrospective: optional
