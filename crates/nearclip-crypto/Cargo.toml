@@ -1,0 +1,12 @@
+[package]
+name = "nearclip-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Cryptographic primitives for NearClip - ECDH, TLS, key management"
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+rustls.workspace = true

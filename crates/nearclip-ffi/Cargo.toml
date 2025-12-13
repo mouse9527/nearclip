@@ -1,0 +1,16 @@
+[package]
+name = "nearclip-ffi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "FFI bindings for NearClip - uniffi exports for Swift/Kotlin"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+uniffi.workspace = true
+nearclip-core.workspace = true

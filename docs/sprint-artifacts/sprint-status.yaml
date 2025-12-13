@@ -1,0 +1,124 @@
+# Sprint Status - NearClip
+# Generated: 2025-12-13
+# Project: nearclip
+# Tracking System: file-system
+# Story Location: docs/sprint-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - drafted: Story file created in stories folder
+#   - ready-for-dev: Draft approved and story context created
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - completed: Retrospective has been done
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically drafts next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2025-12-13
+project: nearclip
+tracking_system: file-system
+story_location: docs/sprint-artifacts
+
+development_status:
+  # ============================================
+  # Epic 1: 项目基础设施
+  # ============================================
+  epic-1: in-progress
+  1-1-init-rust-workspace: done
+  1-2-unified-error-types: backlog
+  1-3-structured-logging: backlog
+  1-4-message-protocol: backlog
+  epic-1-retrospective: optional
+
+  # ============================================
+  # Epic 2: 设备发现与安全配对
+  # ============================================
+  epic-2: backlog
+  2-1-ecdh-keypair-generation: backlog
+  2-2-tls-1-3-config: backlog
+  2-3-mdns-service-broadcast: backlog
+  2-4-mdns-device-discovery: backlog
+  2-5-ble-device-broadcast: backlog
+  2-6-ble-device-scan: backlog
+  2-7-pairing-qrcode-generation: backlog
+  2-8-qrcode-scan-and-parse: backlog
+  2-9-persist-paired-devices: backlog
+  epic-2-retrospective: optional
+
+  # ============================================
+  # Epic 3: 跨设备剪贴板同步
+  # ============================================
+  epic-3: backlog
+  3-1-tcp-server: backlog
+  3-2-tcp-client-connection: backlog
+  3-3-ble-data-transfer-peripheral: backlog
+  3-4-ble-data-transfer-central: backlog
+  3-5-clipboard-content-send: backlog
+  3-6-clipboard-content-receive: backlog
+  3-7-channel-status-monitoring: backlog
+  3-8-channel-auto-switching: backlog
+  3-9-send-retry-mechanism: backlog
+  3-10-sync-loop-prevention: backlog
+  3-11-core-coordination-layer: backlog
+  epic-3-retrospective: optional
+
+  # ============================================
+  # Epic 4: macOS 原生客户端
+  # ============================================
+  epic-4: backlog
+  4-1-uniffi-swift-bindings: backlog
+  4-2-macos-menubar-app: backlog
+  4-3-connection-status-display: backlog
+  4-4-clipboard-monitoring: backlog
+  4-5-clipboard-write: backlog
+  4-6-pairing-ui: backlog
+  4-7-settings-ui: backlog
+  4-8-keychain-storage: backlog
+  epic-4-retrospective: optional
+
+  # ============================================
+  # Epic 5: Android 原生客户端
+  # ============================================
+  epic-5: backlog
+  5-1-uniffi-kotlin-bindings: backlog
+  5-2-android-app-framework: backlog
+  5-3-foreground-service: backlog
+  5-4-accessibility-clipboard-monitor: backlog
+  5-5-clipboard-write: backlog
+  5-6-connection-status-display: backlog
+  5-7-pairing-ui: backlog
+  5-8-settings-ui: backlog
+  5-9-android-keystore-storage: backlog
+  epic-5-retrospective: optional
+
+  # ============================================
+  # Epic 6: 增强用户体验
+  # ============================================
+  epic-6: backlog
+  6-1-sync-success-notification: backlog
+  6-2-sync-failure-alert: backlog
+  6-3-multi-device-pairing: backlog
+  6-4-retry-strategy-selection: backlog
+  6-5-encrypted-pairing-storage: backlog
+  6-6-network-recovery-reconnect: backlog
+  epic-6-retrospective: optional

@@ -1,0 +1,16 @@
+[package]
+name = "nearclip-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core coordination layer for NearClip - main API and device management"
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+nearclip-crypto.workspace = true
+nearclip-net.workspace = true
+nearclip-ble.workspace = true
+nearclip-sync.workspace = true

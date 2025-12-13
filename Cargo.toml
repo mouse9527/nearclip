@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/nearclip-core",
+    "crates/nearclip-net",
+    "crates/nearclip-ble",
+    "crates/nearclip-crypto",
+    "crates/nearclip-sync",
+    "crates/nearclip-ffi",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Mouse"]
+description = "Cross-platform local clipboard sync tool"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+rmp-serde = "1"
+
+# Crypto & TLS
+rustls = { version = "0.23", features = ["ring"] }
+
+# Networking
+mdns-sd = "0.11"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Error handling
+thiserror = "1"
+
+# FFI
+uniffi = "0.28"
+
+# Internal crates
+nearclip-core = { path = "crates/nearclip-core" }
+nearclip-net = { path = "crates/nearclip-net" }
+nearclip-ble = { path = "crates/nearclip-ble" }
+nearclip-crypto = { path = "crates/nearclip-crypto" }
+nearclip-sync = { path = "crates/nearclip-sync" }
+nearclip-ffi = { path = "crates/nearclip-ffi" }

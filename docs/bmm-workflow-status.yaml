@@ -1,0 +1,48 @@
+# BMM Workflow Status Tracking
+# This file tracks the completion status of BMM workflows for the project
+
+project_name: nearclip
+last_updated: 2025-12-13
+
+# Completed Workflows
+workflows:
+  product-brief:
+    status: completed
+    completed_at: 2025-12-13
+    output_file: docs/analysis/product-brief-nearclip-2025-12-13.md
+
+  prd:
+    status: completed
+    completed_at: 2025-12-13
+    output_file: docs/prd.md
+
+  architecture:
+    status: completed
+    completed_at: 2025-12-13
+    output_file: docs/architecture.md
+
+  project-context:
+    status: completed
+    completed_at: 2025-12-13
+    output_file: docs/project_context.md
+
+  epics-stories:
+    status: completed
+    completed_at: 2025-12-13
+    output_file: docs/epics.md
+    stats:
+      total_epics: 6
+      total_stories: 47
+      fr_coverage: 22/22
+
+# Next Recommended Workflows
+next_steps:
+  - workflow: sprint-planning
+    priority: high
+    description: Generate sprint status tracking and plan first sprint
+  - workflow: create-story
+    priority: high
+    description: Create the first user story (Story 1.1 - Initialize Rust Workspace)
+  - workflow: create-ux-design
+    priority: medium
+    description: Design UX patterns for cross-platform clipboard sync experience (optional)

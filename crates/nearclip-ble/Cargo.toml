@@ -1,0 +1,13 @@
+[package]
+name = "nearclip-ble"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Bluetooth Low Energy layer for NearClip - device discovery and data transfer"
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+nearclip-crypto.workspace = true
