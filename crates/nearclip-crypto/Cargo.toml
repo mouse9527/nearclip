@@ -9,4 +9,15 @@ description = "Cryptographic primitives for NearClip - ECDH, TLS, key management
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
+p256.workspace = true
+rand_core.workspace = true
 rustls.workspace = true
+rcgen.workspace = true
+base64.workspace = true
+time.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+tokio = { workspace = true, features = ["rt", "net", "io-util", "macros"] }
+tokio-rustls.workspace = true

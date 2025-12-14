@@ -9,6 +9,7 @@ description = "Core coordination layer for NearClip - main API and device manage
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
+tracing-subscriber.workspace = true
 tokio.workspace = true
 nearclip-crypto.workspace = true
 nearclip-net.workspace = true
