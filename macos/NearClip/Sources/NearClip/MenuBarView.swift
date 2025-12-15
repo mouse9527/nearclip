@@ -235,7 +235,13 @@ struct MenuBarView: View {
 
     private var actionsSection: some View {
         VStack(spacing: 0) {
-            MenuButton(title: "Add Device", systemImage: "plus.circle") {
+            MenuButton(
+                title: connectionManager.canAddMoreDevices
+                    ? "Add Device"
+                    : "Add Device (\(ConnectionManager.maxPairedDevices) max)",
+                systemImage: "plus.circle",
+                disabled: !connectionManager.canAddMoreDevices
+            ) {
                 onAddDevice()
             }
 
@@ -366,6 +372,7 @@ struct DeviceRow: View {
 struct MenuButton: View {
     let title: String
     let systemImage: String
+    var disabled: Bool = false
     let action: () -> Void
 
     @State private var isHovering = false
@@ -382,11 +389,13 @@ struct MenuButton: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 6)
-            .background(isHovering ? Color.accentColor.opacity(0.1) : Color.clear)
+            .background(isHovering && !disabled ? Color.accentColor.opacity(0.1) : Color.clear)
             .cornerRadius(4)
+            .opacity(disabled ? 0.5 : 1.0)
         }
         .buttonStyle(.plain)
         .padding(.horizontal, 4)
+        .disabled(disabled)
         .onHover { hovering in
             isHovering = hovering
         }

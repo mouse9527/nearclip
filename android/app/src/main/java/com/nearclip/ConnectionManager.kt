@@ -18,10 +18,14 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
 
     companion object {
         private const val TAG = "ConnectionManager"
+        const val MAX_PAIRED_DEVICES = 5
+        private const val PREFS_NAME = "nearclip_prefs"
+        private const val KEY_PAUSED_DEVICES = "paused_device_ids"
     }
 
     private var manager: FfiNearClipManager? = null
     private val secureStorage = SecureStorage(application)
+    private val prefs = application.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
@@ -38,7 +42,16 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     private val _lastReceivedClipboard = MutableStateFlow<Pair<ByteArray, String>?>(null)
     val lastReceivedClipboard: StateFlow<Pair<ByteArray, String>?> = _lastReceivedClipboard.asStateFlow()
 
+    private val _pausedDeviceIds = MutableStateFlow<Set<String>>(emptySet())
+    val pausedDeviceIds: StateFlow<Set<String>> = _pausedDeviceIds.asStateFlow()
+
+    /** Whether we can add more devices (haven't reached the limit) */
+    val canAddMoreDevices: Boolean
+        get() = _pairedDevices.value.size < MAX_PAIRED_DEVICES
+
     init {
+        // Load paused devices from preferences
+        _pausedDeviceIds.value = prefs.getStringSet(KEY_PAUSED_DEVICES, emptySet()) ?: emptySet()
         initializeManager()
     }
 
@@ -140,9 +153,14 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     /**
      * Add a device from a pairing code (JSON string).
      * @throws IllegalArgumentException if the code is invalid or missing required fields
-     * @throws IllegalStateException if the manager is not initialized
+     * @throws IllegalStateException if the manager is not initialized or device limit reached
      */
     fun addDeviceFromCode(code: String) {
+        // Check device limit first
+        if (_pairedDevices.value.size >= MAX_PAIRED_DEVICES) {
+            throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached. Remove a device to add a new one.")
+        }
+
         // Parse and validate JSON
         val json = try {
             JSONObject(code)
@@ -157,6 +175,12 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
             ?: throw IllegalArgumentException("Invalid pairing code: missing 'name' field")
         val platformStr = json.optString("platform", "").takeIf { it.isNotEmpty() }
             ?: throw IllegalArgumentException("Invalid pairing code: missing 'platform' field")
+
+        // Check if device already exists (allow re-adding)
+        val isExisting = _pairedDevices.value.any { it.id == id }
+        if (!isExisting && _pairedDevices.value.size >= MAX_PAIRED_DEVICES) {
+            throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached")
+        }
 
         // Validate platform enum
         val platform = try {
@@ -223,12 +247,49 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
             Log.e(TAG, "Failed to remove device from secure storage: $deviceId", e)
         }
 
+        // Remove from paused list
+        val currentPaused = _pausedDeviceIds.value.toMutableSet()
+        if (currentPaused.remove(deviceId)) {
+            _pausedDeviceIds.value = currentPaused
+            prefs.edit().putStringSet(KEY_PAUSED_DEVICES, currentPaused).apply()
+        }
+
         // Log if partial removal occurred
         if (managerSuccess != storageSuccess) {
             Log.w(TAG, "Partial device removal - manager: $managerSuccess, storage: $storageSuccess")
         }
 
         refreshDevices()
+    }
+
+    /**
+     * Pause syncing for a specific device.
+     * Paused devices won't receive clipboard sync.
+     */
+    fun pauseDevice(deviceId: String) {
+        val currentPaused = _pausedDeviceIds.value.toMutableSet()
+        currentPaused.add(deviceId)
+        _pausedDeviceIds.value = currentPaused
+        prefs.edit().putStringSet(KEY_PAUSED_DEVICES, currentPaused).apply()
+        Log.i(TAG, "Device paused: $deviceId")
+    }
+
+    /**
+     * Resume syncing for a specific device.
+     */
+    fun resumeDevice(deviceId: String) {
+        val currentPaused = _pausedDeviceIds.value.toMutableSet()
+        currentPaused.remove(deviceId)
+        _pausedDeviceIds.value = currentPaused
+        prefs.edit().putStringSet(KEY_PAUSED_DEVICES, currentPaused).apply()
+        Log.i(TAG, "Device resumed: $deviceId")
+    }
+
+    /**
+     * Check if a device is paused.
+     */
+    fun isDevicePaused(deviceId: String): Boolean {
+        return _pausedDeviceIds.value.contains(deviceId)
     }
 
     fun generatePairingCode(): String {

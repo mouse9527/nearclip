@@ -116,7 +116,7 @@ development_status:
   epic-6: in-progress
   6-1-sync-success-notification: done
   6-2-sync-failure-alert: done
-  6-3-multi-device-pairing: backlog
+  6-3-multi-device-pairing: done
   6-4-retry-strategy-selection: backlog
   6-5-encrypted-pairing-storage: backlog
   6-6-network-recovery-reconnect: backlog

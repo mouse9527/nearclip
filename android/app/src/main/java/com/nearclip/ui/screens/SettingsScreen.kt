@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nearclip.ConnectionManager
@@ -25,6 +26,7 @@ fun SettingsScreen(
 ) {
     val settings by settingsViewModel.settings.collectAsState()
     val pairedDevices by connectionManager.pairedDevices.collectAsState()
+    val pausedDeviceIds by connectionManager.pausedDeviceIds.collectAsState()
 
     var showDeleteDialog by remember { mutableStateOf<FfiDeviceInfo?>(null) }
 
@@ -96,7 +98,24 @@ fun SettingsScreen(
 
             // Paired Devices Section
             item {
-                SettingsSection(title = "Paired Devices")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Paired Devices",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${pairedDevices.size}/${ConnectionManager.MAX_PAIRED_DEVICES}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             if (pairedDevices.isEmpty()) {
@@ -112,7 +131,15 @@ fun SettingsScreen(
                 items(pairedDevices) { device ->
                     PairedDeviceItem(
                         device = device,
-                        onDelete = { showDeleteDialog = device }
+                        isPaused = pausedDeviceIds.contains(device.id),
+                        onDelete = { showDeleteDialog = device },
+                        onTogglePause = {
+                            if (pausedDeviceIds.contains(device.id)) {
+                                connectionManager.resumeDevice(device.id)
+                            } else {
+                                connectionManager.pauseDevice(device.id)
+                            }
+                        }
                     )
                 }
             }
@@ -175,12 +202,15 @@ fun SettingsScreen(
 @Composable
 fun PairedDeviceItem(
     device: FfiDeviceInfo,
-    onDelete: () -> Unit
+    isPaused: Boolean = false,
+    onDelete: () -> Unit,
+    onTogglePause: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .then(if (isPaused) Modifier.alpha(0.6f) else Modifier),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -190,20 +220,49 @@ fun PairedDeviceItem(
                 else -> Icons.Default.Devices
             },
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = if (isPaused)
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            else
+                MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = device.name,
-                style = MaterialTheme.typography.bodyLarge
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = device.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = if (isPaused)
+                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    else
+                        MaterialTheme.colorScheme.onSurface
+                )
+                if (isPaused) {
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "(Paused)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary
+                    )
+                }
+            }
             Text(
                 text = device.platform.name.lowercase().replaceFirstChar { it.uppercase() },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+        // Pause/Resume button
+        IconButton(onClick = onTogglePause) {
+            Icon(
+                imageVector = if (isPaused) Icons.Default.PlayArrow else Icons.Default.Pause,
+                contentDescription = if (isPaused) "Resume sync" else "Pause sync",
+                tint = if (isPaused)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.tertiary
+            )
+        }
+        // Delete button
         IconButton(onClick = onDelete) {
             Icon(
                 imageVector = Icons.Default.Delete,

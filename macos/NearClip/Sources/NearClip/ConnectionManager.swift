@@ -9,13 +9,15 @@ struct DeviceDisplay: Identifiable, Equatable {
     let platform: String
     let isConnected: Bool
     let lastSeen: Date?
+    var isPaused: Bool
 
-    init(id: String, name: String, platform: String, isConnected: Bool, lastSeen: Date? = nil) {
+    init(id: String, name: String, platform: String, isConnected: Bool, lastSeen: Date? = nil, isPaused: Bool = false) {
         self.id = id
         self.name = name
         self.platform = platform
         self.isConnected = isConnected
         self.lastSeen = lastSeen
+        self.isPaused = isPaused
     }
 }
 
@@ -102,6 +104,9 @@ enum ConnectionStatus: Equatable {
 final class ConnectionManager: ObservableObject {
     static let shared = ConnectionManager()
 
+    /// Maximum number of paired devices allowed
+    static let maxPairedDevices = 5
+
     @Published private(set) var status: ConnectionStatus = .disconnected
     @Published private(set) var connectedDevices: [DeviceDisplay] = []
     @Published private(set) var pairedDevices: [DeviceDisplay] = []
@@ -112,6 +117,21 @@ final class ConnectionManager: ObservableObject {
     private var isRunning = false
     private var syncInProgress = false
     private var previousStatus: ConnectionStatus = .disconnected
+
+    /// Set of paused device IDs (stored in UserDefaults)
+    private var pausedDeviceIds: Set<String> {
+        get {
+            Set(UserDefaults.standard.stringArray(forKey: "pausedDeviceIds") ?? [])
+        }
+        set {
+            UserDefaults.standard.set(Array(newValue), forKey: "pausedDeviceIds")
+        }
+    }
+
+    /// Check if we can add more devices
+    var canAddMoreDevices: Bool {
+        pairedDevices.count < Self.maxPairedDevices
+    }
 
     private init() {
         // Load paired devices from Keychain
@@ -197,8 +217,11 @@ final class ConnectionManager: ObservableObject {
             return
         }
 
-        guard !connectedDevices.isEmpty else {
-            print("Cannot sync: no connected devices")
+        // Filter out paused devices
+        let activeDevices = connectedDevices.filter { !pausedDeviceIds.contains($0.id) }
+
+        guard !activeDevices.isEmpty else {
+            print("Cannot sync: no active connected devices (all paused or none connected)")
             return
         }
 
@@ -209,7 +232,7 @@ final class ConnectionManager: ObservableObject {
             try nearClipManager?.syncClipboard(content: content)
             lastSyncTime = Date()
             lastError = nil
-            print("Clipboard synced: \(content.count) bytes")
+            print("Clipboard synced to \(activeDevices.count) device(s): \(content.count) bytes")
 
             // Clear syncing state after a brief delay
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
@@ -246,6 +269,43 @@ final class ConnectionManager: ObservableObject {
         } catch {
             print("Failed to disconnect device: \(error)")
         }
+    }
+
+    /// Pause syncing for a specific device
+    func pauseDevice(_ deviceId: String) {
+        var paused = pausedDeviceIds
+        paused.insert(deviceId)
+        pausedDeviceIds = paused
+
+        // Update the paired devices list to reflect the change
+        if let index = pairedDevices.firstIndex(where: { $0.id == deviceId }) {
+            var device = pairedDevices[index]
+            device.isPaused = true
+            pairedDevices[index] = device
+        }
+
+        print("Device paused: \(deviceId)")
+    }
+
+    /// Resume syncing for a specific device
+    func resumeDevice(_ deviceId: String) {
+        var paused = pausedDeviceIds
+        paused.remove(deviceId)
+        pausedDeviceIds = paused
+
+        // Update the paired devices list to reflect the change
+        if let index = pairedDevices.firstIndex(where: { $0.id == deviceId }) {
+            var device = pairedDevices[index]
+            device.isPaused = false
+            pairedDevices[index] = device
+        }
+
+        print("Device resumed: \(deviceId)")
+    }
+
+    /// Check if a device is paused
+    func isDevicePaused(_ deviceId: String) -> Bool {
+        pausedDeviceIds.contains(deviceId)
     }
 
     /// Refresh the device lists from FFI
@@ -442,7 +502,12 @@ final class ConnectionManager: ObservableObject {
     /// Load paired devices from Keychain
     private func loadPairedDevicesFromKeychain() {
         let storedDevices = KeychainManager.shared.loadPairedDevices()
-        pairedDevices = storedDevices.map { $0.toDeviceDisplay() }
+        let paused = pausedDeviceIds
+        pairedDevices = storedDevices.map { stored in
+            var device = stored.toDeviceDisplay()
+            device.isPaused = paused.contains(device.id)
+            return device
+        }
         print("ConnectionManager: Loaded \(pairedDevices.count) paired devices from Keychain")
     }
 
@@ -462,7 +527,19 @@ final class ConnectionManager: ObservableObject {
     }
 
     /// Add a paired device (saves to Keychain and updates FFI)
-    func addPairedDevice(_ device: DeviceDisplay) {
+    /// Returns false if the maximum device limit has been reached
+    @discardableResult
+    func addPairedDevice(_ device: DeviceDisplay) -> Bool {
+        // Check if device already exists (updating existing device)
+        let isExisting = pairedDevices.contains { $0.id == device.id }
+
+        // Check maximum device limit for new devices
+        if !isExisting && pairedDevices.count >= Self.maxPairedDevices {
+            print("ConnectionManager: Cannot add device - maximum \(Self.maxPairedDevices) devices reached")
+            lastError = "Maximum \(Self.maxPairedDevices) devices reached"
+            return false
+        }
+
         // Save to Keychain
         savePairedDeviceToKeychain(device)
 
@@ -480,12 +557,19 @@ final class ConnectionManager: ObservableObject {
             )
             manager.addPairedDevice(device: ffiDevice)
         }
+
+        return true
     }
 
     /// Remove a paired device (removes from Keychain and updates FFI)
     func removePairedDevice(_ deviceId: String) {
         // Remove from Keychain
         removePairedDeviceFromKeychain(deviceId)
+
+        // Remove from paused list
+        var paused = pausedDeviceIds
+        paused.remove(deviceId)
+        pausedDeviceIds = paused
 
         // Update local list
         pairedDevices.removeAll { $0.id == deviceId }

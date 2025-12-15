@@ -147,7 +147,7 @@ struct DevicesSettingsTab: View {
                 Text("Paired Devices")
                     .font(.headline)
                 Spacer()
-                Text("\(connectionManager.pairedDevices.count) devices")
+                Text("\(connectionManager.pairedDevices.count)/\(ConnectionManager.maxPairedDevices) devices")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
@@ -172,7 +172,14 @@ struct DevicesSettingsTab: View {
                 List(connectionManager.pairedDevices, selection: $selectedDeviceId) { device in
                     DeviceSettingsRow(
                         device: device,
-                        isConnected: connectionManager.connectedDevices.contains { $0.id == device.id }
+                        isConnected: connectionManager.connectedDevices.contains { $0.id == device.id },
+                        onTogglePause: {
+                            if device.isPaused {
+                                connectionManager.resumeDevice(device.id)
+                            } else {
+                                connectionManager.pauseDevice(device.id)
+                            }
+                        }
                     )
                     .tag(device.id)
                 }
@@ -217,24 +224,34 @@ struct DevicesSettingsTab: View {
 struct DeviceSettingsRow: View {
     let device: DeviceDisplay
     let isConnected: Bool
+    var onTogglePause: (() -> Void)? = nil
 
     var body: some View {
         HStack {
             Image(systemName: platformIcon)
                 .font(.title2)
-                .foregroundColor(.secondary)
+                .foregroundColor(device.isPaused ? .secondary.opacity(0.5) : .secondary)
                 .frame(width: 32)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(device.name)
-                    .fontWeight(.medium)
+                HStack(spacing: 4) {
+                    Text(device.name)
+                        .fontWeight(.medium)
+                        .foregroundColor(device.isPaused ? .secondary : .primary)
+
+                    if device.isPaused {
+                        Text("(Paused)")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
 
                 HStack(spacing: 4) {
                     Text(device.platform)
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    if isConnected {
+                    if isConnected && !device.isPaused {
                         Circle()
                             .fill(Color.green)
                             .frame(width: 6, height: 6)
@@ -247,11 +264,17 @@ struct DeviceSettingsRow: View {
 
             Spacer()
 
-            Text(device.id.prefix(8) + "...")
-                .font(.system(.caption, design: .monospaced))
-                .foregroundColor(.secondary)
+            // Pause/Resume button
+            Button(action: { onTogglePause?() }) {
+                Image(systemName: device.isPaused ? "play.circle" : "pause.circle")
+                    .font(.title3)
+                    .foregroundColor(device.isPaused ? .green : .orange)
+            }
+            .buttonStyle(.plain)
+            .help(device.isPaused ? "Resume sync for this device" : "Pause sync for this device")
         }
         .padding(.vertical, 4)
+        .opacity(device.isPaused ? 0.7 : 1.0)
     }
 
     private var platformIcon: String {
