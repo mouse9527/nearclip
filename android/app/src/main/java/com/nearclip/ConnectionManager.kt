@@ -57,25 +57,33 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     val canAddMoreDevices: Boolean
         get() = _pairedDevices.value.size < MAX_PAIRED_DEVICES
 
-    /** Get the default retry strategy from settings */
+    /** Cached default retry strategy - updated via flow collection */
+    private var _cachedRetryStrategy: SyncRetryStrategy = SyncRetryStrategy.WAIT_FOR_DEVICE
+
+    /** Get the default retry strategy from cache (non-blocking) */
     val defaultRetryStrategy: SyncRetryStrategy
-        get() = try {
-            runBlocking {
-                getApplication<Application>().settingsDataStore.data
-                    .map { prefs ->
-                        val value = prefs[androidx.datastore.preferences.core.stringPreferencesKey("default_retry_strategy")]
-                            ?: SyncRetryStrategy.WAIT_FOR_DEVICE.value
-                        SyncRetryStrategy.fromValue(value)
-                    }
-                    .first()
-            }
-        } catch (e: Exception) {
-            SyncRetryStrategy.WAIT_FOR_DEVICE
+        get() = _cachedRetryStrategy
+
+    /** Start observing settings changes */
+    private fun observeRetryStrategySetting() {
+        viewModelScope.launch {
+            getApplication<Application>().settingsDataStore.data
+                .map { prefs ->
+                    val value = prefs[androidx.datastore.preferences.core.stringPreferencesKey("default_retry_strategy")]
+                        ?: SyncRetryStrategy.WAIT_FOR_DEVICE.value
+                    SyncRetryStrategy.fromValue(value)
+                }
+                .collect { strategy ->
+                    _cachedRetryStrategy = strategy
+                }
         }
+    }
 
     init {
         // Load paused devices from preferences
         _pausedDeviceIds.value = prefs.getStringSet(KEY_PAUSED_DEVICES, emptySet()) ?: emptySet()
+        // Start observing retry strategy setting (non-blocking)
+        observeRetryStrategySetting()
         initializeManager()
     }
 
@@ -382,8 +390,17 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         if (_connectedDevices.value.isEmpty()) return
 
         Log.i(TAG, "Sending pending content to reconnected device(s)")
-        syncClipboard(content)
-        pendingContent = null
+        viewModelScope.launch {
+            try {
+                manager?.syncClipboard(content)
+                // Only clear pending content on successful sync
+                pendingContent = null
+                Log.i(TAG, "Pending content sent successfully: ${content.size} bytes")
+            } catch (e: NearClipException) {
+                // Keep pending content for next attempt
+                Log.w(TAG, "Failed to send pending content, will retry later: ${e.message}")
+            }
+        }
     }
 
     // FfiNearClipCallback implementation

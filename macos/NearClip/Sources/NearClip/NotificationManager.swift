@@ -1,5 +1,6 @@
 import Foundation
 import UserNotifications
+import AppKit
 
 /// Manages system notifications for NearClip
 final class NotificationManager: NSObject {

@@ -9,8 +9,7 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import com.nearclip.MainActivity
 import com.nearclip.data.settingsDataStore
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
 
 /**
  * Helper class for showing sync-related notifications.
@@ -28,8 +27,26 @@ class NotificationHelper(private val context: Context) {
 
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
+    /** Cached sync notifications enabled setting - defaults to true */
+    @Volatile
+    private var syncNotificationsEnabled: Boolean = true
+
     init {
         createNotificationChannel()
+        // Start observing settings in background
+        observeSyncNotificationsSetting()
+    }
+
+    private fun observeSyncNotificationsSetting() {
+        kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                context.settingsDataStore.data.collect { preferences ->
+                    syncNotificationsEnabled = preferences[androidx.datastore.preferences.core.booleanPreferencesKey("sync_notifications")] ?: true
+                }
+            } catch (e: Exception) {
+                // Keep default value on error
+            }
+        }
     }
 
     private fun createNotificationChannel() {
@@ -177,15 +194,7 @@ class NotificationHelper(private val context: Context) {
 
     /**
      * Check if sync notifications are enabled in settings.
+     * Uses cached value to avoid blocking the calling thread.
      */
-    private fun isSyncNotificationsEnabled(): Boolean {
-        return try {
-            runBlocking {
-                val preferences = context.settingsDataStore.data.first()
-                preferences[androidx.datastore.preferences.core.booleanPreferencesKey("sync_notifications")] ?: true
-            }
-        } catch (e: Exception) {
-            true // Default to enabled if reading fails
-        }
-    }
+    private fun isSyncNotificationsEnabled(): Boolean = syncNotificationsEnabled
 }

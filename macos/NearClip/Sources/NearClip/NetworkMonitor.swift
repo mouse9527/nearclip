@@ -5,14 +5,27 @@ import Network
 final class NetworkMonitor {
     static let shared = NetworkMonitor()
 
-    private let monitor = NWPathMonitor()
+    // MARK: - Constants
+
+    /// Maximum number of reconnection attempts before giving up
+    private static let maxReconnectAttempts = 3
+
+    /// Base delay for exponential backoff (seconds)
+    private static let baseReconnectDelay: TimeInterval = 1.0
+
+    /// Delay to verify connection status after reconnection attempt (seconds)
+    private static let connectionVerifyDelay: TimeInterval = 5.0
+
+    // MARK: - Properties
+
+    private var monitor: NWPathMonitor?
     private let queue = DispatchQueue(label: "com.nearclip.networkmonitor")
 
     private var isConnected = false
     private var wasDisconnected = false
     private var reconnectAttempts = 0
-    private let maxReconnectAttempts = 3
     private var reconnectWorkItem: DispatchWorkItem?
+    private var isMonitoring = false
 
     /// Callback when network connectivity is restored
     var onNetworkRestored: (() -> Void)?
@@ -26,18 +39,31 @@ final class NetworkMonitor {
 
     /// Start monitoring network connectivity
     func startMonitoring() {
-        monitor.pathUpdateHandler = { [weak self] path in
+        guard !isMonitoring else {
+            print("NetworkMonitor: Already monitoring")
+            return
+        }
+
+        // Create a new monitor instance (NWPathMonitor cannot be restarted after cancel)
+        let newMonitor = NWPathMonitor()
+        newMonitor.pathUpdateHandler = { [weak self] path in
             self?.handlePathUpdate(path)
         }
-        monitor.start(queue: queue)
+        newMonitor.start(queue: queue)
+        monitor = newMonitor
+        isMonitoring = true
         print("NetworkMonitor: Started monitoring")
     }
 
     /// Stop monitoring network connectivity
     func stopMonitoring() {
-        monitor.cancel()
+        guard isMonitoring else { return }
+
+        monitor?.cancel()
+        monitor = nil
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
+        isMonitoring = false
         print("NetworkMonitor: Stopped monitoring")
     }
 
@@ -80,13 +106,12 @@ final class NetworkMonitor {
         reconnectWorkItem = workItem
 
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
-        print("NetworkMonitor: Reconnection scheduled in \(delay)s (attempt \(reconnectAttempts + 1)/\(maxReconnectAttempts))")
+        print("NetworkMonitor: Reconnection scheduled in \(delay)s (attempt \(reconnectAttempts + 1)/\(Self.maxReconnectAttempts))")
     }
 
     private func calculateReconnectDelay() -> TimeInterval {
         // Exponential backoff: 1s, 2s, 4s
-        let baseDelay: TimeInterval = 1.0
-        return baseDelay * pow(2.0, Double(reconnectAttempts))
+        return Self.baseReconnectDelay * pow(2.0, Double(reconnectAttempts))
     }
 
     private func attemptReconnect() {
@@ -95,23 +120,23 @@ final class NetworkMonitor {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            print("NetworkMonitor: Attempting reconnection (attempt \(self.reconnectAttempts)/\(self.maxReconnectAttempts))")
+            print("NetworkMonitor: Attempting reconnection (attempt \(self.reconnectAttempts)/\(Self.maxReconnectAttempts))")
 
             // Trigger reconnection
             self.onNetworkRestored?()
 
-            // Check if we need to retry
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) { [weak self] in
+            // Check if we need to retry after a delay to allow connection to establish
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.connectionVerifyDelay) { [weak self] in
                 guard let self = self else { return }
 
                 // If still not connected after callback, and we haven't exceeded max attempts
                 let connectionManager = ConnectionManager.shared
-                if connectionManager.connectedDevices.isEmpty && self.reconnectAttempts < self.maxReconnectAttempts {
+                if connectionManager.connectedDevices.isEmpty && self.reconnectAttempts < Self.maxReconnectAttempts {
                     // Schedule another attempt
                     self.scheduleReconnect()
-                } else if connectionManager.connectedDevices.isEmpty && self.reconnectAttempts >= self.maxReconnectAttempts {
+                } else if connectionManager.connectedDevices.isEmpty && self.reconnectAttempts >= Self.maxReconnectAttempts {
                     // Max attempts reached, notify user
-                    print("NetworkMonitor: Reconnection failed after \(self.maxReconnectAttempts) attempts")
+                    print("NetworkMonitor: Reconnection failed after \(Self.maxReconnectAttempts) attempts")
                     self.onReconnectFailed?()
                 } else {
                     // Successfully reconnected

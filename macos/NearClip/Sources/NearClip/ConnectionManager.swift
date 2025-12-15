@@ -521,8 +521,19 @@ final class ConnectionManager: ObservableObject {
         guard !connectedDevices.isEmpty else { return }
 
         print("Sending pending content to reconnected device(s)")
-        syncClipboard(content)
-        pendingContent = nil
+
+        do {
+            try nearClipManager?.syncClipboard(content: content)
+            lastSyncTime = Date()
+            lastError = nil
+            // Only clear pending content on successful sync
+            pendingContent = nil
+            print("Pending content sent successfully: \(content.count) bytes")
+        } catch {
+            // Keep pending content for next attempt
+            let errorMessage = String(describing: error)
+            print("Failed to send pending content, will retry later: \(errorMessage)")
+        }
     }
 
     /// Apply the default retry strategy for the given content
