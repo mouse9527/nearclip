@@ -36,9 +36,11 @@ struct SettingsView: View {
 
 struct GeneralSettingsTab: View {
     @State private var launchAtLogin = AppDelegate.isLaunchAtLoginEnabled
+    @AppStorage("syncNotificationsEnabled") private var syncNotificationsEnabled = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            // Startup section
             Text("Startup")
                 .font(.headline)
 
@@ -48,6 +50,18 @@ struct GeneralSettingsTab: View {
                 }
 
             Text("NearClip will start automatically when you log in")
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            Divider()
+
+            // Notifications section
+            Text("Notifications")
+                .font(.headline)
+
+            Toggle("Show Sync Notifications", isOn: $syncNotificationsEnabled)
+
+            Text("Display a notification when clipboard is synced from another device")
                 .font(.caption)
                 .foregroundColor(.secondary)
 

@@ -354,6 +354,14 @@ final class ConnectionManager: ObservableObject {
                 self.lastSyncTime = Date()
                 self.lastError = nil
                 print("Received and wrote clipboard from \(deviceId): \(content.count) bytes")
+
+                // Show notification
+                let deviceName = self.connectedDevices.first { $0.id == deviceId }?.name ?? deviceId
+                let contentPreview = String(data: content, encoding: .utf8)
+                NotificationManager.shared.showSyncSuccessNotification(
+                    fromDevice: deviceName,
+                    contentPreview: contentPreview
+                )
             } else {
                 self.lastError = "Failed to write clipboard"
                 print("Failed to write clipboard from \(deviceId)")

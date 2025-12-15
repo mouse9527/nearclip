@@ -48,6 +48,7 @@ class NearClipService : Service(), FfiNearClipCallback {
     private var manager: FfiNearClipManager? = null
     private var clipboardMonitor: ClipboardMonitor? = null
     private var clipboardWriter: ClipboardWriter? = null
+    private var notificationHelper: NotificationHelper? = null
     private var isRunning = false
 
     // Binder for local binding
@@ -192,6 +193,9 @@ class NearClipService : Service(), FfiNearClipCallback {
 
             // Initialize clipboard writer
             clipboardWriter = ClipboardWriter(this, clipboardMonitor)
+
+            // Initialize notification helper
+            notificationHelper = NotificationHelper(this)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -242,6 +246,18 @@ class NearClipService : Service(), FfiNearClipCallback {
     override fun onClipboardReceived(content: ByteArray, fromDevice: String) {
         // Write to local clipboard (also marks as remote to prevent sync loop)
         clipboardWriter?.writeText(content, "NearClip from $fromDevice")
+
+        // Show sync success notification
+        val contentPreview = try {
+            String(content, Charsets.UTF_8)
+        } catch (e: Exception) {
+            null
+        }
+
+        // Find device name from connected devices
+        val deviceName = manager?.getConnectedDevices()?.find { it.id == fromDevice }?.name ?: fromDevice
+        notificationHelper?.showSyncSuccessNotification(deviceName, contentPreview)
+
         listeners.forEach { it.onClipboardReceived(content, fromDevice) }
     }
 

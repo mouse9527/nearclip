@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPopover()
         setupConnectionManager()
         setupClipboardMonitor()
+        setupNotifications()
 
         // Hide dock icon (backup for Info.plist LSUIElement)
         NSApp.setActivationPolicy(.accessory)
@@ -71,6 +72,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Configure clipboard monitor to sync via ConnectionManager
         clipboardMonitor?.configure(with: ConnectionManager.shared)
+    }
+
+    private func setupNotifications() {
+        // Set default value for sync notifications if not already set
+        if UserDefaults.standard.object(forKey: "syncNotificationsEnabled") == nil {
+            UserDefaults.standard.set(true, forKey: "syncNotificationsEnabled")
+        }
+
+        // Initialize notification manager (requests authorization)
+        _ = NotificationManager.shared
     }
 
     // MARK: - Actions
