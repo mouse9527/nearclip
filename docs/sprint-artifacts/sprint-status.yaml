@@ -98,16 +98,16 @@ development_status:
   # ============================================
   # Epic 5: Android 原生客户端
   # ============================================
-  epic-5: backlog
-  5-1-uniffi-kotlin-bindings: backlog
-  5-2-android-app-framework: backlog
-  5-3-foreground-service: backlog
-  5-4-accessibility-clipboard-monitor: backlog
-  5-5-clipboard-write: backlog
-  5-6-connection-status-display: backlog
-  5-7-pairing-ui: backlog
-  5-8-settings-ui: backlog
-  5-9-android-keystore-storage: backlog
+  epic-5: done
+  5-1-uniffi-kotlin-bindings: done
+  5-2-android-app-framework: done
+  5-3-foreground-service: done
+  5-4-accessibility-clipboard-monitor: done
+  5-5-clipboard-write: done
+  5-6-connection-status-display: done
+  5-7-pairing-ui: done
+  5-8-settings-ui: done
+  5-9-android-keystore-storage: done
   epic-5-retrospective: optional
 
   # ============================================

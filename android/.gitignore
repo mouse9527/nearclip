@@ -1,0 +1,30 @@
+# Gradle
+.gradle/
+build/
+!gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# Android
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+
+# Local configuration
+local.properties
+*.keystore
+!debug.keystore
+
+# Native libraries (built from Rust)
+# Keep jniLibs directory but not the generated .so files
+app/src/main/jniLibs/**/*.so
+
+# Kotlin
+*.kotlin_module
