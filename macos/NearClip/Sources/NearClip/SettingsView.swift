@@ -79,6 +79,14 @@ struct SyncSettingsTab: View {
     @AppStorage("wifiEnabled") private var wifiEnabled = true
     @AppStorage("bleEnabled") private var bleEnabled = true
     @AppStorage("autoConnect") private var autoConnect = true
+    @AppStorage("defaultRetryStrategy") private var defaultRetryStrategy = SyncRetryStrategy.waitForDevice.rawValue
+
+    private var selectedStrategy: Binding<SyncRetryStrategy> {
+        Binding(
+            get: { SyncRetryStrategy(rawValue: defaultRetryStrategy) ?? .waitForDevice },
+            set: { defaultRetryStrategy = $0.rawValue }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -112,6 +120,26 @@ struct SyncSettingsTab: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .padding(.leading, 20)
+            }
+
+            Divider()
+
+            // Retry Strategy
+            VStack(alignment: .leading, spacing: 8) {
+                Text("On Sync Failure")
+                    .font(.headline)
+
+                Picker("Default Action", selection: selectedStrategy) {
+                    ForEach(SyncRetryStrategy.allCases, id: \.self) { strategy in
+                        Text(strategy.displayName).tag(strategy)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 200)
+
+                Text(selectedStrategy.wrappedValue.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
 
             Spacer()

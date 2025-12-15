@@ -10,9 +10,13 @@ final class NotificationManager: NSObject {
     // Notification categories and actions
     private static let syncFailureCategoryId = "SYNC_FAILURE"
     private static let retryActionId = "RETRY_SYNC"
+    private static let discardActionId = "DISCARD_SYNC"
+    private static let waitActionId = "WAIT_SYNC"
 
-    // Callback for retry action
+    // Callbacks for retry strategy actions
     var onRetryRequested: (() -> Void)?
+    var onDiscardRequested: (() -> Void)?
+    var onWaitForDeviceRequested: (() -> Void)?
 
     private override init() {
         super.init()
@@ -23,17 +27,29 @@ final class NotificationManager: NSObject {
     // MARK: - Setup
 
     private func setupNotificationCategories() {
-        // Define retry action
+        // Define actions for each strategy
         let retryAction = UNNotificationAction(
             identifier: Self.retryActionId,
             title: "Retry",
             options: [.foreground]
         )
 
-        // Define sync failure category with retry action
+        let discardAction = UNNotificationAction(
+            identifier: Self.discardActionId,
+            title: "Discard",
+            options: []
+        )
+
+        let waitAction = UNNotificationAction(
+            identifier: Self.waitActionId,
+            title: "Wait for Device",
+            options: []
+        )
+
+        // Define sync failure category with all strategy actions
         let syncFailureCategory = UNNotificationCategory(
             identifier: Self.syncFailureCategoryId,
-            actions: [retryAction],
+            actions: [retryAction, waitAction, discardAction],
             intentIdentifiers: [],
             options: []
         )
@@ -192,6 +208,20 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
             print("NotificationManager: Retry action triggered")
             DispatchQueue.main.async { [weak self] in
                 self?.onRetryRequested?()
+            }
+
+        case Self.discardActionId:
+            // User tapped Discard action
+            print("NotificationManager: Discard action triggered")
+            DispatchQueue.main.async { [weak self] in
+                self?.onDiscardRequested?()
+            }
+
+        case Self.waitActionId:
+            // User tapped Wait for Device action
+            print("NotificationManager: Wait for Device action triggered")
+            DispatchQueue.main.async { [weak self] in
+                self?.onWaitForDeviceRequested?()
             }
 
         case UNNotificationDefaultActionIdentifier:

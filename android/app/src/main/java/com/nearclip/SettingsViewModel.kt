@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nearclip.data.NearClipSettings
 import com.nearclip.data.SettingsRepository
+import com.nearclip.data.SyncRetryStrategy
 import com.nearclip.data.settingsDataStore
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -43,6 +44,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setSyncNotifications(enabled: Boolean) {
         viewModelScope.launch {
             repository.setSyncNotifications(enabled)
+        }
+    }
+
+    fun setDefaultRetryStrategy(strategy: SyncRetryStrategy) {
+        viewModelScope.launch {
+            repository.setDefaultRetryStrategy(strategy)
         }
     }
 }

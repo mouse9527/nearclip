@@ -20,6 +20,8 @@ class NotificationHelper(private val context: Context) {
     companion object {
         const val SYNC_NOTIFICATION_CHANNEL_ID = "nearclip_sync_notifications"
         const val ACTION_RETRY_SYNC = "com.nearclip.action.RETRY_SYNC"
+        const val ACTION_DISCARD_SYNC = "com.nearclip.action.DISCARD_SYNC"
+        const val ACTION_WAIT_SYNC = "com.nearclip.action.WAIT_SYNC"
         private const val SYNC_SUCCESS_NOTIFICATION_ID = 1000
         private const val SYNC_FAILURE_NOTIFICATION_ID = 1001
     }
@@ -114,10 +116,28 @@ class NotificationHelper(private val context: Context) {
 
         // Retry action - triggers sync of current clipboard
         val retryIntent = Intent(context, NearClipService::class.java).apply {
-            action = NearClipService.ACTION_SYNC_NOW
+            action = ACTION_RETRY_SYNC
         }
         val retryPendingIntent = PendingIntent.getService(
             context, 1, retryIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Wait for device action
+        val waitIntent = Intent(context, NearClipService::class.java).apply {
+            action = ACTION_WAIT_SYNC
+        }
+        val waitPendingIntent = PendingIntent.getService(
+            context, 2, waitIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Discard action
+        val discardIntent = Intent(context, NearClipService::class.java).apply {
+            action = ACTION_DISCARD_SYNC
+        }
+        val discardPendingIntent = PendingIntent.getService(
+            context, 3, discardIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -137,6 +157,16 @@ class NotificationHelper(private val context: Context) {
                 android.R.drawable.ic_menu_rotate,
                 "Retry",
                 retryPendingIntent
+            )
+            .addAction(
+                android.R.drawable.ic_popup_sync,
+                "Wait",
+                waitPendingIntent
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                "Discard",
+                discardPendingIntent
             )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_ERROR)

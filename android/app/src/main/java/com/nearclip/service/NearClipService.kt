@@ -22,6 +22,10 @@ class NearClipService : Service(), FfiNearClipCallback {
         const val NOTIFICATION_ID = 1
         const val ACTION_STOP = "com.nearclip.action.STOP"
         const val ACTION_SYNC_NOW = "com.nearclip.action.SYNC_NOW"
+        // Retry strategy actions
+        const val ACTION_RETRY_SYNC = NotificationHelper.ACTION_RETRY_SYNC
+        const val ACTION_DISCARD_SYNC = NotificationHelper.ACTION_DISCARD_SYNC
+        const val ACTION_WAIT_SYNC = NotificationHelper.ACTION_WAIT_SYNC
 
         fun startService(context: Context) {
             val intent = Intent(context, NearClipService::class.java)
@@ -49,7 +53,9 @@ class NearClipService : Service(), FfiNearClipCallback {
     private var clipboardMonitor: ClipboardMonitor? = null
     private var clipboardWriter: ClipboardWriter? = null
     private var notificationHelper: NotificationHelper? = null
+    private var networkMonitor: NetworkMonitor? = null
     private var isRunning = false
+    private var pendingContent: ByteArray? = null
 
     // Binder for local binding
     private val binder = LocalBinder()
@@ -90,8 +96,19 @@ class NearClipService : Service(), FfiNearClipCallback {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_SYNC_NOW -> {
+            ACTION_SYNC_NOW, ACTION_RETRY_SYNC -> {
+                // Retry sync - resync current clipboard
                 clipboardMonitor?.syncCurrentClipboard()
+                return START_STICKY
+            }
+            ACTION_DISCARD_SYNC -> {
+                // Discard - clear any pending content
+                pendingContent = null
+                return START_STICKY
+            }
+            ACTION_WAIT_SYNC -> {
+                // Wait for device - content is already saved, just acknowledge
+                // Pending content will be sent when device reconnects
                 return START_STICKY
             }
         }
@@ -196,15 +213,42 @@ class NearClipService : Service(), FfiNearClipCallback {
 
             // Initialize notification helper
             notificationHelper = NotificationHelper(this)
+
+            // Initialize network monitor
+            networkMonitor = NetworkMonitor(this).apply {
+                onNetworkRestored = {
+                    android.util.Log.i("NearClipService", "Network restored, restarting service")
+                    restartSync()
+                }
+
+                onReconnectFailed = {
+                    android.util.Log.w("NearClipService", "Reconnection failed after multiple attempts")
+                    notificationHelper?.showSyncFailureNotification(
+                        reason = "Unable to reconnect after network recovery"
+                    )
+                }
+
+                isConnectedToDevices = {
+                    manager?.getConnectedDevices()?.isNotEmpty() == true
+                }
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun restartSync() {
+        stopSync()
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            startSync()
+        }, 500)
     }
 
     private fun startSync() {
         try {
             manager?.start()
             clipboardMonitor?.startMonitoring()
+            networkMonitor?.startMonitoring()
             isRunning = manager?.isRunning() ?: false
             listeners.forEach { it.onRunningStateChanged(isRunning) }
         } catch (e: NearClipException) {
@@ -214,6 +258,7 @@ class NearClipService : Service(), FfiNearClipCallback {
 
     private fun stopSync() {
         clipboardMonitor?.stopMonitoring()
+        networkMonitor?.stopMonitoring()
         manager?.stop()
         isRunning = false
         listeners.forEach { it.onRunningStateChanged(isRunning) }
@@ -236,6 +281,22 @@ class NearClipService : Service(), FfiNearClipCallback {
     override fun onDeviceConnected(device: FfiDeviceInfo) {
         updateNotification()
         listeners.forEach { it.onDeviceConnected(device) }
+
+        // Send pending content if using "wait for device" strategy
+        sendPendingContentIfNeeded()
+    }
+
+    private fun sendPendingContentIfNeeded() {
+        val content = pendingContent ?: return
+        val connectedDevices = manager?.getConnectedDevices() ?: return
+        if (connectedDevices.isEmpty()) return
+
+        try {
+            manager?.syncClipboard(content)
+            pendingContent = null
+        } catch (e: Exception) {
+            // Keep pending for next attempt
+        }
     }
 
     override fun onDeviceDisconnected(deviceId: String) {

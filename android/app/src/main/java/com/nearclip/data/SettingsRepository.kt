@@ -13,13 +13,29 @@ import java.io.IOException
 val Context.settingsDataStore: DataStore<Preferences> by preferencesDataStore(name = "nearclip_settings")
 
 /**
+ * Retry strategy when sync fails after exhausting retries.
+ */
+enum class SyncRetryStrategy(val value: String, val displayName: String, val description: String) {
+    DISCARD("discard", "Discard", "Give up on failed sync"),
+    WAIT_FOR_DEVICE("wait", "Wait for Device", "Queue and send when device reconnects"),
+    CONTINUE_RETRY("retry", "Continue Retrying", "Keep retrying until successful");
+
+    companion object {
+        fun fromValue(value: String): SyncRetryStrategy {
+            return entries.find { it.value == value } ?: WAIT_FOR_DEVICE
+        }
+    }
+}
+
+/**
  * User-configurable settings for NearClip.
  */
 data class NearClipSettings(
     val wifiEnabled: Boolean = true,
     val bleEnabled: Boolean = true,
     val autoConnect: Boolean = true,
-    val syncNotifications: Boolean = true
+    val syncNotifications: Boolean = true,
+    val defaultRetryStrategy: SyncRetryStrategy = SyncRetryStrategy.WAIT_FOR_DEVICE
 )
 
 /**
@@ -32,6 +48,7 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
         val BLE_ENABLED = booleanPreferencesKey("ble_enabled")
         val AUTO_CONNECT = booleanPreferencesKey("auto_connect")
         val SYNC_NOTIFICATIONS = booleanPreferencesKey("sync_notifications")
+        val DEFAULT_RETRY_STRATEGY = stringPreferencesKey("default_retry_strategy")
     }
 
     /**
@@ -50,7 +67,10 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
                 wifiEnabled = preferences[PreferencesKeys.WIFI_ENABLED] ?: true,
                 bleEnabled = preferences[PreferencesKeys.BLE_ENABLED] ?: true,
                 autoConnect = preferences[PreferencesKeys.AUTO_CONNECT] ?: true,
-                syncNotifications = preferences[PreferencesKeys.SYNC_NOTIFICATIONS] ?: true
+                syncNotifications = preferences[PreferencesKeys.SYNC_NOTIFICATIONS] ?: true,
+                defaultRetryStrategy = SyncRetryStrategy.fromValue(
+                    preferences[PreferencesKeys.DEFAULT_RETRY_STRATEGY] ?: SyncRetryStrategy.WAIT_FOR_DEVICE.value
+                )
             )
         }
 
@@ -91,6 +111,15 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
     }
 
     /**
+     * Update default retry strategy setting.
+     */
+    suspend fun setDefaultRetryStrategy(strategy: SyncRetryStrategy) {
+        dataStore.edit { preferences ->
+            preferences[PreferencesKeys.DEFAULT_RETRY_STRATEGY] = strategy.value
+        }
+    }
+
+    /**
      * Update all settings at once.
      */
     suspend fun updateSettings(settings: NearClipSettings) {
@@ -99,6 +128,7 @@ class SettingsRepository(private val dataStore: DataStore<Preferences>) {
             preferences[PreferencesKeys.BLE_ENABLED] = settings.bleEnabled
             preferences[PreferencesKeys.AUTO_CONNECT] = settings.autoConnect
             preferences[PreferencesKeys.SYNC_NOTIFICATIONS] = settings.syncNotifications
+            preferences[PreferencesKeys.DEFAULT_RETRY_STRATEGY] = settings.defaultRetryStrategy.value
         }
     }
 }

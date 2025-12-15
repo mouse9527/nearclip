@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nearclip.ConnectionManager
 import com.nearclip.SettingsViewModel
+import com.nearclip.data.SyncRetryStrategy
 import com.nearclip.ffi.FfiDeviceInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -89,6 +90,22 @@ fun SettingsScreen(
                     icon = Icons.Default.Notifications,
                     checked = settings.syncNotifications,
                     onCheckedChange = { settingsViewModel.setSyncNotifications(it) }
+                )
+            }
+
+            item {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            }
+
+            // Retry Strategy Section
+            item {
+                SettingsSection(title = "On Sync Failure")
+            }
+
+            item {
+                RetryStrategySelector(
+                    selectedStrategy = settings.defaultRetryStrategy,
+                    onStrategySelected = { settingsViewModel.setDefaultRetryStrategy(it) }
                 )
             }
 
@@ -366,6 +383,87 @@ fun SettingsItem(
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RetryStrategySelector(
+    selectedStrategy: SyncRetryStrategy,
+    onStrategySelected: (SyncRetryStrategy) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = Icons.Default.Refresh,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Default Action",
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Text(
+                text = selectedStrategy.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it }
+        ) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.menuAnchor()
+            ) {
+                Text(selectedStrategy.displayName)
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                    contentDescription = null
+                )
+            }
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false }
+            ) {
+                SyncRetryStrategy.entries.forEach { strategy ->
+                    DropdownMenuItem(
+                        text = {
+                            Column {
+                                Text(strategy.displayName)
+                                Text(
+                                    text = strategy.description,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        onClick = {
+                            onStrategySelected(strategy)
+                            expanded = false
+                        },
+                        leadingIcon = {
+                            if (strategy == selectedStrategy) {
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 }

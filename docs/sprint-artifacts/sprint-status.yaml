@@ -113,11 +113,11 @@ development_status:
   # ============================================
   # Epic 6: 增强用户体验
   # ============================================
-  epic-6: in-progress
+  epic-6: done
   6-1-sync-success-notification: done
   6-2-sync-failure-alert: done
   6-3-multi-device-pairing: done
-  6-4-retry-strategy-selection: backlog
-  6-5-encrypted-pairing-storage: backlog
-  6-6-network-recovery-reconnect: backlog
+  6-4-retry-strategy-selection: done
+  6-5-encrypted-pairing-storage: done
+  6-6-network-recovery-reconnect: done
   epic-6-retrospective: optional

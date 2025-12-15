@@ -6,11 +6,16 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.nearclip.data.SecureStorage
+import com.nearclip.data.SyncRetryStrategy
+import com.nearclip.data.settingsDataStore
 import com.nearclip.ffi.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -45,9 +50,28 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     private val _pausedDeviceIds = MutableStateFlow<Set<String>>(emptySet())
     val pausedDeviceIds: StateFlow<Set<String>> = _pausedDeviceIds.asStateFlow()
 
+    /** Pending content for "wait for device" strategy */
+    private var pendingContent: ByteArray? = null
+
     /** Whether we can add more devices (haven't reached the limit) */
     val canAddMoreDevices: Boolean
         get() = _pairedDevices.value.size < MAX_PAIRED_DEVICES
+
+    /** Get the default retry strategy from settings */
+    val defaultRetryStrategy: SyncRetryStrategy
+        get() = try {
+            runBlocking {
+                getApplication<Application>().settingsDataStore.data
+                    .map { prefs ->
+                        val value = prefs[androidx.datastore.preferences.core.stringPreferencesKey("default_retry_strategy")]
+                            ?: SyncRetryStrategy.WAIT_FOR_DEVICE.value
+                        SyncRetryStrategy.fromValue(value)
+                    }
+                    .first()
+            }
+        } catch (e: Exception) {
+            SyncRetryStrategy.WAIT_FOR_DEVICE
+        }
 
     init {
         // Load paused devices from preferences
@@ -307,10 +331,67 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         _connectedDevices.value = manager?.getConnectedDevices() ?: emptyList()
     }
 
+    // MARK: - Retry Strategy Execution
+
+    /**
+     * Execute the discard strategy - clear pending content.
+     */
+    fun executeDiscardStrategy() {
+        pendingContent = null
+        _lastError.value = null
+        Log.i(TAG, "Retry strategy: Discarded failed sync content")
+    }
+
+    /**
+     * Execute the wait for device strategy - queue content for later.
+     */
+    fun executeWaitForDeviceStrategy(content: ByteArray? = null) {
+        if (content != null) {
+            pendingContent = content
+        }
+        Log.i(TAG, "Retry strategy: Content queued, waiting for device reconnection")
+    }
+
+    /**
+     * Execute the continue retry strategy - retry sync immediately.
+     * Note: This requires a callback to be set up by the service.
+     */
+    var onRetryRequested: (() -> Unit)? = null
+
+    fun executeContinueRetryStrategy() {
+        Log.i(TAG, "Retry strategy: Continuing retry")
+        onRetryRequested?.invoke()
+    }
+
+    /**
+     * Apply the default retry strategy for the given content.
+     */
+    fun applyDefaultRetryStrategy(content: ByteArray) {
+        when (defaultRetryStrategy) {
+            SyncRetryStrategy.DISCARD -> executeDiscardStrategy()
+            SyncRetryStrategy.WAIT_FOR_DEVICE -> executeWaitForDeviceStrategy(content)
+            SyncRetryStrategy.CONTINUE_RETRY -> executeContinueRetryStrategy()
+        }
+    }
+
+    /**
+     * Send pending content when a device reconnects.
+     */
+    private fun sendPendingContentIfNeeded() {
+        val content = pendingContent ?: return
+        if (_connectedDevices.value.isEmpty()) return
+
+        Log.i(TAG, "Sending pending content to reconnected device(s)")
+        syncClipboard(content)
+        pendingContent = null
+    }
+
     // FfiNearClipCallback implementation
 
     override fun onDeviceConnected(device: FfiDeviceInfo) {
         refreshDevices()
+        // Send pending content if using "wait for device" strategy
+        sendPendingContentIfNeeded()
     }
 
     override fun onDeviceDisconnected(deviceId: String) {

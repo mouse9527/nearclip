@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var popover: NSPopover?
     private var connectionManager: ConnectionManager?
     private var clipboardMonitor: ClipboardMonitor?
+    private var networkMonitor: NetworkMonitor?
     private var animationTimer: Timer?
     private var pairingWindowController: PairingWindowController?
     private var settingsWindowController: SettingsWindowController?
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupConnectionManager()
         setupClipboardMonitor()
         setupNotifications()
+        setupNetworkMonitor()
 
         // Hide dock icon (backup for Info.plist LSUIElement)
         NSApp.setActivationPolicy(.accessory)
@@ -25,11 +27,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Auto-start the service and clipboard monitoring
         connectionManager?.start()
         clipboardMonitor?.startMonitoring()
+        networkMonitor?.startMonitoring()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Stop clipboard monitoring
         clipboardMonitor?.stopMonitoring()
+
+        // Stop network monitoring
+        networkMonitor?.stopMonitoring()
 
         // Stop the service before quitting
         connectionManager?.stop()
@@ -83,11 +89,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Initialize notification manager (requests authorization)
         let notificationManager = NotificationManager.shared
 
-        // Set up retry handler for sync failure notifications
+        // Set up retry strategy handlers for sync failure notifications
         notificationManager.onRetryRequested = { [weak self] in
             print("AppDelegate: Retry sync requested from notification")
-            // Attempt to resync the last clipboard content
-            self?.clipboardMonitor?.syncCurrentClipboard()
+            self?.connectionManager?.executeContinueRetryStrategy()
+        }
+
+        notificationManager.onDiscardRequested = { [weak self] in
+            print("AppDelegate: Discard sync requested from notification")
+            self?.connectionManager?.executeDiscardStrategy()
+        }
+
+        notificationManager.onWaitForDeviceRequested = { [weak self] in
+            print("AppDelegate: Wait for device requested from notification")
+            self?.connectionManager?.executeWaitForDeviceStrategy()
+        }
+    }
+
+    private func setupNetworkMonitor() {
+        networkMonitor = NetworkMonitor.shared
+
+        // Handle network recovery - restart service to reconnect
+        networkMonitor?.onNetworkRestored = { [weak self] in
+            print("AppDelegate: Network restored, attempting to reconnect")
+            self?.connectionManager?.restart()
+        }
+
+        // Handle reconnection failure after max attempts
+        networkMonitor?.onReconnectFailed = { [weak self] in
+            print("AppDelegate: Reconnection failed after multiple attempts")
+
+            // Show notification to user
+            NotificationManager.shared.showSyncFailureNotification(
+                reason: "Unable to reconnect after network recovery. Please check your network connection."
+            )
         }
     }
 

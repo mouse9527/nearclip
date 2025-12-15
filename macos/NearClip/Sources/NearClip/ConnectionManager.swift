@@ -2,6 +2,35 @@ import Foundation
 import Combine
 import AppKit
 
+/// Retry strategy when sync fails after exhausting retries
+enum SyncRetryStrategy: String, CaseIterable {
+    case discard = "discard"        // Give up on this sync
+    case waitForDevice = "wait"     // Queue content and send when device reconnects
+    case continueRetry = "retry"    // Keep retrying indefinitely
+
+    var displayName: String {
+        switch self {
+        case .discard:
+            return "Discard"
+        case .waitForDevice:
+            return "Wait for Device"
+        case .continueRetry:
+            return "Continue Retrying"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .discard:
+            return "Give up on failed sync"
+        case .waitForDevice:
+            return "Queue and send when device reconnects"
+        case .continueRetry:
+            return "Keep retrying until successful"
+        }
+    }
+}
+
 /// Device information for display in UI
 struct DeviceDisplay: Identifiable, Equatable {
     let id: String
@@ -117,6 +146,15 @@ final class ConnectionManager: ObservableObject {
     private var isRunning = false
     private var syncInProgress = false
     private var previousStatus: ConnectionStatus = .disconnected
+
+    /// Pending content queue for "wait for device" strategy
+    private var pendingContent: Data?
+
+    /// Default retry strategy (loaded from UserDefaults)
+    var defaultRetryStrategy: SyncRetryStrategy {
+        let rawValue = UserDefaults.standard.string(forKey: "defaultRetryStrategy") ?? SyncRetryStrategy.waitForDevice.rawValue
+        return SyncRetryStrategy(rawValue: rawValue) ?? .waitForDevice
+    }
 
     /// Set of paused device IDs (stored in UserDefaults)
     private var pausedDeviceIds: Set<String> {
@@ -373,6 +411,9 @@ final class ConnectionManager: ObservableObject {
 
             self.updateStatus()
             print("Device connected: \(device.name)")
+
+            // Send pending content if using "wait for device" strategy
+            self.sendPendingContentIfNeeded()
         }
     }
 
@@ -447,6 +488,52 @@ final class ConnectionManager: ObservableObject {
 
             // Show failure notification
             NotificationManager.shared.showSyncFailureNotification(reason: error)
+        }
+    }
+
+    // MARK: - Retry Strategy Execution
+
+    /// Execute the discard strategy - clear pending content
+    func executeDiscardStrategy() {
+        pendingContent = nil
+        lastError = nil
+        print("Retry strategy: Discarded failed sync content")
+    }
+
+    /// Execute the wait for device strategy - queue content for later
+    func executeWaitForDeviceStrategy(content: Data? = nil) {
+        if let newContent = content {
+            pendingContent = newContent
+        }
+        print("Retry strategy: Content queued, waiting for device reconnection")
+    }
+
+    /// Execute the continue retry strategy - retry sync immediately
+    func executeContinueRetryStrategy() {
+        print("Retry strategy: Continuing retry")
+        // Trigger clipboard monitor to retry
+        ClipboardMonitor.shared.syncCurrentClipboard()
+    }
+
+    /// Check and send pending content when a device connects
+    private func sendPendingContentIfNeeded() {
+        guard let content = pendingContent else { return }
+        guard !connectedDevices.isEmpty else { return }
+
+        print("Sending pending content to reconnected device(s)")
+        syncClipboard(content)
+        pendingContent = nil
+    }
+
+    /// Apply the default retry strategy for the given content
+    func applyDefaultRetryStrategy(forContent content: Data) {
+        switch defaultRetryStrategy {
+        case .discard:
+            executeDiscardStrategy()
+        case .waitForDevice:
+            executeWaitForDeviceStrategy(content: content)
+        case .continueRetry:
+            executeContinueRetryStrategy()
         }
     }
 
