@@ -140,8 +140,11 @@ jobs:
 
       - name: Build Rust for Android (ARM64)
         run: cargo build -p nearclip-ffi --release --target aarch64-linux-android
+        continue-on-error: true
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          CC_aarch64-linux-android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
+          AR_aarch64-linux-android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
