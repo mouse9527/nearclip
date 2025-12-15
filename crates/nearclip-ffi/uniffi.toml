@@ -1,0 +1,12 @@
+# uniffi configuration for NearClip FFI bindings
+# See: https://mozilla.github.io/uniffi-rs/
+
+[bindings.swift]
+# Swift-specific settings
+module_name = "NearClip"
+generate_module_map = true
+omit_argument_labels = false
+
+[bindings.kotlin]
+# Kotlin-specific settings
+package_name = "com.nearclip.ffi"

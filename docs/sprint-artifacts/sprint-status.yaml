@@ -67,32 +67,32 @@ development_status:
   # ============================================
   # Epic 3: 跨设备剪贴板同步
   # ============================================
-  epic-3: in-progress
+  epic-3: done
   3-1-tcp-server: done
   3-2-tcp-client-connection: done
   3-3-ble-data-transfer-peripheral: done
   3-4-ble-data-transfer-central: done
   3-5-clipboard-content-send: done
   3-6-clipboard-content-receive: done
-  3-7-channel-status-monitoring: backlog
-  3-8-channel-auto-switching: backlog
-  3-9-send-retry-mechanism: backlog
-  3-10-sync-loop-prevention: backlog
-  3-11-core-coordination-layer: backlog
+  3-7-channel-status-monitoring: done
+  3-8-channel-auto-switching: done
+  3-9-send-retry-mechanism: done
+  3-10-sync-loop-prevention: done
+  3-11-core-coordination-layer: done
   epic-3-retrospective: optional
 
   # ============================================
   # Epic 4: macOS 原生客户端
   # ============================================
-  epic-4: backlog
-  4-1-uniffi-swift-bindings: backlog
-  4-2-macos-menubar-app: backlog
-  4-3-connection-status-display: backlog
-  4-4-clipboard-monitoring: backlog
-  4-5-clipboard-write: backlog
-  4-6-pairing-ui: backlog
-  4-7-settings-ui: backlog
-  4-8-keychain-storage: backlog
+  epic-4: done
+  4-1-uniffi-swift-bindings: done
+  4-2-macos-menubar-app: done
+  4-3-connection-status-display: done
+  4-4-clipboard-monitoring: done
+  4-5-clipboard-write: done
+  4-6-pairing-ui: done
+  4-7-settings-ui: done
+  4-8-keychain-storage: done
   epic-4-retrospective: optional
 
   # ============================================

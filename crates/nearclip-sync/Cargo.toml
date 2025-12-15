@@ -12,6 +12,7 @@ tracing.workspace = true
 tokio.workspace = true
 serde.workspace = true
 rmp-serde.workspace = true
+sha2.workspace = true
 nearclip-crypto.workspace = true
 nearclip-net.workspace = true
 nearclip-ble.workspace = true

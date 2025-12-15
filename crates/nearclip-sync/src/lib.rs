@@ -66,9 +66,13 @@
 //! ```
 
 pub mod channel;
+pub mod loop_guard;
+pub mod monitor;
 pub mod protocol;
 pub mod receiver;
+pub mod retry;
 pub mod sender;
+pub mod switcher;
 
 // Re-export protocol types
 pub use protocol::{Message, MessageType, ProtocolError};
@@ -89,6 +93,31 @@ pub use sender::{
 pub use receiver::{
     ClipboardReceiveCallback, ClipboardReceiver, ClipboardReceiverConfig, ReceiveResult,
     DEFAULT_MAX_MESSAGE_SIZE, DEFAULT_MESSAGE_TIMEOUT_SECS,
+};
+
+// Re-export monitor types
+pub use monitor::{
+    ChannelMonitor, ChannelMonitorConfig, ChannelSnapshot, ChannelStatusCallback,
+    DEFAULT_CHECK_INTERVAL_SECS, DEFAULT_STATUS_TIMEOUT_SECS,
+};
+
+// Re-export switcher types
+pub use switcher::{
+    ChannelSwitchCallback, ChannelSwitcher, ChannelSwitcherConfig, PrioritySwitchStrategy,
+    StickySwitchStrategy, SwitchReason, SwitchStrategy,
+};
+
+// Re-export retry types
+pub use retry::{
+    retry_with_default, ExponentialBackoffStrategy, FixedDelayStrategy, NoOpRetryCallback,
+    RetryCallback, RetryConfig, RetryExecutor, RetryResult, RetryStrategy,
+    DEFAULT_MAX_RETRIES, DEFAULT_RETRY_DELAY_SECS,
+};
+
+// Re-export loop guard types
+pub use loop_guard::{
+    ContentFingerprint, ContentOrigin, LoopGuard, LoopGuardConfig, LoopGuardError,
+    DEFAULT_EXPIRY_SECS, DEFAULT_HISTORY_SIZE,
 };
 
 #[cfg(test)]

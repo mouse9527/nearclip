@@ -1,0 +1,106 @@
+// NearClip FFI Interface Definition
+// uniffi 0.28 UDL format
+// See: https://mozilla.github.io/uniffi-rs/udl_file_spec.html
+
+namespace nearclip {
+    // Logging functions
+    void init_logging(LogLevel level);
+    void flush_logs();
+};
+
+// Error type - all variants must include error string
+[Error]
+enum NearClipError {
+    "Network",
+    "Bluetooth",
+    "Crypto",
+    "DeviceNotFound",
+    "Sync",
+    "Config",
+    "Io",
+};
+
+// Log level enum
+enum LogLevel {
+    "Error",
+    "Warn",
+    "Info",
+    "Debug",
+    "Trace",
+};
+
+// Device platform enum
+enum DevicePlatform {
+    "MacOS",
+    "Android",
+    "Unknown",
+};
+
+// Device connection status
+enum DeviceStatus {
+    "Connected",
+    "Disconnected",
+    "Connecting",
+    "Failed",
+};
+
+// Device information record
+dictionary FfiDeviceInfo {
+    string id;
+    string name;
+    DevicePlatform platform;
+    DeviceStatus status;
+};
+
+// Configuration record
+dictionary FfiNearClipConfig {
+    string device_name;
+    boolean wifi_enabled;
+    boolean ble_enabled;
+    boolean auto_connect;
+    u64 connection_timeout_secs;
+    u64 heartbeat_interval_secs;
+    u32 max_retries;
+};
+
+// Callback interface for receiving events
+callback interface FfiNearClipCallback {
+    void on_device_connected(FfiDeviceInfo device);
+    void on_device_disconnected(string device_id);
+    void on_clipboard_received(bytes content, string from_device);
+    void on_sync_error(string error_message);
+};
+
+// Main manager interface
+interface FfiNearClipManager {
+    [Throws=NearClipError]
+    constructor(FfiNearClipConfig config, FfiNearClipCallback callback);
+
+    // Lifecycle
+    [Throws=NearClipError]
+    void start();
+
+    void stop();
+
+    boolean is_running();
+
+    // Clipboard sync
+    [Throws=NearClipError]
+    void sync_clipboard(bytes content);
+
+    // Device management
+    sequence<FfiDeviceInfo> get_paired_devices();
+    sequence<FfiDeviceInfo> get_connected_devices();
+
+    [Throws=NearClipError]
+    void connect_device(string device_id);
+
+    [Throws=NearClipError]
+    void disconnect_device(string device_id);
+
+    void add_paired_device(FfiDeviceInfo device);
+    void remove_paired_device(string device_id);
+
+    // Status
+    DeviceStatus? get_device_status(string device_id);
+};

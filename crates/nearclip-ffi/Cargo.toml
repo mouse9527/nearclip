@@ -7,10 +7,22 @@ authors.workspace = true
 description = "FFI bindings for NearClip - uniffi exports for Swift/Kotlin"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "lib"]
+name = "nearclip_ffi"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/uniffi_bindgen.rs"
 
 [dependencies]
 thiserror.workspace = true
 tracing.workspace = true
-uniffi.workspace = true
+uniffi = { workspace = true, features = ["cli"] }
 nearclip-core.workspace = true
+tokio.workspace = true
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
