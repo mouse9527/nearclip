@@ -12,3 +12,5 @@ tracing.workspace = true
 tokio.workspace = true
 mdns-sd.workspace = true
 nearclip-crypto.workspace = true
+tokio-rustls.workspace = true
+rustls.workspace = true

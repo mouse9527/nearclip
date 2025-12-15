@@ -46,6 +46,30 @@ pub enum CryptoError {
     /// TLS 配置失败
     #[error("TLS configuration failed: {0}")]
     TlsConfiguration(String),
+
+    /// JSON 序列化失败
+    #[error("JSON serialization failed: {0}")]
+    JsonSerialization(String),
+
+    /// 二维码生成失败
+    #[error("QR code generation failed: {0}")]
+    QrCodeGeneration(String),
+
+    /// 无效的配对数据
+    #[error("Invalid pairing data: {0}")]
+    InvalidPairingData(String),
+
+    /// 二维码解析失败
+    #[error("QR code parsing failed: {0}")]
+    QrCodeParsing(String),
+
+    /// 配对失败
+    #[error("Pairing failed: {0}")]
+    PairingFailed(String),
+
+    /// 设备存储错误
+    #[error("Device store error: {0}")]
+    DeviceStore(String),
 }
 
 impl Default for CryptoError {

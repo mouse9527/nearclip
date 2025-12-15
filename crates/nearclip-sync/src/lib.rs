@@ -21,16 +21,75 @@
 //! let decoded = Message::deserialize(&bytes).unwrap();
 //! assert_eq!(decoded.msg_type, MessageType::ClipboardSync);
 //! ```
+//!
+//! # Channel Selection
+//!
+//! The [`channel`] module provides abstractions for selecting communication channels.
+//! WiFi is preferred over BLE for its higher speed and lower latency.
+//!
+//! ```
+//! use nearclip_sync::{Channel, ChannelStatus, ChannelInfo, PriorityChannelSelector, ChannelSelector};
+//!
+//! let channels = vec![
+//!     ChannelInfo::new(Channel::Wifi, ChannelStatus::Available),
+//!     ChannelInfo::new(Channel::Ble, ChannelStatus::Available),
+//! ];
+//!
+//! let selector = PriorityChannelSelector;
+//! let selected = selector.select(&channels);
+//! assert_eq!(selected, Some(Channel::Wifi)); // WiFi preferred
+//! ```
+//!
+//! # Clipboard Sending
+//!
+//! The [`sender`] module implements clipboard content sending with automatic
+//! channel selection and ACK handling.
+//!
+//! ```no_run
+//! use nearclip_sync::{ClipboardSender, ClipboardSenderConfig, ClipboardSendCallback, SyncError};
+//! use std::sync::Arc;
+//!
+//! struct MyCallback;
+//! impl ClipboardSendCallback for MyCallback {
+//!     fn on_send_success(&self, device_id: &str) {}
+//!     fn on_send_failure(&self, device_id: &str, error: SyncError) {}
+//!     fn on_ack_received(&self, device_id: &str) {}
+//! }
+//!
+//! # async fn example() -> Result<(), SyncError> {
+//! let config = ClipboardSenderConfig::new()
+//!     .with_device_id("my-device");
+//! let callback = Arc::new(MyCallback);
+//! let sender = ClipboardSender::new(config, callback)?;
+//! # Ok(())
+//! # }
+//! ```
 
+pub mod channel;
 pub mod protocol;
+pub mod receiver;
+pub mod sender;
 
-// Re-export protocol types for convenience
+// Re-export protocol types
 pub use protocol::{Message, MessageType, ProtocolError};
 
-// Future modules:
-// mod sender;     // Clipboard content sending logic
-// mod receiver;   // Clipboard content receiving logic
-// mod channel;    // Channel selection and switching
+// Re-export channel types
+pub use channel::{
+    BleOnlyChannelSelector, Channel, ChannelInfo, ChannelSelector, ChannelStatus,
+    PriorityChannelSelector, WifiOnlyChannelSelector,
+};
+
+// Re-export sender types
+pub use sender::{
+    ClipboardSendCallback, ClipboardSender, ClipboardSenderConfig, SendStatus, SyncError,
+    DEFAULT_ACK_TIMEOUT_SECS, DEFAULT_RETRY_COUNT,
+};
+
+// Re-export receiver types
+pub use receiver::{
+    ClipboardReceiveCallback, ClipboardReceiver, ClipboardReceiverConfig, ReceiveResult,
+    DEFAULT_MAX_MESSAGE_SIZE, DEFAULT_MESSAGE_TIMEOUT_SECS,
+};
 
 #[cfg(test)]
 mod tests {

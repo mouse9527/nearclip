@@ -1,7 +1,8 @@
 //! NearClip Crypto Module
 //!
 //! Cryptographic primitives for secure device pairing and communication.
-//! Includes ECDH key exchange, TLS 1.3 configuration, and key management.
+//! Includes ECDH key exchange, TLS 1.3 configuration, key management,
+//! and paired device persistence.
 //!
 //! # ECDH Key Exchange
 //!
@@ -37,16 +38,25 @@
 //! let client_config = TlsClientConfig::new(cert.cert_der()).unwrap();
 //! ```
 
+pub mod device_store;
 pub mod keypair;
+pub mod pairing;
+pub mod qrcode_parser;
 pub mod tls_config;
 
 // Re-export main types for convenience
+pub use device_store::{DeviceStore, FileDeviceStore, FileDeviceStoreConfig};
 pub use keypair::{CryptoError, EcdhKeyPair};
+pub use pairing::{
+    ConnectionInfo, PairedDevice, PairingData, PairingSession, QrCodeConfig,
+    QrCodeErrorCorrection, QrCodeGenerator, PAIRING_DATA_VERSION,
+};
+pub use qrcode_parser::QrCodeParser;
 pub use tls_config::{TlsCertificate, TlsClientConfig, TlsServerConfig};
 
 // Future modules:
-// mod qrcode;       // QR code generation/parsing
-// mod keystore;     // Platform key storage abstraction
+// - KeychainDeviceStore (macOS Keychain integration)
+// - KeystoreDeviceStore (Android Keystore integration)
 
 #[cfg(test)]
 mod tests {

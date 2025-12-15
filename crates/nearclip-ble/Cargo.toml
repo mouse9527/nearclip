@@ -10,4 +10,23 @@ description = "Bluetooth Low Energy layer for NearClip - device discovery and da
 thiserror.workspace = true
 tracing.workspace = true
 tokio.workspace = true
-nearclip-crypto.workspace = true
+
+# UUID for GATT service/characteristic definitions
+uuid = "1.0"
+
+# Base64 for public key hash validation
+base64 = "0.22"
+
+# Platform-specific BLE peripheral support will be added via feature flags
+# macOS: CoreBluetooth via objc2
+# Linux: BlueZ via zbus
+# Android: via uniffi JNI bindings
+
+[features]
+default = []
+# Enable when platform-specific BLE implementation is ready
+# macos = ["objc2", "block2"]
+# linux = ["zbus"]
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

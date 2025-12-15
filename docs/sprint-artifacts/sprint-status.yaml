@@ -34,7 +34,7 @@
 # - SM typically drafts next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2025-12-13
+generated: 2025-12-15
 project: nearclip
 tracking_system: file-system
 story_location: docs/sprint-artifacts
@@ -43,7 +43,6 @@ development_status:
   # ============================================
   # Epic 1: 项目基础设施
   # ============================================
-  epic-1: done
   1-1-init-rust-workspace: done
   1-2-unified-error-types: done
   1-3-structured-logging: done
@@ -51,30 +50,30 @@ development_status:
   epic-1-retrospective: completed
 
   # ============================================
-  # Epic 2: 设备发现与安全配
+  # Epic 2: 设备发现与安全配对
   # ============================================
-  epic-2: in-progress
+  epic-2: done
   2-1-ecdh-keypair-generation: done
   2-2-tls-1-3-config: done
   2-3-mdns-service-broadcast: done
   2-4-mdns-device-discovery: done
-  2-5-ble-device-broadcast: backlog
-  2-6-ble-device-scan: backlog
-  2-7-pairing-qrcode-generation: backlog
-  2-8-qrcode-scan-and-parse: backlog
-  2-9-persist-paired-devices: backlog
+  2-5-ble-device-broadcast: done
+  2-6-ble-device-scan: done
+  2-7-pairing-qrcode-generation: done
+  2-8-qrcode-scan-and-parse: done
+  2-9-persist-paired-devices: done
   epic-2-retrospective: optional
 
   # ============================================
   # Epic 3: 跨设备剪贴板同步
   # ============================================
-  epic-3: backlog
-  3-1-tcp-server: backlog
-  3-2-tcp-client-connection: backlog
-  3-3-ble-data-transfer-peripheral: backlog
-  3-4-ble-data-transfer-central: backlog
-  3-5-clipboard-content-send: backlog
-  3-6-clipboard-content-receive: backlog
+  epic-3: in-progress
+  3-1-tcp-server: done
+  3-2-tcp-client-connection: done
+  3-3-ble-data-transfer-peripheral: done
+  3-4-ble-data-transfer-central: done
+  3-5-clipboard-content-send: done
+  3-6-clipboard-content-receive: done
   3-7-channel-status-monitoring: backlog
   3-8-channel-auto-switching: backlog
   3-9-send-retry-mechanism: backlog
