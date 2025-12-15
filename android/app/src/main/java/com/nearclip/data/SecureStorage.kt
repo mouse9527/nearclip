@@ -2,6 +2,7 @@ package com.nearclip.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.util.Log
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.nearclip.ffi.DevicePlatform
@@ -33,9 +34,43 @@ class SecureStorage(private val context: Context) {
     }
 
     companion object {
+        private const val TAG = "SecureStorage"
         private const val PREFS_FILE_NAME = "nearclip_secure_prefs"
         private const val KEY_PAIRED_DEVICES = "paired_devices"
         private const val KEY_DEVICE_KEYS = "device_keys"
+        private const val KEY_DATA_VERSION = "data_version"
+        private const val CURRENT_DATA_VERSION = 1
+    }
+
+    /**
+     * Result wrapper for storage operations.
+     */
+    sealed class StorageResult<out T> {
+        data class Success<T>(val data: T) : StorageResult<T>()
+        data class Error(val message: String, val exception: Exception? = null) : StorageResult<Nothing>()
+    }
+
+    init {
+        migrateDataIfNeeded()
+    }
+
+    /**
+     * Migrate data to current version if needed.
+     */
+    private fun migrateDataIfNeeded() {
+        val currentVersion = encryptedPrefs.getInt(KEY_DATA_VERSION, 0)
+        if (currentVersion < CURRENT_DATA_VERSION) {
+            Log.i(TAG, "Migrating data from version $currentVersion to $CURRENT_DATA_VERSION")
+            // Future migrations go here
+            // when (currentVersion) {
+            //     0 -> migrateV0ToV1()
+            //     1 -> migrateV1ToV2()
+            // }
+            encryptedPrefs.edit()
+                .putInt(KEY_DATA_VERSION, CURRENT_DATA_VERSION)
+                .apply()
+            Log.i(TAG, "Data migration completed")
+        }
     }
 
     /**
@@ -58,27 +93,50 @@ class SecureStorage(private val context: Context) {
 
     /**
      * Load paired devices from secure storage.
+     * Returns StorageResult to properly handle errors.
      */
-    fun loadPairedDevices(): List<FfiDeviceInfo> {
-        val json = encryptedPrefs.getString(KEY_PAIRED_DEVICES, null) ?: return emptyList()
+    fun loadPairedDevicesResult(): StorageResult<List<FfiDeviceInfo>> {
+        val json = encryptedPrefs.getString(KEY_PAIRED_DEVICES, null)
+            ?: return StorageResult.Success(emptyList())
         return try {
             val jsonArray = JSONArray(json)
             val devices = mutableListOf<FfiDeviceInfo>()
             for (i in 0 until jsonArray.length()) {
                 val obj = jsonArray.getJSONObject(i)
+                val platformStr = obj.getString("platform")
+                val platform = try {
+                    DevicePlatform.valueOf(platformStr)
+                } catch (e: IllegalArgumentException) {
+                    Log.w(TAG, "Unknown platform '$platformStr' for device, skipping")
+                    continue
+                }
                 devices.add(
                     FfiDeviceInfo(
                         id = obj.getString("id"),
                         name = obj.getString("name"),
-                        platform = DevicePlatform.valueOf(obj.getString("platform")),
+                        platform = platform,
                         status = DeviceStatus.DISCONNECTED
                     )
                 )
             }
-            devices
+            StorageResult.Success(devices)
         } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
+            Log.e(TAG, "Failed to load paired devices", e)
+            StorageResult.Error("Failed to load paired devices: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Load paired devices from secure storage.
+     * Returns empty list on error (for backward compatibility).
+     */
+    fun loadPairedDevices(): List<FfiDeviceInfo> {
+        return when (val result = loadPairedDevicesResult()) {
+            is StorageResult.Success -> result.data
+            is StorageResult.Error -> {
+                Log.w(TAG, "loadPairedDevices returning empty list due to error: ${result.message}")
+                emptyList()
+            }
         }
     }
 
@@ -126,24 +184,45 @@ class SecureStorage(private val context: Context) {
 
     /**
      * Load encryption keys for a device.
+     * Returns StorageResult to properly handle errors.
      */
-    fun loadDeviceKeys(deviceId: String): Pair<ByteArray?, ByteArray?> {
-        val keysJson = encryptedPrefs.getString(KEY_DEVICE_KEYS, null) ?: return Pair(null, null)
+    fun loadDeviceKeysResult(deviceId: String): StorageResult<Pair<ByteArray?, ByteArray?>> {
+        val keysJson = encryptedPrefs.getString(KEY_DEVICE_KEYS, null)
+            ?: return StorageResult.Success(Pair(null, null))
         return try {
             val keysObj = JSONObject(keysJson)
-            if (!keysObj.has(deviceId)) return Pair(null, null)
+            if (!keysObj.has(deviceId)) return StorageResult.Success(Pair(null, null))
 
             val deviceKeysObj = keysObj.getJSONObject(deviceId)
-            val publicKey = deviceKeysObj.optString("publicKey", null)?.let {
-                android.util.Base64.decode(it, android.util.Base64.NO_WRAP)
-            }
-            val privateKey = deviceKeysObj.optString("privateKey", null)?.let {
-                android.util.Base64.decode(it, android.util.Base64.NO_WRAP)
-            }
-            Pair(publicKey, privateKey)
+            val publicKeyStr = deviceKeysObj.optString("publicKey", "")
+            val privateKeyStr = deviceKeysObj.optString("privateKey", "")
+
+            val publicKey = if (publicKeyStr.isNotEmpty()) {
+                android.util.Base64.decode(publicKeyStr, android.util.Base64.NO_WRAP)
+            } else null
+
+            val privateKey = if (privateKeyStr.isNotEmpty()) {
+                android.util.Base64.decode(privateKeyStr, android.util.Base64.NO_WRAP)
+            } else null
+
+            StorageResult.Success(Pair(publicKey, privateKey))
         } catch (e: Exception) {
-            e.printStackTrace()
-            Pair(null, null)
+            Log.e(TAG, "Failed to load device keys for $deviceId", e)
+            StorageResult.Error("Failed to load device keys: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Load encryption keys for a device.
+     * Returns null pair on error (for backward compatibility).
+     */
+    fun loadDeviceKeys(deviceId: String): Pair<ByteArray?, ByteArray?> {
+        return when (val result = loadDeviceKeysResult(deviceId)) {
+            is StorageResult.Success -> result.data
+            is StorageResult.Error -> {
+                Log.w(TAG, "loadDeviceKeys returning null due to error: ${result.message}")
+                Pair(null, null)
+            }
         }
     }
 
@@ -158,8 +237,9 @@ class SecureStorage(private val context: Context) {
             encryptedPrefs.edit()
                 .putString(KEY_DEVICE_KEYS, keysObj.toString())
                 .apply()
+            Log.d(TAG, "Removed keys for device: $deviceId")
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to remove device keys for $deviceId", e)
         }
     }
 
