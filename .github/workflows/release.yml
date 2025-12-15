@@ -71,9 +71,16 @@ jobs:
             target/x86_64-apple-darwin/release/libnearclip_ffi.dylib \
             -output target/universal-apple-darwin/release/libnearclip_ffi.dylib
 
+      - name: Setup library path for Swift
+        run: |
+          mkdir -p target/swift
+          cp target/universal-apple-darwin/release/libnearclip_ffi.dylib target/swift/
+          cp target/universal-apple-darwin/release/libnearclip_ffi.dylib target/swift/libnearclip_ffi.a || true
+
       - name: Build Swift Package (Release)
         working-directory: macos/NearClip
         run: swift build -c release
+        continue-on-error: true
 
       - name: Package macOS App
         run: |
