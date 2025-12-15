@@ -81,7 +81,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // Initialize notification manager (requests authorization)
-        _ = NotificationManager.shared
+        let notificationManager = NotificationManager.shared
+
+        // Set up retry handler for sync failure notifications
+        notificationManager.onRetryRequested = { [weak self] in
+            print("AppDelegate: Retry sync requested from notification")
+            // Attempt to resync the last clipboard content
+            self?.clipboardMonitor?.syncCurrentClipboard()
+        }
     }
 
     // MARK: - Actions

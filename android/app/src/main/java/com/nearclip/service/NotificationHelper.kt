@@ -19,6 +19,7 @@ class NotificationHelper(private val context: Context) {
 
     companion object {
         const val SYNC_NOTIFICATION_CHANNEL_ID = "nearclip_sync_notifications"
+        const val ACTION_RETRY_SYNC = "com.nearclip.action.RETRY_SYNC"
         private const val SYNC_SUCCESS_NOTIFICATION_ID = 1000
         private const val SYNC_FAILURE_NOTIFICATION_ID = 1001
     }
@@ -111,6 +112,15 @@ class NotificationHelper(private val context: Context) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Retry action - triggers sync of current clipboard
+        val retryIntent = Intent(context, NearClipService::class.java).apply {
+            action = NearClipService.ACTION_SYNC_NOW
+        }
+        val retryPendingIntent = PendingIntent.getService(
+            context, 1, retryIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val contentText = if (toDevice != null) {
             "Failed to sync to $toDevice: $reason"
         } else {
@@ -123,6 +133,11 @@ class NotificationHelper(private val context: Context) {
             .setContentText(contentText)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(
+                android.R.drawable.ic_menu_rotate,
+                "Retry",
+                retryPendingIntent
+            )
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setCategory(NotificationCompat.CATEGORY_ERROR)
             .build()

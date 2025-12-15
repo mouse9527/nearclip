@@ -384,6 +384,9 @@ final class ConnectionManager: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.lastError = error
             print("Sync error: \(error)")
+
+            // Show failure notification
+            NotificationManager.shared.showSyncFailureNotification(reason: error)
         }
     }
 

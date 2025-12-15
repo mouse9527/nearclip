@@ -89,6 +89,28 @@ final class ClipboardMonitor: ObservableObject {
         remoteContentHashes.removeAll()
     }
 
+    /// Manually sync the current clipboard content
+    /// Used for retry functionality
+    func syncCurrentClipboard() {
+        let pasteboard = NSPasteboard.general
+
+        // Extract text content
+        guard let stringContent = pasteboard.string(forType: .string) else {
+            print("ClipboardMonitor: No text content to sync")
+            return
+        }
+
+        // Convert to data
+        guard let data = stringContent.data(using: .utf8) else {
+            print("ClipboardMonitor: Failed to convert clipboard string to data")
+            return
+        }
+
+        // Don't check for remote content - this is an explicit retry
+        print("ClipboardMonitor: Manual sync triggered: \(data.count) bytes")
+        onClipboardChange?(data)
+    }
+
     // MARK: - Private
 
     private func checkClipboard() {

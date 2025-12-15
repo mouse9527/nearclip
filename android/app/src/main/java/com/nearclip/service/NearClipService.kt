@@ -262,6 +262,8 @@ class NearClipService : Service(), FfiNearClipCallback {
     }
 
     override fun onSyncError(errorMessage: String) {
+        // Show failure notification
+        notificationHelper?.showSyncFailureNotification(reason = errorMessage)
         listeners.forEach { it.onSyncError(errorMessage) }
     }
 }

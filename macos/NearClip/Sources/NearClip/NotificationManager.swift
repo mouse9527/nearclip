@@ -7,9 +7,39 @@ final class NotificationManager: NSObject {
 
     private var isAuthorized = false
 
+    // Notification categories and actions
+    private static let syncFailureCategoryId = "SYNC_FAILURE"
+    private static let retryActionId = "RETRY_SYNC"
+
+    // Callback for retry action
+    var onRetryRequested: (() -> Void)?
+
     private override init() {
         super.init()
+        setupNotificationCategories()
         requestAuthorization()
+    }
+
+    // MARK: - Setup
+
+    private func setupNotificationCategories() {
+        // Define retry action
+        let retryAction = UNNotificationAction(
+            identifier: Self.retryActionId,
+            title: "Retry",
+            options: [.foreground]
+        )
+
+        // Define sync failure category with retry action
+        let syncFailureCategory = UNNotificationCategory(
+            identifier: Self.syncFailureCategoryId,
+            actions: [retryAction],
+            intentIdentifiers: [],
+            options: []
+        )
+
+        // Register categories
+        UNUserNotificationCenter.current().setNotificationCategories([syncFailureCategory])
     }
 
     // MARK: - Authorization
@@ -111,6 +141,7 @@ final class NotificationManager: NSObject {
         }
 
         content.sound = .default // Use default sound for errors
+        content.categoryIdentifier = Self.syncFailureCategoryId // Enable retry action
 
         let request = UNNotificationRequest(
             identifier: "sync-failure-\(UUID().uuidString)",
@@ -121,6 +152,8 @@ final class NotificationManager: NSObject {
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("NotificationManager: Failed to show failure notification - \(error.localizedDescription)")
+            } else {
+                print("NotificationManager: Showed sync failure notification")
             }
         }
     }
@@ -147,13 +180,31 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
         completionHandler([.banner, .list])
     }
 
-    /// Handle notification tap
+    /// Handle notification tap and actions
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        // Could open app settings or show sync history in the future
+        switch response.actionIdentifier {
+        case Self.retryActionId:
+            // User tapped Retry action
+            print("NotificationManager: Retry action triggered")
+            DispatchQueue.main.async { [weak self] in
+                self?.onRetryRequested?()
+            }
+
+        case UNNotificationDefaultActionIdentifier:
+            // User tapped the notification itself - bring app to front
+            print("NotificationManager: Notification tapped")
+            DispatchQueue.main.async {
+                NSApp.activate(ignoringOtherApps: true)
+            }
+
+        default:
+            break
+        }
+
         completionHandler()
     }
 }
