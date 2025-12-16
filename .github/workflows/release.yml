@@ -98,11 +98,23 @@ jobs:
           # Copy dylib to Frameworks
           cp target/universal-apple-darwin/release/libnearclip_ffi.dylib "${BUNDLE_DIR}/Contents/Frameworks/"
 
-          # Fix library path in executable
-          install_name_tool -change \
-            "@rpath/libnearclip_ffi.dylib" \
+          # Fix dylib install name (change from absolute path to relative)
+          install_name_tool -id \
             "@executable_path/../Frameworks/libnearclip_ffi.dylib" \
-            "${BUNDLE_DIR}/Contents/MacOS/NearClip" || true
+            "${BUNDLE_DIR}/Contents/Frameworks/libnearclip_ffi.dylib"
+
+          # Get the current library path from executable and fix it
+          CURRENT_PATH=$(otool -L "${BUNDLE_DIR}/Contents/MacOS/NearClip" | grep libnearclip_ffi | awk '{print $1}')
+          echo "Current dylib path: $CURRENT_PATH"
+
+          install_name_tool -change \
+            "$CURRENT_PATH" \
+            "@executable_path/../Frameworks/libnearclip_ffi.dylib" \
+            "${BUNDLE_DIR}/Contents/MacOS/NearClip"
+
+          # Verify the fix
+          echo "Updated library paths:"
+          otool -L "${BUNDLE_DIR}/Contents/MacOS/NearClip" | grep -E "(nearclip|Frameworks)"
 
           # Create Info.plist
           cat > "${BUNDLE_DIR}/Contents/Info.plist" << EOF

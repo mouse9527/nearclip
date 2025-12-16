@@ -864,7 +864,7 @@ dependencies = [
 
 [[package]]
 name = "nearclip-ble"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64",
  "thiserror",
@@ -875,7 +875,7 @@ dependencies = [
 
 [[package]]
 name = "nearclip-core"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "nearclip-ble",
  "nearclip-crypto",
@@ -889,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "nearclip-crypto"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "base64",
  "hex",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "nearclip-ffi"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "nearclip-core",
  "thiserror",
@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "nearclip-net"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "mdns-sd",
  "nearclip-crypto",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "nearclip-sync"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "nearclip-ble",
  "nearclip-crypto",
