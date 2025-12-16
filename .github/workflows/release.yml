@@ -80,28 +80,101 @@ jobs:
       - name: Build Swift Package (Release)
         working-directory: macos/NearClip
         run: swift build -c release
-        continue-on-error: true
 
-      - name: Package macOS App
+      - name: Create macOS App Bundle
         run: |
-          mkdir -p dist
-          cp -r macos/NearClip/.build/release/NearClip dist/ || true
-          cp target/universal-apple-darwin/release/libnearclip_ffi.dylib dist/
-          cd dist && zip -r ../NearClip-macos-${{ needs.create-release.outputs.version }}.zip .
+          VERSION="${{ needs.create-release.outputs.version }}"
+          APP_NAME="NearClip"
+          BUNDLE_DIR="dist/${APP_NAME}.app"
 
-      - name: Upload macOS Release
+          # Create app bundle structure
+          mkdir -p "${BUNDLE_DIR}/Contents/MacOS"
+          mkdir -p "${BUNDLE_DIR}/Contents/Frameworks"
+          mkdir -p "${BUNDLE_DIR}/Contents/Resources"
+
+          # Copy executable
+          cp macos/NearClip/.build/release/NearClip "${BUNDLE_DIR}/Contents/MacOS/"
+
+          # Copy dylib to Frameworks
+          cp target/universal-apple-darwin/release/libnearclip_ffi.dylib "${BUNDLE_DIR}/Contents/Frameworks/"
+
+          # Fix library path in executable
+          install_name_tool -change \
+            "@rpath/libnearclip_ffi.dylib" \
+            "@executable_path/../Frameworks/libnearclip_ffi.dylib" \
+            "${BUNDLE_DIR}/Contents/MacOS/NearClip" || true
+
+          # Create Info.plist
+          cat > "${BUNDLE_DIR}/Contents/Info.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>CFBundleDevelopmentRegion</key>
+              <string>en</string>
+              <key>CFBundleExecutable</key>
+              <string>NearClip</string>
+              <key>CFBundleIconFile</key>
+              <string>AppIcon</string>
+              <key>CFBundleIdentifier</key>
+              <string>com.nearclip.macos</string>
+              <key>CFBundleInfoDictionaryVersion</key>
+              <string>6.0</string>
+              <key>CFBundleName</key>
+              <string>NearClip</string>
+              <key>CFBundlePackageType</key>
+              <string>APPL</string>
+              <key>CFBundleShortVersionString</key>
+              <string>${VERSION}</string>
+              <key>CFBundleVersion</key>
+              <string>${VERSION}</string>
+              <key>LSApplicationCategoryType</key>
+              <string>public.app-category.utilities</string>
+              <key>LSMinimumSystemVersion</key>
+              <string>12.0</string>
+              <key>LSUIElement</key>
+              <true/>
+              <key>NSHighResolutionCapable</key>
+              <true/>
+              <key>NSHumanReadableCopyright</key>
+              <string>Copyright © 2024 NearClip. MIT License.</string>
+          </dict>
+          </plist>
+          EOF
+
+          # Create PkgInfo
+          echo -n "APPL????" > "${BUNDLE_DIR}/Contents/PkgInfo"
+
+      - name: Create DMG
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          DMG_NAME="NearClip-${VERSION}-macos"
+
+          # Create a temporary directory for DMG contents
+          mkdir -p dmg_contents
+          cp -R dist/NearClip.app dmg_contents/
+
+          # Create a symbolic link to Applications
+          ln -s /Applications dmg_contents/Applications
+
+          # Create DMG
+          hdiutil create -volname "NearClip ${VERSION}" \
+            -srcfolder dmg_contents \
+            -ov -format UDZO \
+            "${DMG_NAME}.dmg"
+
+      - name: Upload macOS DMG
         uses: softprops/action-gh-release@v1
         with:
-          files: NearClip-macos-${{ needs.create-release.outputs.version }}.zip
+          files: NearClip-${{ needs.create-release.outputs.version }}-macos.dmg
 
   # ============================================
-  # Build Android (Optional - cross-compilation may fail)
+  # Build Android
   # ============================================
   build-android:
     name: Build Android
     runs-on: ubuntu-latest
     needs: create-release
-    continue-on-error: true  # Don't fail release if Android build fails
 
     steps:
       - name: Checkout
@@ -130,43 +203,14 @@ jobs:
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Configure Cargo for Android
-        run: |
-          mkdir -p ~/.cargo
-          cat >> ~/.cargo/config.toml << EOF
-          [target.aarch64-linux-android]
-          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
 
-          [target.armv7-linux-androideabi]
-          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang"
-
-          [target.x86_64-linux-android]
-          linker = "${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang"
-          EOF
-
-      - name: Build Rust for Android
+      - name: Build Rust for Android with cargo-ndk
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          # Set CC/AR for ring crate cross-compilation
-          CC_aarch64-linux-android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang
-          AR_aarch64-linux-android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CC_armv7-linux-androideabi: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi21-clang
-          AR_armv7-linux-androideabi: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
-          CC_x86_64-linux-android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android21-clang
-          AR_x86_64-linux-android: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
         run: |
-          cargo build -p nearclip-ffi --release --target aarch64-linux-android
-          cargo build -p nearclip-ffi --release --target armv7-linux-androideabi
-          cargo build -p nearclip-ffi --release --target x86_64-linux-android
-        continue-on-error: true
-
-      - name: Copy native libraries
-        continue-on-error: true
-        run: |
-          mkdir -p android/app/src/main/jniLibs/{arm64-v8a,armeabi-v7a,x86_64}
-          cp target/aarch64-linux-android/release/libnearclip_ffi.so android/app/src/main/jniLibs/arm64-v8a/ || true
-          cp target/armv7-linux-androideabi/release/libnearclip_ffi.so android/app/src/main/jniLibs/armeabi-v7a/ || true
-          cp target/x86_64-linux-android/release/libnearclip_ffi.so android/app/src/main/jniLibs/x86_64/ || true
+          cargo ndk -t arm64-v8a -t armeabi-v7a -t x86_64 -o android/app/src/main/jniLibs build -p nearclip-ffi --release
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
@@ -174,10 +218,14 @@ jobs:
       - name: Build Release APK
         working-directory: android
         run: ./gradlew assembleRelease
-        continue-on-error: true
+
+      - name: Rename APK
+        run: |
+          VERSION="${{ needs.create-release.outputs.version }}"
+          mv android/app/build/outputs/apk/release/app-release-unsigned.apk \
+             NearClip-${VERSION}-android.apk
 
       - name: Upload Android APK
         uses: softprops/action-gh-release@v1
         with:
-          files: android/app/build/outputs/apk/release/app-release-unsigned.apk
-        continue-on-error: true
+          files: NearClip-${{ needs.create-release.outputs.version }}-android.apk
