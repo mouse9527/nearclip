@@ -79,11 +79,35 @@ nearclip/
 - **存储**: EncryptedSharedPreferences
 - **服务**: Foreground Service
 
-## 快速开始
+## 安装
+
+### 下载
+
+从 [Releases](https://github.com/mouse9527/nearclip/releases) 页面下载最新版本：
+
+- **macOS**: `NearClip-x.x.x-macos.dmg`
+- **Android**: `NearClip-x.x.x-android.apk`
+
+### macOS 安装
+
+1. 下载 DMG 文件
+2. 打开 DMG，将 NearClip.app 拖到 Applications 文件夹
+3. 首次打开时，由于应用未签名，macOS 会阻止运行。请按以下步骤操作：
+   - 右键点击 NearClip.app，选择 "打开"
+   - 在弹出的对话框中点击 "打开"
+   - 或者在 系统设置 > 隐私与安全性 中点击 "仍要打开"
+
+### Android 安装
+
+1. 下载 APK 文件
+2. 在设备上启用 "允许安装未知来源应用"
+3. 打开 APK 文件进行安装
+
+## 从源码构建
 
 ### 系统要求
 
-- **macOS**: macOS 13.0+ (Ventura)
+- **macOS**: macOS 12.0+ (Monterey)
 - **Android**: Android 8.0+ (API 26)
 - **Rust**: 1.75+
 
