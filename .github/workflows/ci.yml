@@ -75,7 +75,9 @@ jobs:
         run: |
           mkdir -p target/swift
           cp target/release/libnearclip_ffi.dylib target/swift/
-          cp target/release/libnearclip_ffi.dylib target/swift/libnearclip_ffi.a || true
+
+          # Fix dylib install name before Swift builds
+          install_name_tool -id "@rpath/libnearclip_ffi.dylib" target/swift/libnearclip_ffi.dylib
 
       - name: Build Swift Package
         working-directory: macos/NearClip

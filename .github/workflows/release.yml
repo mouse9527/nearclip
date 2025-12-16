@@ -75,11 +75,22 @@ jobs:
         run: |
           mkdir -p target/swift
           cp target/universal-apple-darwin/release/libnearclip_ffi.dylib target/swift/
-          cp target/universal-apple-darwin/release/libnearclip_ffi.dylib target/swift/libnearclip_ffi.a || true
+
+          # Fix dylib install name BEFORE Swift builds
+          # This ensures Swift embeds @rpath instead of absolute path
+          install_name_tool -id "@rpath/libnearclip_ffi.dylib" target/swift/libnearclip_ffi.dylib
+
+          echo "Dylib install name after fix:"
+          otool -D target/swift/libnearclip_ffi.dylib
 
       - name: Build Swift Package (Release)
         working-directory: macos/NearClip
         run: swift build -c release
+
+      - name: Verify executable library paths
+        run: |
+          echo "Library paths in executable:"
+          otool -L macos/NearClip/.build/release/NearClip | grep -E "(nearclip|rpath)" || echo "No nearclip/rpath found"
 
       - name: Create macOS App Bundle
         run: |
@@ -98,23 +109,20 @@ jobs:
           # Copy dylib to Frameworks
           cp target/universal-apple-darwin/release/libnearclip_ffi.dylib "${BUNDLE_DIR}/Contents/Frameworks/"
 
-          # Fix dylib install name (change from absolute path to relative)
+          # Fix dylib install name in Frameworks
           install_name_tool -id \
             "@executable_path/../Frameworks/libnearclip_ffi.dylib" \
             "${BUNDLE_DIR}/Contents/Frameworks/libnearclip_ffi.dylib"
 
-          # Get the current library path from executable and fix it
-          CURRENT_PATH=$(otool -L "${BUNDLE_DIR}/Contents/MacOS/NearClip" | grep libnearclip_ffi | awk '{print $1}')
-          echo "Current dylib path: $CURRENT_PATH"
-
+          # Change @rpath reference to @executable_path in the executable
           install_name_tool -change \
-            "$CURRENT_PATH" \
+            "@rpath/libnearclip_ffi.dylib" \
             "@executable_path/../Frameworks/libnearclip_ffi.dylib" \
             "${BUNDLE_DIR}/Contents/MacOS/NearClip"
 
           # Verify the fix
           echo "Updated library paths:"
-          otool -L "${BUNDLE_DIR}/Contents/MacOS/NearClip" | grep -E "(nearclip|Frameworks)"
+          otool -L "${BUNDLE_DIR}/Contents/MacOS/NearClip" | grep -E "(nearclip|Frameworks|rpath)"
 
           # Create Info.plist
           cat > "${BUNDLE_DIR}/Contents/Info.plist" << EOF
