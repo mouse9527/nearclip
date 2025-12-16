@@ -17,20 +17,20 @@ package com.nearclip.ffi
 // compile the Rust component. The easiest way to ensure this is to bundle the Kotlin
 // helpers directly inline like we're doing here.
 
-import com.sun.jna.Library
+import com.sun.jna.Callback
 import com.sun.jna.IntegerType
+import com.sun.jna.Library
 import com.sun.jna.Native
 import com.sun.jna.Pointer
 import com.sun.jna.Structure
-import com.sun.jna.Callback
 import com.sun.jna.ptr.*
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -44,29 +44,41 @@ open class RustBuffer : Structure() {
     // Note: `capacity` and `len` are actually `ULong` values, but JVM only supports signed values.
     // When dealing with these fields, make sure to call `toULong()`.
     @JvmField var capacity: Long = 0
+
     @JvmField var len: Long = 0
+
     @JvmField var data: Pointer? = null
 
-    class ByValue: RustBuffer(), Structure.ByValue
-    class ByReference: RustBuffer(), Structure.ByReference
+    class ByValue :
+        RustBuffer(),
+        Structure.ByValue
 
-   internal fun setValue(other: RustBuffer) {
+    class ByReference :
+        RustBuffer(),
+        Structure.ByReference
+
+    internal fun setValue(other: RustBuffer) {
         capacity = other.capacity
         len = other.len
         data = other.data
     }
 
     companion object {
-        internal fun alloc(size: ULong = 0UL) = uniffiRustCall() { status ->
-            // Note: need to convert the size to a `Long` value to make this work with JVM.
-            UniffiLib.INSTANCE.ffi_nearclip_ffi_rustbuffer_alloc(size.toLong(), status)
-        }.also {
-            if(it.data == null) {
-               throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=${size})")
-           }
-        }
+        internal fun alloc(size: ULong = 0UL) =
+            uniffiRustCall { status ->
+                // Note: need to convert the size to a `Long` value to make this work with JVM.
+                UniffiLib.INSTANCE.ffi_nearclip_ffi_rustbuffer_alloc(size.toLong(), status)
+            }.also {
+                if (it.data == null) {
+                    throw RuntimeException("RustBuffer.alloc() returned null data pointer (size=$size)")
+                }
+            }
 
-        internal fun create(capacity: ULong, len: ULong, data: Pointer?): RustBuffer.ByValue {
+        internal fun create(
+            capacity: ULong,
+            len: ULong,
+            data: Pointer?,
+        ): RustBuffer.ByValue {
             var buf = RustBuffer.ByValue()
             buf.capacity = capacity.toLong()
             buf.len = len.toLong()
@@ -74,9 +86,10 @@ open class RustBuffer : Structure() {
             return buf
         }
 
-        internal fun free(buf: RustBuffer.ByValue) = uniffiRustCall() { status ->
-            UniffiLib.INSTANCE.ffi_nearclip_ffi_rustbuffer_free(buf, status)
-        }
+        internal fun free(buf: RustBuffer.ByValue) =
+            uniffiRustCall { status ->
+                UniffiLib.INSTANCE.ffi_nearclip_ffi_rustbuffer_free(buf, status)
+            }
     }
 
     @Suppress("TooGenericExceptionThrown")
@@ -129,10 +142,14 @@ class RustBufferByReference : ByReference(16) {
 @Structure.FieldOrder("len", "data")
 internal open class ForeignBytes : Structure() {
     @JvmField var len: Int = 0
+
     @JvmField var data: Pointer? = null
 
-    class ByValue : ForeignBytes(), Structure.ByValue
+    class ByValue :
+        ForeignBytes(),
+        Structure.ByValue
 }
+
 /**
  * The FfiConverter interface handles converter types to and from the FFI
  *
@@ -162,7 +179,10 @@ public interface FfiConverter<KotlinType, FfiType> {
     fun allocationSize(value: KotlinType): ULong
 
     // Write a Kotlin type to a `ByteBuffer`
-    fun write(value: KotlinType, buf: ByteBuffer)
+    fun write(
+        value: KotlinType,
+        buf: ByteBuffer,
+    )
 
     // Lower a value into a `RustBuffer`
     //
@@ -173,9 +193,10 @@ public interface FfiConverter<KotlinType, FfiType> {
     fun lowerIntoRustBuffer(value: KotlinType): RustBuffer.ByValue {
         val rbuf = RustBuffer.alloc(allocationSize(value))
         try {
-            val bbuf = rbuf.data!!.getByteBuffer(0, rbuf.capacity).also {
-                it.order(ByteOrder.BIG_ENDIAN)
-            }
+            val bbuf =
+                rbuf.data!!.getByteBuffer(0, rbuf.capacity).also {
+                    it.order(ByteOrder.BIG_ENDIAN)
+                }
             write(value, bbuf)
             rbuf.writeField("len", bbuf.position().toLong())
             return rbuf
@@ -192,11 +213,11 @@ public interface FfiConverter<KotlinType, FfiType> {
     fun liftFromRustBuffer(rbuf: RustBuffer.ByValue): KotlinType {
         val byteBuf = rbuf.asByteBuffer()!!
         try {
-           val item = read(byteBuf)
-           if (byteBuf.hasRemaining()) {
-               throw RuntimeException("junk remaining in buffer after lifting, something is very wrong!!")
-           }
-           return item
+            val item = read(byteBuf)
+            if (byteBuf.hasRemaining()) {
+                throw RuntimeException("junk remaining in buffer after lifting, something is very wrong!!")
+            }
+            return item
         } finally {
             RustBuffer.free(rbuf)
         }
@@ -208,8 +229,9 @@ public interface FfiConverter<KotlinType, FfiType> {
  *
  * @suppress
  */
-public interface FfiConverterRustBuffer<KotlinType>: FfiConverter<KotlinType, RustBuffer.ByValue> {
+public interface FfiConverterRustBuffer<KotlinType> : FfiConverter<KotlinType, RustBuffer.ByValue> {
     override fun lift(value: RustBuffer.ByValue) = liftFromRustBuffer(value)
+
     override fun lower(value: KotlinType) = lowerIntoRustBuffer(value)
 }
 // A handful of classes and functions to support the generated data structures.
@@ -222,24 +244,24 @@ internal const val UNIFFI_CALL_UNEXPECTED_ERROR = 2.toByte()
 @Structure.FieldOrder("code", "error_buf")
 internal open class UniffiRustCallStatus : Structure() {
     @JvmField var code: Byte = 0
+
     @JvmField var error_buf: RustBuffer.ByValue = RustBuffer.ByValue()
 
-    class ByValue: UniffiRustCallStatus(), Structure.ByValue
+    class ByValue :
+        UniffiRustCallStatus(),
+        Structure.ByValue
 
-    fun isSuccess(): Boolean {
-        return code == UNIFFI_CALL_SUCCESS
-    }
+    fun isSuccess(): Boolean = code == UNIFFI_CALL_SUCCESS
 
-    fun isError(): Boolean {
-        return code == UNIFFI_CALL_ERROR
-    }
+    fun isError(): Boolean = code == UNIFFI_CALL_ERROR
 
-    fun isPanic(): Boolean {
-        return code == UNIFFI_CALL_UNEXPECTED_ERROR
-    }
+    fun isPanic(): Boolean = code == UNIFFI_CALL_UNEXPECTED_ERROR
 
     companion object {
-        fun create(code: Byte, errorBuf: RustBuffer.ByValue): UniffiRustCallStatus.ByValue {
+        fun create(
+            code: Byte,
+            errorBuf: RustBuffer.ByValue,
+        ): UniffiRustCallStatus.ByValue {
             val callStatus = UniffiRustCallStatus.ByValue()
             callStatus.code = code
             callStatus.error_buf = errorBuf
@@ -248,7 +270,9 @@ internal open class UniffiRustCallStatus : Structure() {
     }
 }
 
-class InternalException(message: String) : kotlin.Exception(message)
+class InternalException(
+    message: String,
+) : kotlin.Exception(message)
 
 /**
  * Each top-level error class has a companion object that can lift the error from the call status's rust buffer
@@ -256,7 +280,7 @@ class InternalException(message: String) : kotlin.Exception(message)
  * @suppress
  */
 interface UniffiRustCallStatusErrorHandler<E> {
-    fun lift(error_buf: RustBuffer.ByValue): E;
+    fun lift(error_buf: RustBuffer.ByValue): E
 }
 
 // Helpers for calling Rust
@@ -264,7 +288,10 @@ interface UniffiRustCallStatusErrorHandler<E> {
 // synchronize itself
 
 // Call a rust function that returns a Result<>.  Pass in the Error class companion that corresponds to the Err
-private inline fun <U, E: kotlin.Exception> uniffiRustCallWithError(errorHandler: UniffiRustCallStatusErrorHandler<E>, callback: (UniffiRustCallStatus) -> U): U {
+private inline fun <U, E : kotlin.Exception> uniffiRustCallWithError(
+    errorHandler: UniffiRustCallStatusErrorHandler<E>,
+    callback: (UniffiRustCallStatus) -> U,
+): U {
     var status = UniffiRustCallStatus()
     val return_value = callback(status)
     uniffiCheckCallStatus(errorHandler, status)
@@ -272,7 +299,10 @@ private inline fun <U, E: kotlin.Exception> uniffiRustCallWithError(errorHandler
 }
 
 // Check UniffiRustCallStatus and throw an error if the call wasn't successful
-private fun<E: kotlin.Exception> uniffiCheckCallStatus(errorHandler: UniffiRustCallStatusErrorHandler<E>, status: UniffiRustCallStatus) {
+private fun <E : kotlin.Exception> uniffiCheckCallStatus(
+    errorHandler: UniffiRustCallStatusErrorHandler<E>,
+    status: UniffiRustCallStatus,
+) {
     if (status.isSuccess()) {
         return
     } else if (status.isError()) {
@@ -296,7 +326,7 @@ private fun<E: kotlin.Exception> uniffiCheckCallStatus(errorHandler: UniffiRustC
  *
  * @suppress
  */
-object UniffiNullRustCallStatusErrorHandler: UniffiRustCallStatusErrorHandler<InternalException> {
+object UniffiNullRustCallStatusErrorHandler : UniffiRustCallStatusErrorHandler<InternalException> {
     override fun lift(error_buf: RustBuffer.ByValue): InternalException {
         RustBuffer.free(error_buf)
         return InternalException("Unexpected CALL_ERROR")
@@ -304,32 +334,31 @@ object UniffiNullRustCallStatusErrorHandler: UniffiRustCallStatusErrorHandler<In
 }
 
 // Call a rust function that returns a plain value
-private inline fun <U> uniffiRustCall(callback: (UniffiRustCallStatus) -> U): U {
-    return uniffiRustCallWithError(UniffiNullRustCallStatusErrorHandler, callback)
-}
+private inline fun <U> uniffiRustCall(callback: (UniffiRustCallStatus) -> U): U =
+    uniffiRustCallWithError(UniffiNullRustCallStatusErrorHandler, callback)
 
-internal inline fun<T> uniffiTraitInterfaceCall(
+internal inline fun <T> uniffiTraitInterfaceCall(
     callStatus: UniffiRustCallStatus,
     makeCall: () -> T,
     writeReturn: (T) -> Unit,
 ) {
     try {
         writeReturn(makeCall())
-    } catch(e: kotlin.Exception) {
+    } catch (e: kotlin.Exception) {
         callStatus.code = UNIFFI_CALL_UNEXPECTED_ERROR
         callStatus.error_buf = FfiConverterString.lower(e.toString())
     }
 }
 
-internal inline fun<T, reified E: Throwable> uniffiTraitInterfaceCallWithError(
+internal inline fun <T, reified E : Throwable> uniffiTraitInterfaceCallWithError(
     callStatus: UniffiRustCallStatus,
     makeCall: () -> T,
     writeReturn: (T) -> Unit,
-    lowerError: (E) -> RustBuffer.ByValue
+    lowerError: (E) -> RustBuffer.ByValue,
 ) {
     try {
         writeReturn(makeCall())
-    } catch(e: kotlin.Exception) {
+    } catch (e: kotlin.Exception) {
         if (e is E) {
             callStatus.code = UNIFFI_CALL_ERROR
             callStatus.error_buf = lowerError(e)
@@ -339,12 +368,15 @@ internal inline fun<T, reified E: Throwable> uniffiTraitInterfaceCallWithError(
         }
     }
 }
+
 // Map handles to objects
 //
 // This is used pass an opaque 64-bit handle representing a foreign object to the Rust code.
-internal class UniffiHandleMap<T: Any> {
+internal class UniffiHandleMap<T : Any> {
     private val map = ConcurrentHashMap<Long, T>()
-    private val counter = java.util.concurrent.atomic.AtomicLong(0)
+    private val counter =
+        java.util.concurrent.atomic
+            .AtomicLong(0)
 
     val size: Int
         get() = map.size
@@ -357,14 +389,10 @@ internal class UniffiHandleMap<T: Any> {
     }
 
     // Get an object from the handle map
-    fun get(handle: Long): T {
-        return map.get(handle) ?: throw InternalException("UniffiHandleMap.get: Invalid handle")
-    }
+    fun get(handle: Long): T = map.get(handle) ?: throw InternalException("UniffiHandleMap.get: Invalid handle")
 
     // Remove an entry from the handlemap and get the Kotlin object back
-    fun remove(handle: Long): T {
-        return map.remove(handle) ?: throw InternalException("UniffiHandleMap: Invalid handle")
-    }
+    fun remove(handle: Long): T = map.remove(handle) ?: throw InternalException("UniffiHandleMap: Invalid handle")
 }
 
 // Contains loading, initialization code,
@@ -378,22 +406,25 @@ private fun findLibraryName(componentName: String): String {
     return "uniffi_nearclip"
 }
 
-private inline fun <reified Lib : Library> loadIndirect(
-    componentName: String
-): Lib {
-    return Native.load<Lib>(findLibraryName(componentName), Lib::class.java)
-}
+private inline fun <reified Lib : Library> loadIndirect(componentName: String): Lib =
+    Native.load<Lib>(findLibraryName(componentName), Lib::class.java)
 
 // Define FFI callback types
 internal interface UniffiRustFutureContinuationCallback : com.sun.jna.Callback {
-    fun callback(`data`: Long,`pollResult`: Byte,)
+    fun callback(
+        `data`: Long,
+        `pollResult`: Byte,
+    )
 }
+
 internal interface UniffiForeignFutureFree : com.sun.jna.Callback {
-    fun callback(`handle`: Long,)
+    fun callback(`handle`: Long)
 }
+
 internal interface UniffiCallbackInterfaceFree : com.sun.jna.Callback {
-    fun callback(`handle`: Long,)
+    fun callback(`handle`: Long)
 }
+
 @Structure.FieldOrder("handle", "free")
 internal open class UniffiForeignFuture(
     @JvmField internal var `handle`: Long = 0.toLong(),
@@ -402,14 +433,15 @@ internal open class UniffiForeignFuture(
     class UniffiByValue(
         `handle`: Long = 0.toLong(),
         `free`: UniffiForeignFutureFree? = null,
-    ): UniffiForeignFuture(`handle`,`free`,), Structure.ByValue
+    ) : UniffiForeignFuture(`handle`, `free`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFuture) {
+    internal fun uniffiSetValue(other: UniffiForeignFuture) {
         `handle` = other.`handle`
         `free` = other.`free`
     }
-
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructU8(
     @JvmField internal var `returnValue`: Byte = 0.toByte(),
@@ -418,17 +450,22 @@ internal open class UniffiForeignFutureStructU8(
     class UniffiByValue(
         `returnValue`: Byte = 0.toByte(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructU8(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructU8(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructU8) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructU8) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteU8 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructU8.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructU8.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructI8(
     @JvmField internal var `returnValue`: Byte = 0.toByte(),
@@ -437,17 +474,22 @@ internal open class UniffiForeignFutureStructI8(
     class UniffiByValue(
         `returnValue`: Byte = 0.toByte(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructI8(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructI8(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructI8) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructI8) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteI8 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructI8.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructI8.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructU16(
     @JvmField internal var `returnValue`: Short = 0.toShort(),
@@ -456,17 +498,22 @@ internal open class UniffiForeignFutureStructU16(
     class UniffiByValue(
         `returnValue`: Short = 0.toShort(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructU16(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructU16(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructU16) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructU16) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteU16 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructU16.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructU16.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructI16(
     @JvmField internal var `returnValue`: Short = 0.toShort(),
@@ -475,17 +522,22 @@ internal open class UniffiForeignFutureStructI16(
     class UniffiByValue(
         `returnValue`: Short = 0.toShort(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructI16(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructI16(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructI16) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructI16) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteI16 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructI16.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructI16.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructU32(
     @JvmField internal var `returnValue`: Int = 0,
@@ -494,17 +546,22 @@ internal open class UniffiForeignFutureStructU32(
     class UniffiByValue(
         `returnValue`: Int = 0,
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructU32(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructU32(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructU32) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructU32) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteU32 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructU32.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructU32.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructI32(
     @JvmField internal var `returnValue`: Int = 0,
@@ -513,17 +570,22 @@ internal open class UniffiForeignFutureStructI32(
     class UniffiByValue(
         `returnValue`: Int = 0,
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructI32(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructI32(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructI32) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructI32) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteI32 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructI32.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructI32.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructU64(
     @JvmField internal var `returnValue`: Long = 0.toLong(),
@@ -532,17 +594,22 @@ internal open class UniffiForeignFutureStructU64(
     class UniffiByValue(
         `returnValue`: Long = 0.toLong(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructU64(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructU64(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructU64) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructU64) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteU64 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructU64.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructU64.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructI64(
     @JvmField internal var `returnValue`: Long = 0.toLong(),
@@ -551,17 +618,22 @@ internal open class UniffiForeignFutureStructI64(
     class UniffiByValue(
         `returnValue`: Long = 0.toLong(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructI64(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructI64(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructI64) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructI64) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteI64 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructI64.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructI64.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructF32(
     @JvmField internal var `returnValue`: Float = 0.0f,
@@ -570,17 +642,22 @@ internal open class UniffiForeignFutureStructF32(
     class UniffiByValue(
         `returnValue`: Float = 0.0f,
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructF32(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructF32(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructF32) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructF32) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteF32 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructF32.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructF32.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructF64(
     @JvmField internal var `returnValue`: Double = 0.0,
@@ -589,17 +666,22 @@ internal open class UniffiForeignFutureStructF64(
     class UniffiByValue(
         `returnValue`: Double = 0.0,
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructF64(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructF64(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructF64) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructF64) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteF64 : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructF64.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructF64.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructPointer(
     @JvmField internal var `returnValue`: Pointer = Pointer.NULL,
@@ -608,17 +690,22 @@ internal open class UniffiForeignFutureStructPointer(
     class UniffiByValue(
         `returnValue`: Pointer = Pointer.NULL,
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructPointer(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructPointer(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructPointer) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructPointer) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompletePointer : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructPointer.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructPointer.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("returnValue", "callStatus")
 internal open class UniffiForeignFutureStructRustBuffer(
     @JvmField internal var `returnValue`: RustBuffer.ByValue = RustBuffer.ByValue(),
@@ -627,45 +714,80 @@ internal open class UniffiForeignFutureStructRustBuffer(
     class UniffiByValue(
         `returnValue`: RustBuffer.ByValue = RustBuffer.ByValue(),
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructRustBuffer(`returnValue`,`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructRustBuffer(`returnValue`, `callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructRustBuffer) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructRustBuffer) {
         `returnValue` = other.`returnValue`
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteRustBuffer : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructRustBuffer.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructRustBuffer.UniffiByValue,
+    )
 }
+
 @Structure.FieldOrder("callStatus")
 internal open class UniffiForeignFutureStructVoid(
     @JvmField internal var `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
 ) : Structure() {
     class UniffiByValue(
         `callStatus`: UniffiRustCallStatus.ByValue = UniffiRustCallStatus.ByValue(),
-    ): UniffiForeignFutureStructVoid(`callStatus`,), Structure.ByValue
+    ) : UniffiForeignFutureStructVoid(`callStatus`),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiForeignFutureStructVoid) {
+    internal fun uniffiSetValue(other: UniffiForeignFutureStructVoid) {
         `callStatus` = other.`callStatus`
     }
+}
 
-}
 internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
-    fun callback(`callbackData`: Long,`result`: UniffiForeignFutureStructVoid.UniffiByValue,)
+    fun callback(
+        `callbackData`: Long,
+        `result`: UniffiForeignFutureStructVoid.UniffiByValue,
+    )
 }
+
 internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod0 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`device`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(
+        `uniffiHandle`: Long,
+        `device`: RustBuffer.ByValue,
+        `uniffiOutReturn`: Pointer,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
 }
+
 internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod1 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`deviceId`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(
+        `uniffiHandle`: Long,
+        `deviceId`: RustBuffer.ByValue,
+        `uniffiOutReturn`: Pointer,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
 }
+
 internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod2 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`content`: RustBuffer.ByValue,`fromDevice`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(
+        `uniffiHandle`: Long,
+        `content`: RustBuffer.ByValue,
+        `fromDevice`: RustBuffer.ByValue,
+        `uniffiOutReturn`: Pointer,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
 }
+
 internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod3 : com.sun.jna.Callback {
-    fun callback(`uniffiHandle`: Long,`errorMessage`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,)
+    fun callback(
+        `uniffiHandle`: Long,
+        `errorMessage`: RustBuffer.ByValue,
+        `uniffiOutReturn`: Pointer,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
 }
+
 @Structure.FieldOrder("onDeviceConnected", "onDeviceDisconnected", "onClipboardReceived", "onSyncError", "uniffiFree")
 internal open class UniffiVTableCallbackInterfaceFfiNearClipCallback(
     @JvmField internal var `onDeviceConnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod0? = null,
@@ -680,109 +802,23 @@ internal open class UniffiVTableCallbackInterfaceFfiNearClipCallback(
         `onClipboardReceived`: UniffiCallbackInterfaceFfiNearClipCallbackMethod2? = null,
         `onSyncError`: UniffiCallbackInterfaceFfiNearClipCallbackMethod3? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
-    ): UniffiVTableCallbackInterfaceFfiNearClipCallback(`onDeviceConnected`,`onDeviceDisconnected`,`onClipboardReceived`,`onSyncError`,`uniffiFree`,), Structure.ByValue
+    ) : UniffiVTableCallbackInterfaceFfiNearClipCallback(
+            `onDeviceConnected`,
+            `onDeviceDisconnected`,
+            `onClipboardReceived`,
+            `onSyncError`,
+            `uniffiFree`,
+        ),
+        Structure.ByValue
 
-   internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceFfiNearClipCallback) {
+    internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceFfiNearClipCallback) {
         `onDeviceConnected` = other.`onDeviceConnected`
         `onDeviceDisconnected` = other.`onDeviceDisconnected`
         `onClipboardReceived` = other.`onClipboardReceived`
         `onSyncError` = other.`onSyncError`
         `uniffiFree` = other.`uniffiFree`
     }
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // A JNA Library to expose the extern-C FFI definitions.
 // This is an implementation detail which will be called internally by the public API.
@@ -791,204 +827,358 @@ internal interface UniffiLib : Library {
     companion object {
         internal val INSTANCE: UniffiLib by lazy {
             loadIndirect<UniffiLib>(componentName = "nearclip")
-            .also { lib: UniffiLib ->
-                uniffiCheckContractApiVersion(lib)
-                uniffiCheckApiChecksums(lib)
-                uniffiCallbackInterfaceFfiNearClipCallback.register(lib)
+                .also { lib: UniffiLib ->
+                    uniffiCheckContractApiVersion(lib)
+                    uniffiCheckApiChecksums(lib)
+                    uniffiCallbackInterfaceFfiNearClipCallback.register(lib)
                 }
         }
-        
+
         // The Cleaner for the whole library
         internal val CLEANER: UniffiCleaner by lazy {
             UniffiCleaner.create()
         }
     }
 
-    fun uniffi_nearclip_ffi_fn_clone_ffinearclipmanager(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_nearclip_ffi_fn_clone_ffinearclipmanager(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Pointer
-    fun uniffi_nearclip_ffi_fn_free_ffinearclipmanager(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_free_ffinearclipmanager(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_constructor_ffinearclipmanager_new(`config`: RustBuffer.ByValue,`callback`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_constructor_ffinearclipmanager_new(
+        `config`: RustBuffer.ByValue,
+        `callback`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Pointer
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_paired_device(`ptr`: Pointer,`device`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_paired_device(
+        `ptr`: Pointer,
+        `device`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_connect_device(`ptr`: Pointer,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_connect_device(
+        `ptr`: Pointer,
+        `deviceId`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_disconnect_device(`ptr`: Pointer,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_disconnect_device(
+        `ptr`: Pointer,
+        `deviceId`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_connected_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_connected_devices(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(`ptr`: Pointer,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(
+        `ptr`: Pointer,
+        `deviceId`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_is_running(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_is_running(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Byte
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(`ptr`: Pointer,`deviceId`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(
+        `ptr`: Pointer,
+        `deviceId`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop(`ptr`: Pointer,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_sync_clipboard(`ptr`: Pointer,`content`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_sync_clipboard(
+        `ptr`: Pointer,
+        `content`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_init_callback_vtable_ffinearclipcallback(`vtable`: UniffiVTableCallbackInterfaceFfiNearClipCallback,
+
+    fun uniffi_nearclip_ffi_fn_init_callback_vtable_ffinearclipcallback(`vtable`: UniffiVTableCallbackInterfaceFfiNearClipCallback): Unit
+
+    fun uniffi_nearclip_ffi_fn_func_flush_logs(uniffi_out_err: UniffiRustCallStatus): Unit
+
+    fun uniffi_nearclip_ffi_fn_func_init_logging(
+        `level`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun uniffi_nearclip_ffi_fn_func_flush_logs(uniffi_out_err: UniffiRustCallStatus, 
-    ): Unit
-    fun uniffi_nearclip_ffi_fn_func_init_logging(`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
-    ): Unit
-    fun ffi_nearclip_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rustbuffer_alloc(
+        `size`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun ffi_nearclip_ffi_rustbuffer_from_bytes(`bytes`: ForeignBytes.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rustbuffer_from_bytes(
+        `bytes`: ForeignBytes.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun ffi_nearclip_ffi_rustbuffer_free(`buf`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rustbuffer_free(
+        `buf`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun ffi_nearclip_ffi_rustbuffer_reserve(`buf`: RustBuffer.ByValue,`additional`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rustbuffer_reserve(
+        `buf`: RustBuffer.ByValue,
+        `additional`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun ffi_nearclip_ffi_rust_future_poll_u8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_u8(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_u8(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_u8(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_u8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_u8(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_u8(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_u8(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Byte
-    fun ffi_nearclip_ffi_rust_future_poll_i8(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_i8(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_i8(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_i8(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_i8(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_i8(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_i8(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_i8(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Byte
-    fun ffi_nearclip_ffi_rust_future_poll_u16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_u16(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_u16(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_u16(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_u16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_u16(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_u16(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_u16(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Short
-    fun ffi_nearclip_ffi_rust_future_poll_i16(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_i16(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_i16(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_i16(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_i16(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_i16(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_i16(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_i16(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Short
-    fun ffi_nearclip_ffi_rust_future_poll_u32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_u32(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_u32(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_u32(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_u32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_u32(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_u32(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_u32(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Int
-    fun ffi_nearclip_ffi_rust_future_poll_i32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_i32(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_i32(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_i32(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_i32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_i32(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_i32(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_i32(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Int
-    fun ffi_nearclip_ffi_rust_future_poll_u64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_u64(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_u64(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_u64(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_u64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_u64(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_u64(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_u64(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Long
-    fun ffi_nearclip_ffi_rust_future_poll_i64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_i64(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_i64(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_i64(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_i64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_i64(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_i64(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_i64(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Long
-    fun ffi_nearclip_ffi_rust_future_poll_f32(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_f32(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_f32(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_f32(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_f32(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_f32(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_f32(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_f32(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Float
-    fun ffi_nearclip_ffi_rust_future_poll_f64(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_f64(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_f64(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_f64(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_f64(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_f64(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_f64(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_f64(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Double
-    fun ffi_nearclip_ffi_rust_future_poll_pointer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_pointer(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_pointer(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_pointer(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_pointer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_pointer(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_pointer(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_pointer(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Pointer
-    fun ffi_nearclip_ffi_rust_future_poll_rust_buffer(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_rust_buffer(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_rust_buffer(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_rust_buffer(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_rust_buffer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+
+    fun ffi_nearclip_ffi_rust_future_cancel_rust_buffer(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_rust_buffer(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_rust_buffer(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
-    fun ffi_nearclip_ffi_rust_future_poll_void(`handle`: Long,`callback`: UniffiRustFutureContinuationCallback,`callbackData`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_poll_void(
+        `handle`: Long,
+        `callback`: UniffiRustFutureContinuationCallback,
+        `callbackData`: Long,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_cancel_void(`handle`: Long,
+
+    fun ffi_nearclip_ffi_rust_future_cancel_void(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_free_void(`handle`: Long): Unit
+
+    fun ffi_nearclip_ffi_rust_future_complete_void(
+        `handle`: Long,
+        uniffi_out_err: UniffiRustCallStatus,
     ): Unit
-    fun ffi_nearclip_ffi_rust_future_free_void(`handle`: Long,
-    ): Unit
-    fun ffi_nearclip_ffi_rust_future_complete_void(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
-    ): Unit
-    fun uniffi_nearclip_ffi_checksum_func_flush_logs(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_func_init_logging(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_add_paired_device(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_connect_device(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_disconnect_device(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_status(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_paired_devices(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_sync_clipboard(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_connected(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_disconnected(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_clipboard_received(
-    ): Short
-    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_sync_error(
-    ): Short
-    fun ffi_nearclip_ffi_uniffi_contract_version(
-    ): Int
-    
+
+    fun uniffi_nearclip_ffi_checksum_func_flush_logs(): Short
+
+    fun uniffi_nearclip_ffi_checksum_func_init_logging(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_add_paired_device(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_connect_device(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_disconnect_device(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_status(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_paired_devices(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_sync_clipboard(): Short
+
+    fun uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_connected(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_disconnected(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_clipboard_received(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_sync_error(): Short
+
+    fun ffi_nearclip_ffi_uniffi_contract_version(): Int
 }
 
 private fun uniffiCheckContractApiVersion(lib: UniffiLib) {
@@ -1063,7 +1253,6 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
 
 // Public interface members begin here.
 
-
 // Interface implemented by anything that can contain an object reference.
 //
 // Such types expose a `destroy()` method that must be called to cleanly
@@ -1074,9 +1263,11 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
 // helper method to execute a block and destroy the object at the end.
 interface Disposable {
     fun destroy()
+
     companion object {
         fun destroy(vararg args: Any?) {
-            args.filterIsInstance<Disposable>()
+            args
+                .filterIsInstance<Disposable>()
                 .forEach(Disposable::destroy)
         }
     }
@@ -1097,7 +1288,7 @@ inline fun <T : Disposable?, R> T.use(block: (T) -> R) =
         }
     }
 
-/** 
+/**
  * Used to instantiate an interface without an actual pointer, for fakes in tests, mostly.
  *
  * @suppress
@@ -1107,22 +1298,19 @@ object NoPointer
 /**
  * @suppress
  */
-public object FfiConverterUInt: FfiConverter<UInt, Int> {
-    override fun lift(value: Int): UInt {
-        return value.toUInt()
-    }
+public object FfiConverterUInt : FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt = value.toUInt()
 
-    override fun read(buf: ByteBuffer): UInt {
-        return lift(buf.getInt())
-    }
+    override fun read(buf: ByteBuffer): UInt = lift(buf.getInt())
 
-    override fun lower(value: UInt): Int {
-        return value.toInt()
-    }
+    override fun lower(value: UInt): Int = value.toInt()
 
     override fun allocationSize(value: UInt) = 4UL
 
-    override fun write(value: UInt, buf: ByteBuffer) {
+    override fun write(
+        value: UInt,
+        buf: ByteBuffer,
+    ) {
         buf.putInt(value.toInt())
     }
 }
@@ -1130,22 +1318,19 @@ public object FfiConverterUInt: FfiConverter<UInt, Int> {
 /**
  * @suppress
  */
-public object FfiConverterULong: FfiConverter<ULong, Long> {
-    override fun lift(value: Long): ULong {
-        return value.toULong()
-    }
+public object FfiConverterULong : FfiConverter<ULong, Long> {
+    override fun lift(value: Long): ULong = value.toULong()
 
-    override fun read(buf: ByteBuffer): ULong {
-        return lift(buf.getLong())
-    }
+    override fun read(buf: ByteBuffer): ULong = lift(buf.getLong())
 
-    override fun lower(value: ULong): Long {
-        return value.toLong()
-    }
+    override fun lower(value: ULong): Long = value.toLong()
 
     override fun allocationSize(value: ULong) = 8UL
 
-    override fun write(value: ULong, buf: ByteBuffer) {
+    override fun write(
+        value: ULong,
+        buf: ByteBuffer,
+    ) {
         buf.putLong(value.toLong())
     }
 }
@@ -1153,22 +1338,19 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 /**
  * @suppress
  */
-public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
-    override fun lift(value: Byte): Boolean {
-        return value.toInt() != 0
-    }
+public object FfiConverterBoolean : FfiConverter<Boolean, Byte> {
+    override fun lift(value: Byte): Boolean = value.toInt() != 0
 
-    override fun read(buf: ByteBuffer): Boolean {
-        return lift(buf.get())
-    }
+    override fun read(buf: ByteBuffer): Boolean = lift(buf.get())
 
-    override fun lower(value: Boolean): Byte {
-        return if (value) 1.toByte() else 0.toByte()
-    }
+    override fun lower(value: Boolean): Byte = if (value) 1.toByte() else 0.toByte()
 
     override fun allocationSize(value: Boolean) = 1UL
 
-    override fun write(value: Boolean, buf: ByteBuffer) {
+    override fun write(
+        value: Boolean,
+        buf: ByteBuffer,
+    ) {
         buf.put(lower(value))
     }
 }
@@ -1176,7 +1358,7 @@ public object FfiConverterBoolean: FfiConverter<Boolean, Byte> {
 /**
  * @suppress
  */
-public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
+public object FfiConverterString : FfiConverter<String, RustBuffer.ByValue> {
     // Note: we don't inherit from FfiConverterRustBuffer, because we use a
     // special encoding when lowering/lifting.  We can use `RustBuffer.len` to
     // store our length and avoid writing it out to the buffer.
@@ -1223,7 +1405,10 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         return sizeForLength + sizeForString
     }
 
-    override fun write(value: String, buf: ByteBuffer) {
+    override fun write(
+        value: String,
+        buf: ByteBuffer,
+    ) {
         val byteBuf = toUtf8(value)
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
@@ -1233,22 +1418,24 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
 /**
  * @suppress
  */
-public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+public object FfiConverterByteArray : FfiConverterRustBuffer<ByteArray> {
     override fun read(buf: ByteBuffer): ByteArray {
         val len = buf.getInt()
         val byteArr = ByteArray(len)
         buf.get(byteArr)
         return byteArr
     }
-    override fun allocationSize(value: ByteArray): ULong {
-        return 4UL + value.size.toULong()
-    }
-    override fun write(value: ByteArray, buf: ByteBuffer) {
+
+    override fun allocationSize(value: ByteArray): ULong = 4UL + value.size.toULong()
+
+    override fun write(
+        value: ByteArray,
+        buf: ByteBuffer,
+    ) {
         buf.putInt(value.size)
         buf.put(value)
     }
 }
-
 
 // This template implements a class for working with a Rust struct via a Pointer/Arc<T>
 // to the live Rust struct on the other side of the FFI.
@@ -1347,7 +1534,6 @@ public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
 // [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
 //
 
-
 /**
  * The cleaner interface for Object finalization code to run.
  * This is the entry point to any implementation that we're using.
@@ -1363,17 +1549,24 @@ interface UniffiCleaner {
         fun clean()
     }
 
-    fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable
+    fun register(
+        value: Any,
+        cleanUpTask: Runnable,
+    ): UniffiCleaner.Cleanable
 
     companion object
 }
 
 // The fallback Jna cleaner, which is available for both Android, and the JVM.
 private class UniffiJnaCleaner : UniffiCleaner {
-    private val cleaner = com.sun.jna.internal.Cleaner.getCleaner()
+    private val cleaner =
+        com.sun.jna.internal.Cleaner
+            .getCleaner()
 
-    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
-        UniffiJnaCleanable(cleaner.register(value, cleanUpTask))
+    override fun register(
+        value: Any,
+        cleanUpTask: Runnable,
+    ): UniffiCleaner.Cleanable = UniffiJnaCleanable(cleaner.register(value, cleanUpTask))
 }
 
 private class UniffiJnaCleanable(
@@ -1400,46 +1593,52 @@ private fun UniffiCleaner.Companion.create(): UniffiCleaner =
     }
 
 private class JavaLangRefCleaner : UniffiCleaner {
-    val cleaner = java.lang.ref.Cleaner.create()
+    val cleaner =
+        java.lang.ref.Cleaner
+            .create()
 
-    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
-        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
+    override fun register(
+        value: Any,
+        cleanUpTask: Runnable,
+    ): UniffiCleaner.Cleanable = JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
 }
 
 private class JavaLangRefCleanable(
-    val cleanable: java.lang.ref.Cleaner.Cleanable
+    val cleanable: java.lang.ref.Cleaner.Cleanable,
 ) : UniffiCleaner.Cleanable {
     override fun clean() = cleanable.clean()
 }
+
 public interface FfiNearClipManagerInterface {
-    
     fun `addPairedDevice`(`device`: FfiDeviceInfo)
-    
+
     fun `connectDevice`(`deviceId`: kotlin.String)
-    
+
     fun `disconnectDevice`(`deviceId`: kotlin.String)
-    
+
     fun `getConnectedDevices`(): List<FfiDeviceInfo>
-    
+
     fun `getDeviceStatus`(`deviceId`: kotlin.String): DeviceStatus?
-    
+
     fun `getPairedDevices`(): List<FfiDeviceInfo>
-    
+
     fun `isRunning`(): kotlin.Boolean
-    
+
     fun `removePairedDevice`(`deviceId`: kotlin.String)
-    
+
     fun `start`()
-    
+
     fun `stop`()
-    
+
     fun `syncClipboard`(`content`: kotlin.ByteArray)
-    
+
     companion object
 }
 
-open class FfiNearClipManager: Disposable, AutoCloseable, FfiNearClipManagerInterface {
-
+open class FfiNearClipManager :
+    Disposable,
+    AutoCloseable,
+    FfiNearClipManagerInterface {
     constructor(pointer: Pointer) {
         this.pointer = pointer
         this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(pointer))
@@ -1457,11 +1656,14 @@ open class FfiNearClipManager: Disposable, AutoCloseable, FfiNearClipManagerInte
     }
     constructor(`config`: FfiNearClipConfig, `callback`: FfiNearClipCallback) :
         this(
-    uniffiRustCallWithError(NearClipException) { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_constructor_ffinearclipmanager_new(
-        FfiConverterTypeFfiNearClipConfig.lower(`config`),FfiConverterTypeFfiNearClipCallback.lower(`callback`),_status)
-}
-    )
+            uniffiRustCallWithError(NearClipException) { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_constructor_ffinearclipmanager_new(
+                    FfiConverterTypeFfiNearClipConfig.lower(`config`),
+                    FfiConverterTypeFfiNearClipCallback.lower(`callback`),
+                    _status,
+                )
+            },
+        )
 
     protected val pointer: Pointer?
     protected val cleanable: UniffiCleaner.Cleanable
@@ -1496,7 +1698,7 @@ open class FfiNearClipManager: Disposable, AutoCloseable, FfiNearClipManagerInte
             if (c == Long.MAX_VALUE) {
                 throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
             }
-        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        } while (!this.callCounter.compareAndSet(c, c + 1L))
         // Now we can safely do the method call without the pointer being freed concurrently.
         try {
             return block(this.uniffiClonePointer())
@@ -1510,7 +1712,9 @@ open class FfiNearClipManager: Disposable, AutoCloseable, FfiNearClipManagerInte
 
     // Use a static inner class instead of a closure so as not to accidentally
     // capture `this` as part of the cleanable's action.
-    private class UniffiCleanAction(private val pointer: Pointer?) : Runnable {
+    private class UniffiCleanAction(
+        private val pointer: Pointer?,
+    ) : Runnable {
         override fun run() {
             pointer?.let { ptr ->
                 uniffiRustCall { status ->
@@ -1520,161 +1724,134 @@ open class FfiNearClipManager: Disposable, AutoCloseable, FfiNearClipManagerInte
         }
     }
 
-    fun uniffiClonePointer(): Pointer {
-        return uniffiRustCall() { status ->
+    fun uniffiClonePointer(): Pointer =
+        uniffiRustCall { status ->
             UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_clone_ffinearclipmanager(pointer!!, status)
         }
-    }
 
-    override fun `addPairedDevice`(`device`: FfiDeviceInfo)
-        = 
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_paired_device(
-        it, FfiConverterTypeFfiDeviceInfo.lower(`device`),_status)
-}
-    }
-    
-    
+    override fun `addPairedDevice`(`device`: FfiDeviceInfo) =
+        callWithPointer {
+            uniffiRustCall { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_paired_device(
+                    it,
+                    FfiConverterTypeFfiDeviceInfo.lower(`device`),
+                    _status,
+                )
+            }
+        }
 
-    
-    @Throws(NearClipException::class)override fun `connectDevice`(`deviceId`: kotlin.String)
-        = 
-    callWithPointer {
-    uniffiRustCallWithError(NearClipException) { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_connect_device(
-        it, FfiConverterString.lower(`deviceId`),_status)
-}
-    }
-    
-    
+    @Throws(NearClipException::class)
+    override fun `connectDevice`(`deviceId`: kotlin.String) =
+        callWithPointer {
+            uniffiRustCallWithError(NearClipException) { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_connect_device(
+                    it,
+                    FfiConverterString.lower(`deviceId`),
+                    _status,
+                )
+            }
+        }
 
-    
-    @Throws(NearClipException::class)override fun `disconnectDevice`(`deviceId`: kotlin.String)
-        = 
-    callWithPointer {
-    uniffiRustCallWithError(NearClipException) { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_disconnect_device(
-        it, FfiConverterString.lower(`deviceId`),_status)
-}
-    }
-    
-    
+    @Throws(NearClipException::class)
+    override fun `disconnectDevice`(`deviceId`: kotlin.String) =
+        callWithPointer {
+            uniffiRustCallWithError(NearClipException) { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_disconnect_device(
+                    it,
+                    FfiConverterString.lower(`deviceId`),
+                    _status,
+                )
+            }
+        }
 
-    override fun `getConnectedDevices`(): List<FfiDeviceInfo> {
-            return FfiConverterSequenceTypeFfiDeviceInfo.lift(
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_connected_devices(
-        it, _status)
-}
-    }
-    )
-    }
-    
+    override fun `getConnectedDevices`(): List<FfiDeviceInfo> =
+        FfiConverterSequenceTypeFfiDeviceInfo.lift(
+            callWithPointer {
+                uniffiRustCall { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_connected_devices(it, _status)
+                }
+            },
+        )
 
-    override fun `getDeviceStatus`(`deviceId`: kotlin.String): DeviceStatus? {
-            return FfiConverterOptionalTypeDeviceStatus.lift(
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(
-        it, FfiConverterString.lower(`deviceId`),_status)
-}
-    }
-    )
-    }
-    
+    override fun `getDeviceStatus`(`deviceId`: kotlin.String): DeviceStatus? =
+        FfiConverterOptionalTypeDeviceStatus.lift(
+            callWithPointer {
+                uniffiRustCall { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(
+                        it,
+                        FfiConverterString.lower(`deviceId`),
+                        _status,
+                    )
+                }
+            },
+        )
 
-    override fun `getPairedDevices`(): List<FfiDeviceInfo> {
-            return FfiConverterSequenceTypeFfiDeviceInfo.lift(
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(
-        it, _status)
-}
-    }
-    )
-    }
-    
+    override fun `getPairedDevices`(): List<FfiDeviceInfo> =
+        FfiConverterSequenceTypeFfiDeviceInfo.lift(
+            callWithPointer {
+                uniffiRustCall { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(it, _status)
+                }
+            },
+        )
 
-    override fun `isRunning`(): kotlin.Boolean {
-            return FfiConverterBoolean.lift(
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_is_running(
-        it, _status)
-}
-    }
-    )
-    }
-    
+    override fun `isRunning`(): kotlin.Boolean =
+        FfiConverterBoolean.lift(
+            callWithPointer {
+                uniffiRustCall { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_is_running(it, _status)
+                }
+            },
+        )
 
-    override fun `removePairedDevice`(`deviceId`: kotlin.String)
-        = 
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(
-        it, FfiConverterString.lower(`deviceId`),_status)
-}
-    }
-    
-    
+    override fun `removePairedDevice`(`deviceId`: kotlin.String) =
+        callWithPointer {
+            uniffiRustCall { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(
+                    it,
+                    FfiConverterString.lower(`deviceId`),
+                    _status,
+                )
+            }
+        }
 
-    
-    @Throws(NearClipException::class)override fun `start`()
-        = 
-    callWithPointer {
-    uniffiRustCallWithError(NearClipException) { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start(
-        it, _status)
-}
-    }
-    
-    
+    @Throws(NearClipException::class)
+    override fun `start`() =
+        callWithPointer {
+            uniffiRustCallWithError(NearClipException) { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start(it, _status)
+            }
+        }
 
-    override fun `stop`()
-        = 
-    callWithPointer {
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop(
-        it, _status)
-}
-    }
-    
-    
+    override fun `stop`() =
+        callWithPointer {
+            uniffiRustCall { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop(it, _status)
+            }
+        }
 
-    
-    @Throws(NearClipException::class)override fun `syncClipboard`(`content`: kotlin.ByteArray)
-        = 
-    callWithPointer {
-    uniffiRustCallWithError(NearClipException) { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_sync_clipboard(
-        it, FfiConverterByteArray.lower(`content`),_status)
-}
-    }
-    
-    
+    @Throws(NearClipException::class)
+    override fun `syncClipboard`(`content`: kotlin.ByteArray) =
+        callWithPointer {
+            uniffiRustCallWithError(NearClipException) { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_sync_clipboard(
+                    it,
+                    FfiConverterByteArray.lower(`content`),
+                    _status,
+                )
+            }
+        }
 
-    
-
-    
-    
     companion object
-    
 }
 
 /**
  * @suppress
  */
-public object FfiConverterTypeFfiNearClipManager: FfiConverter<FfiNearClipManager, Pointer> {
+public object FfiConverterTypeFfiNearClipManager : FfiConverter<FfiNearClipManager, Pointer> {
+    override fun lower(value: FfiNearClipManager): Pointer = value.uniffiClonePointer()
 
-    override fun lower(value: FfiNearClipManager): Pointer {
-        return value.uniffiClonePointer()
-    }
-
-    override fun lift(value: Pointer): FfiNearClipManager {
-        return FfiNearClipManager(value)
-    }
+    override fun lift(value: Pointer): FfiNearClipManager = FfiNearClipManager(value)
 
     override fun read(buf: ByteBuffer): FfiNearClipManager {
         // The Rust code always writes pointers as 8 bytes, and will
@@ -1684,74 +1861,74 @@ public object FfiConverterTypeFfiNearClipManager: FfiConverter<FfiNearClipManage
 
     override fun allocationSize(value: FfiNearClipManager) = 8UL
 
-    override fun write(value: FfiNearClipManager, buf: ByteBuffer) {
+    override fun write(
+        value: FfiNearClipManager,
+        buf: ByteBuffer,
+    ) {
         // The Rust code always expects pointers written as 8 bytes,
         // and will fail to compile if they don't fit.
         buf.putLong(Pointer.nativeValue(lower(value)))
     }
 }
 
-
-
-data class FfiDeviceInfo (
-    var `id`: kotlin.String, 
-    var `name`: kotlin.String, 
-    var `platform`: DevicePlatform, 
-    var `status`: DeviceStatus
+data class FfiDeviceInfo(
+    var `id`: kotlin.String,
+    var `name`: kotlin.String,
+    var `platform`: DevicePlatform,
+    var `status`: DeviceStatus,
 ) {
-    
     companion object
 }
 
 /**
  * @suppress
  */
-public object FfiConverterTypeFfiDeviceInfo: FfiConverterRustBuffer<FfiDeviceInfo> {
-    override fun read(buf: ByteBuffer): FfiDeviceInfo {
-        return FfiDeviceInfo(
+public object FfiConverterTypeFfiDeviceInfo : FfiConverterRustBuffer<FfiDeviceInfo> {
+    override fun read(buf: ByteBuffer): FfiDeviceInfo =
+        FfiDeviceInfo(
             FfiConverterString.read(buf),
             FfiConverterString.read(buf),
             FfiConverterTypeDevicePlatform.read(buf),
             FfiConverterTypeDeviceStatus.read(buf),
         )
-    }
 
-    override fun allocationSize(value: FfiDeviceInfo) = (
+    override fun allocationSize(value: FfiDeviceInfo) =
+        (
             FfiConverterString.allocationSize(value.`id`) +
-            FfiConverterString.allocationSize(value.`name`) +
-            FfiConverterTypeDevicePlatform.allocationSize(value.`platform`) +
-            FfiConverterTypeDeviceStatus.allocationSize(value.`status`)
-    )
+                FfiConverterString.allocationSize(value.`name`) +
+                FfiConverterTypeDevicePlatform.allocationSize(value.`platform`) +
+                FfiConverterTypeDeviceStatus.allocationSize(value.`status`)
+        )
 
-    override fun write(value: FfiDeviceInfo, buf: ByteBuffer) {
-            FfiConverterString.write(value.`id`, buf)
-            FfiConverterString.write(value.`name`, buf)
-            FfiConverterTypeDevicePlatform.write(value.`platform`, buf)
-            FfiConverterTypeDeviceStatus.write(value.`status`, buf)
+    override fun write(
+        value: FfiDeviceInfo,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterString.write(value.`id`, buf)
+        FfiConverterString.write(value.`name`, buf)
+        FfiConverterTypeDevicePlatform.write(value.`platform`, buf)
+        FfiConverterTypeDeviceStatus.write(value.`status`, buf)
     }
 }
 
-
-
-data class FfiNearClipConfig (
-    var `deviceName`: kotlin.String, 
-    var `wifiEnabled`: kotlin.Boolean, 
-    var `bleEnabled`: kotlin.Boolean, 
-    var `autoConnect`: kotlin.Boolean, 
-    var `connectionTimeoutSecs`: kotlin.ULong, 
-    var `heartbeatIntervalSecs`: kotlin.ULong, 
-    var `maxRetries`: kotlin.UInt
+data class FfiNearClipConfig(
+    var `deviceName`: kotlin.String,
+    var `wifiEnabled`: kotlin.Boolean,
+    var `bleEnabled`: kotlin.Boolean,
+    var `autoConnect`: kotlin.Boolean,
+    var `connectionTimeoutSecs`: kotlin.ULong,
+    var `heartbeatIntervalSecs`: kotlin.ULong,
+    var `maxRetries`: kotlin.UInt,
 ) {
-    
     companion object
 }
 
 /**
  * @suppress
  */
-public object FfiConverterTypeFfiNearClipConfig: FfiConverterRustBuffer<FfiNearClipConfig> {
-    override fun read(buf: ByteBuffer): FfiNearClipConfig {
-        return FfiNearClipConfig(
+public object FfiConverterTypeFfiNearClipConfig : FfiConverterRustBuffer<FfiNearClipConfig> {
+    override fun read(buf: ByteBuffer): FfiNearClipConfig =
+        FfiNearClipConfig(
             FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
@@ -1760,145 +1937,155 @@ public object FfiConverterTypeFfiNearClipConfig: FfiConverterRustBuffer<FfiNearC
             FfiConverterULong.read(buf),
             FfiConverterUInt.read(buf),
         )
-    }
 
-    override fun allocationSize(value: FfiNearClipConfig) = (
+    override fun allocationSize(value: FfiNearClipConfig) =
+        (
             FfiConverterString.allocationSize(value.`deviceName`) +
-            FfiConverterBoolean.allocationSize(value.`wifiEnabled`) +
-            FfiConverterBoolean.allocationSize(value.`bleEnabled`) +
-            FfiConverterBoolean.allocationSize(value.`autoConnect`) +
-            FfiConverterULong.allocationSize(value.`connectionTimeoutSecs`) +
-            FfiConverterULong.allocationSize(value.`heartbeatIntervalSecs`) +
-            FfiConverterUInt.allocationSize(value.`maxRetries`)
-    )
+                FfiConverterBoolean.allocationSize(value.`wifiEnabled`) +
+                FfiConverterBoolean.allocationSize(value.`bleEnabled`) +
+                FfiConverterBoolean.allocationSize(value.`autoConnect`) +
+                FfiConverterULong.allocationSize(value.`connectionTimeoutSecs`) +
+                FfiConverterULong.allocationSize(value.`heartbeatIntervalSecs`) +
+                FfiConverterUInt.allocationSize(value.`maxRetries`)
+        )
 
-    override fun write(value: FfiNearClipConfig, buf: ByteBuffer) {
-            FfiConverterString.write(value.`deviceName`, buf)
-            FfiConverterBoolean.write(value.`wifiEnabled`, buf)
-            FfiConverterBoolean.write(value.`bleEnabled`, buf)
-            FfiConverterBoolean.write(value.`autoConnect`, buf)
-            FfiConverterULong.write(value.`connectionTimeoutSecs`, buf)
-            FfiConverterULong.write(value.`heartbeatIntervalSecs`, buf)
-            FfiConverterUInt.write(value.`maxRetries`, buf)
+    override fun write(
+        value: FfiNearClipConfig,
+        buf: ByteBuffer,
+    ) {
+        FfiConverterString.write(value.`deviceName`, buf)
+        FfiConverterBoolean.write(value.`wifiEnabled`, buf)
+        FfiConverterBoolean.write(value.`bleEnabled`, buf)
+        FfiConverterBoolean.write(value.`autoConnect`, buf)
+        FfiConverterULong.write(value.`connectionTimeoutSecs`, buf)
+        FfiConverterULong.write(value.`heartbeatIntervalSecs`, buf)
+        FfiConverterUInt.write(value.`maxRetries`, buf)
     }
 }
-
-
-
 
 enum class DevicePlatform {
-    
     MAC_OS,
     ANDROID,
-    UNKNOWN;
+    UNKNOWN,
+    ;
+
     companion object
 }
-
 
 /**
  * @suppress
  */
-public object FfiConverterTypeDevicePlatform: FfiConverterRustBuffer<DevicePlatform> {
-    override fun read(buf: ByteBuffer) = try {
-        DevicePlatform.values()[buf.getInt() - 1]
-    } catch (e: IndexOutOfBoundsException) {
-        throw RuntimeException("invalid enum value, something is very wrong!!", e)
-    }
+public object FfiConverterTypeDevicePlatform : FfiConverterRustBuffer<DevicePlatform> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            DevicePlatform.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
 
     override fun allocationSize(value: DevicePlatform) = 4UL
 
-    override fun write(value: DevicePlatform, buf: ByteBuffer) {
+    override fun write(
+        value: DevicePlatform,
+        buf: ByteBuffer,
+    ) {
         buf.putInt(value.ordinal + 1)
     }
 }
 
-
-
-
-
-
 enum class DeviceStatus {
-    
     CONNECTED,
     DISCONNECTED,
     CONNECTING,
-    FAILED;
+    FAILED,
+    ;
+
     companion object
 }
-
 
 /**
  * @suppress
  */
-public object FfiConverterTypeDeviceStatus: FfiConverterRustBuffer<DeviceStatus> {
-    override fun read(buf: ByteBuffer) = try {
-        DeviceStatus.values()[buf.getInt() - 1]
-    } catch (e: IndexOutOfBoundsException) {
-        throw RuntimeException("invalid enum value, something is very wrong!!", e)
-    }
+public object FfiConverterTypeDeviceStatus : FfiConverterRustBuffer<DeviceStatus> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            DeviceStatus.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
 
     override fun allocationSize(value: DeviceStatus) = 4UL
 
-    override fun write(value: DeviceStatus, buf: ByteBuffer) {
+    override fun write(
+        value: DeviceStatus,
+        buf: ByteBuffer,
+    ) {
         buf.putInt(value.ordinal + 1)
     }
 }
 
-
-
-
-
-
 enum class LogLevel {
-    
     ERROR,
     WARN,
     INFO,
     DEBUG,
-    TRACE;
+    TRACE,
+    ;
+
     companion object
 }
-
 
 /**
  * @suppress
  */
-public object FfiConverterTypeLogLevel: FfiConverterRustBuffer<LogLevel> {
-    override fun read(buf: ByteBuffer) = try {
-        LogLevel.values()[buf.getInt() - 1]
-    } catch (e: IndexOutOfBoundsException) {
-        throw RuntimeException("invalid enum value, something is very wrong!!", e)
-    }
+public object FfiConverterTypeLogLevel : FfiConverterRustBuffer<LogLevel> {
+    override fun read(buf: ByteBuffer) =
+        try {
+            LogLevel.values()[buf.getInt() - 1]
+        } catch (e: IndexOutOfBoundsException) {
+            throw RuntimeException("invalid enum value, something is very wrong!!", e)
+        }
 
     override fun allocationSize(value: LogLevel) = 4UL
 
-    override fun write(value: LogLevel, buf: ByteBuffer) {
+    override fun write(
+        value: LogLevel,
+        buf: ByteBuffer,
+    ) {
         buf.putInt(value.ordinal + 1)
     }
 }
 
+sealed class NearClipException(
+    message: String,
+) : kotlin.Exception(message) {
+    class Network(
+        message: String,
+    ) : NearClipException(message)
 
+    class Bluetooth(
+        message: String,
+    ) : NearClipException(message)
 
+    class Crypto(
+        message: String,
+    ) : NearClipException(message)
 
+    class DeviceNotFound(
+        message: String,
+    ) : NearClipException(message)
 
+    class Sync(
+        message: String,
+    ) : NearClipException(message)
 
+    class Config(
+        message: String,
+    ) : NearClipException(message)
 
-sealed class NearClipException(message: String): kotlin.Exception(message) {
-        
-        class Network(message: String) : NearClipException(message)
-        
-        class Bluetooth(message: String) : NearClipException(message)
-        
-        class Crypto(message: String) : NearClipException(message)
-        
-        class DeviceNotFound(message: String) : NearClipException(message)
-        
-        class Sync(message: String) : NearClipException(message)
-        
-        class Config(message: String) : NearClipException(message)
-        
-        class Io(message: String) : NearClipException(message)
-        
+    class Io(
+        message: String,
+    ) : NearClipException(message)
 
     companion object ErrorHandler : UniffiRustCallStatusErrorHandler<NearClipException> {
         override fun lift(error_buf: RustBuffer.ByValue): NearClipException = FfiConverterTypeNearClipError.lift(error_buf)
@@ -1909,9 +2096,8 @@ sealed class NearClipException(message: String): kotlin.Exception(message) {
  * @suppress
  */
 public object FfiConverterTypeNearClipError : FfiConverterRustBuffer<NearClipException> {
-    override fun read(buf: ByteBuffer): NearClipException {
-        
-            return when(buf.getInt()) {
+    override fun read(buf: ByteBuffer): NearClipException =
+        when (buf.getInt()) {
             1 -> NearClipException.Network(FfiConverterString.read(buf))
             2 -> NearClipException.Bluetooth(FfiConverterString.read(buf))
             3 -> NearClipException.Crypto(FfiConverterString.read(buf))
@@ -1921,68 +2107,71 @@ public object FfiConverterTypeNearClipError : FfiConverterRustBuffer<NearClipExc
             7 -> NearClipException.Io(FfiConverterString.read(buf))
             else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
         }
-        
-    }
 
-    override fun allocationSize(value: NearClipException): ULong {
-        return 4UL
-    }
+    override fun allocationSize(value: NearClipException): ULong = 4UL
 
-    override fun write(value: NearClipException, buf: ByteBuffer) {
-        when(value) {
+    override fun write(
+        value: NearClipException,
+        buf: ByteBuffer,
+    ) {
+        when (value) {
             is NearClipException.Network -> {
                 buf.putInt(1)
                 Unit
             }
+
             is NearClipException.Bluetooth -> {
                 buf.putInt(2)
                 Unit
             }
+
             is NearClipException.Crypto -> {
                 buf.putInt(3)
                 Unit
             }
+
             is NearClipException.DeviceNotFound -> {
                 buf.putInt(4)
                 Unit
             }
+
             is NearClipException.Sync -> {
                 buf.putInt(5)
                 Unit
             }
+
             is NearClipException.Config -> {
                 buf.putInt(6)
                 Unit
             }
+
             is NearClipException.Io -> {
                 buf.putInt(7)
                 Unit
             }
         }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
     }
-
 }
 
-
-
-
-
 public interface FfiNearClipCallback {
-    
     fun `onDeviceConnected`(`device`: FfiDeviceInfo)
-    
+
     fun `onDeviceDisconnected`(`deviceId`: kotlin.String)
-    
-    fun `onClipboardReceived`(`content`: kotlin.ByteArray, `fromDevice`: kotlin.String)
-    
+
+    fun `onClipboardReceived`(
+        `content`: kotlin.ByteArray,
+        `fromDevice`: kotlin.String,
+    )
+
     fun `onSyncError`(`errorMessage`: kotlin.String)
-    
+
     companion object
 }
 
 // Magic number for the Rust proxy to call using the same mechanism as every other method,
 // to free the callback once it's dropped by Rust.
 internal const val IDX_CALLBACK_FREE = 0
+
 // Callback return codes
 internal const val UNIFFI_CALLBACK_SUCCESS = 0
 internal const val UNIFFI_CALLBACK_ERROR = 1
@@ -1991,16 +2180,14 @@ internal const val UNIFFI_CALLBACK_UNEXPECTED_ERROR = 2
 /**
  * @suppress
  */
-public abstract class FfiConverterCallbackInterface<CallbackInterface: Any>: FfiConverter<CallbackInterface, Long> {
+public abstract class FfiConverterCallbackInterface<CallbackInterface : Any> : FfiConverter<CallbackInterface, Long> {
     internal val handleMap = UniffiHandleMap<CallbackInterface>()
 
     internal fun drop(handle: Long) {
         handleMap.remove(handle)
     }
 
-    override fun lift(value: Long): CallbackInterface {
-        return handleMap.get(value)
-    }
+    override fun lift(value: Long): CallbackInterface = handleMap.get(value)
 
     override fun read(buf: ByteBuffer) = lift(buf.getLong())
 
@@ -2008,17 +2195,25 @@ public abstract class FfiConverterCallbackInterface<CallbackInterface: Any>: Ffi
 
     override fun allocationSize(value: CallbackInterface) = 8UL
 
-    override fun write(value: CallbackInterface, buf: ByteBuffer) {
+    override fun write(
+        value: CallbackInterface,
+        buf: ByteBuffer,
+    ) {
         buf.putLong(lower(value))
     }
 }
 
 // Put the implementation in an object so we don't pollute the top-level namespace
 internal object uniffiCallbackInterfaceFfiNearClipCallback {
-    internal object `onDeviceConnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod0 {
-        override fun callback(`uniffiHandle`: Long,`device`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+    internal object `onDeviceConnected` : UniffiCallbackInterfaceFfiNearClipCallbackMethod0 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `device`: RustBuffer.ByValue,
+            `uniffiOutReturn`: Pointer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = { ->
+            val makeCall = {
                 uniffiObj.`onDeviceConnected`(
                     FfiConverterTypeFfiDeviceInfo.lift(`device`),
                 )
@@ -2027,10 +2222,16 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
-    internal object `onDeviceDisconnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod1 {
-        override fun callback(`uniffiHandle`: Long,`deviceId`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+
+    internal object `onDeviceDisconnected` : UniffiCallbackInterfaceFfiNearClipCallbackMethod1 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `deviceId`: RustBuffer.ByValue,
+            `uniffiOutReturn`: Pointer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = { ->
+            val makeCall = {
                 uniffiObj.`onDeviceDisconnected`(
                     FfiConverterString.lift(`deviceId`),
                 )
@@ -2039,10 +2240,17 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
-    internal object `onClipboardReceived`: UniffiCallbackInterfaceFfiNearClipCallbackMethod2 {
-        override fun callback(`uniffiHandle`: Long,`content`: RustBuffer.ByValue,`fromDevice`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+
+    internal object `onClipboardReceived` : UniffiCallbackInterfaceFfiNearClipCallbackMethod2 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `content`: RustBuffer.ByValue,
+            `fromDevice`: RustBuffer.ByValue,
+            `uniffiOutReturn`: Pointer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = { ->
+            val makeCall = {
                 uniffiObj.`onClipboardReceived`(
                     FfiConverterByteArray.lift(`content`),
                     FfiConverterString.lift(`fromDevice`),
@@ -2052,10 +2260,16 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
-    internal object `onSyncError`: UniffiCallbackInterfaceFfiNearClipCallbackMethod3 {
-        override fun callback(`uniffiHandle`: Long,`errorMessage`: RustBuffer.ByValue,`uniffiOutReturn`: Pointer,uniffiCallStatus: UniffiRustCallStatus,) {
+
+    internal object `onSyncError` : UniffiCallbackInterfaceFfiNearClipCallbackMethod3 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `errorMessage`: RustBuffer.ByValue,
+            `uniffiOutReturn`: Pointer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = { ->
+            val makeCall = {
                 uniffiObj.`onSyncError`(
                     FfiConverterString.lift(`errorMessage`),
                 )
@@ -2065,19 +2279,20 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
         }
     }
 
-    internal object uniffiFree: UniffiCallbackInterfaceFree {
+    internal object uniffiFree : UniffiCallbackInterfaceFree {
         override fun callback(handle: Long) {
             FfiConverterTypeFfiNearClipCallback.handleMap.remove(handle)
         }
     }
 
-    internal var vtable = UniffiVTableCallbackInterfaceFfiNearClipCallback.UniffiByValue(
-        `onDeviceConnected`,
-        `onDeviceDisconnected`,
-        `onClipboardReceived`,
-        `onSyncError`,
-        uniffiFree,
-    )
+    internal var vtable =
+        UniffiVTableCallbackInterfaceFfiNearClipCallback.UniffiByValue(
+            `onDeviceConnected`,
+            `onDeviceDisconnected`,
+            `onClipboardReceived`,
+            `onSyncError`,
+            uniffiFree,
+        )
 
     // Registers the foreign callback with the Rust side.
     // This method is generated for each callback interface.
@@ -2091,15 +2306,12 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
  *
  * @suppress
  */
-public object FfiConverterTypeFfiNearClipCallback: FfiConverterCallbackInterface<FfiNearClipCallback>()
-
-
-
+public object FfiConverterTypeFfiNearClipCallback : FfiConverterCallbackInterface<FfiNearClipCallback>()
 
 /**
  * @suppress
  */
-public object FfiConverterOptionalTypeDeviceStatus: FfiConverterRustBuffer<DeviceStatus?> {
+public object FfiConverterOptionalTypeDeviceStatus : FfiConverterRustBuffer<DeviceStatus?> {
     override fun read(buf: ByteBuffer): DeviceStatus? {
         if (buf.get().toInt() == 0) {
             return null
@@ -2115,7 +2327,10 @@ public object FfiConverterOptionalTypeDeviceStatus: FfiConverterRustBuffer<Devic
         }
     }
 
-    override fun write(value: DeviceStatus?, buf: ByteBuffer) {
+    override fun write(
+        value: DeviceStatus?,
+        buf: ByteBuffer,
+    ) {
         if (value == null) {
             buf.put(0)
         } else {
@@ -2125,13 +2340,10 @@ public object FfiConverterOptionalTypeDeviceStatus: FfiConverterRustBuffer<Devic
     }
 }
 
-
-
-
 /**
  * @suppress
  */
-public object FfiConverterSequenceTypeFfiDeviceInfo: FfiConverterRustBuffer<List<FfiDeviceInfo>> {
+public object FfiConverterSequenceTypeFfiDeviceInfo : FfiConverterRustBuffer<List<FfiDeviceInfo>> {
     override fun read(buf: ByteBuffer): List<FfiDeviceInfo> {
         val len = buf.getInt()
         return List<FfiDeviceInfo>(len) {
@@ -2145,27 +2357,23 @@ public object FfiConverterSequenceTypeFfiDeviceInfo: FfiConverterRustBuffer<List
         return sizeForLength + sizeForItems
     }
 
-    override fun write(value: List<FfiDeviceInfo>, buf: ByteBuffer) {
+    override fun write(
+        value: List<FfiDeviceInfo>,
+        buf: ByteBuffer,
+    ) {
         buf.putInt(value.size)
         value.iterator().forEach {
             FfiConverterTypeFfiDeviceInfo.write(it, buf)
         }
     }
-} fun `flushLogs`()
-        = 
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_func_flush_logs(
-        _status)
 }
-    
-    
- fun `initLogging`(`level`: LogLevel)
-        = 
-    uniffiRustCall() { _status ->
-    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_func_init_logging(
-        FfiConverterTypeLogLevel.lower(`level`),_status)
-}
-    
-    
 
+fun `flushLogs`() =
+    uniffiRustCall { _status ->
+        UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_func_flush_logs(_status)
+    }
 
+fun `initLogging`(`level`: LogLevel) =
+    uniffiRustCall { _status ->
+        UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_func_init_logging(FfiConverterTypeLogLevel.lower(`level`), _status)
+    }
