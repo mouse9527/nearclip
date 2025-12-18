@@ -89,71 +89,73 @@ struct SyncSettingsTab: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Connection Methods
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Connection Methods")
-                    .font(.headline)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Connection Methods
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Connection Methods")
+                        .font(.headline)
 
-                Toggle("WiFi Sync", isOn: $wifiEnabled)
-                Text("Sync clipboard over local network")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 20)
+                    Toggle("WiFi Sync", isOn: $wifiEnabled)
+                    Text("Sync clipboard over local network")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 20)
 
-                Toggle("Bluetooth Sync", isOn: $bleEnabled)
-                Text("Sync clipboard over Bluetooth Low Energy")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 20)
-            }
+                    Toggle("Bluetooth Sync", isOn: $bleEnabled)
+                    Text("Sync clipboard over Bluetooth Low Energy")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 20)
+                }
 
-            Divider()
+                Divider()
 
-            // Behavior
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Behavior")
-                    .font(.headline)
+                // Behavior
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Behavior")
+                        .font(.headline)
 
-                Toggle("Auto Connect", isOn: $autoConnect)
-                Text("Automatically connect to paired devices")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .padding(.leading, 20)
-            }
+                    Toggle("Auto Connect", isOn: $autoConnect)
+                    Text("Automatically connect to paired devices")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 20)
+                }
 
-            Divider()
+                Divider()
 
-            // Retry Strategy
-            VStack(alignment: .leading, spacing: 8) {
-                Text("On Sync Failure")
-                    .font(.headline)
+                // Retry Strategy
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("On Sync Failure")
+                        .font(.headline)
 
-                Picker("Default Action", selection: selectedStrategy) {
-                    ForEach(SyncRetryStrategy.allCases, id: \.self) { strategy in
-                        Text(strategy.displayName).tag(strategy)
+                    Picker("Default Action", selection: selectedStrategy) {
+                        ForEach(SyncRetryStrategy.allCases, id: \.self) { strategy in
+                            Text(strategy.displayName).tag(strategy)
+                        }
                     }
+                    .pickerStyle(.menu)
+                    .frame(width: 200)
+
+                    Text(selectedStrategy.wrappedValue.description)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .pickerStyle(.menu)
-                .frame(width: 200)
 
-                Text(selectedStrategy.wrappedValue.description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
+                Spacer()
 
-            Spacer()
-
-            HStack {
-                Button("Restart Service") {
-                    connectionManager.restart()
+                HStack {
+                    Button("Restart Service") {
+                        connectionManager.restart()
+                    }
+                    Text("Apply changes by restarting the sync service")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                Text("Apply changes by restarting the sync service")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
             }
+            .padding()
         }
-        .padding()
     }
 }
 
