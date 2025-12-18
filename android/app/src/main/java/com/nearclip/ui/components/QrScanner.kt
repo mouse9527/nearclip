@@ -27,6 +27,8 @@ import com.google.accompanist.permissions.shouldShowRationale
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import android.os.Handler
+import android.os.Looper
 import java.util.concurrent.Executors
 
 @OptIn(ExperimentalPermissionsApi::class)
@@ -61,6 +63,7 @@ fun QrScanner(
     }
 }
 
+@androidx.annotation.OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
 private fun CameraPreview(
     modifier: Modifier = Modifier,
@@ -108,7 +111,6 @@ private fun CameraPreview(
                     .build()
                     .also { analysis ->
                         analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                            @androidx.camera.core.ExperimentalGetImage
                             val mediaImage = imageProxy.image
                             if (mediaImage != null && !hasProcessed) {
                                 val image = InputImage.fromMediaImage(
@@ -118,19 +120,25 @@ private fun CameraPreview(
 
                                 barcodeScanner.process(image)
                                     .addOnSuccessListener { barcodes ->
+                                        Log.d("QrScanner", "Scanned ${barcodes.size} barcodes")
                                         for (barcode in barcodes) {
+                                            Log.d("QrScanner", "Found barcode format: ${barcode.format}, value: ${barcode.rawValue}")
                                             if (barcode.format == Barcode.FORMAT_QR_CODE) {
                                                 barcode.rawValue?.let { value ->
                                                     if (!hasProcessed) {
                                                         hasProcessed = true
-                                                        onQrCodeScanned(value)
+                                                        Log.d("QrScanner", "Processing QR code: $value")
+                                                        // Run callback on main thread
+                                                        Handler(Looper.getMainLooper()).post {
+                                                            onQrCodeScanned(value)
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
                                     }
                                     .addOnFailureListener { e ->
-                                        Log.e("QrScanner", "Barcode scanning failed", e)
+                                        Log.e("QrScanner", "Barcode scanning failed: ${e.message}", e)
                                     }
                                     .addOnCompleteListener {
                                         imageProxy.close()

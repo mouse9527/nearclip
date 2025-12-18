@@ -32,6 +32,67 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
+// ============================================================
+// PairingPayload - 配对请求载荷
+// ============================================================
+
+/// 设备平台类型（用于协议消息）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum ProtocolPlatform {
+    /// macOS 平台
+    MacOS,
+    /// Android 平台
+    Android,
+    /// 未知平台
+    #[default]
+    Unknown,
+}
+
+impl ProtocolPlatform {
+    /// 返回平台名称字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProtocolPlatform::MacOS => "macOS",
+            ProtocolPlatform::Android => "Android",
+            ProtocolPlatform::Unknown => "Unknown",
+        }
+    }
+}
+
+/// 配对请求/响应载荷
+///
+/// 包含设备基本信息，用于双向配对。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PairingPayload {
+    /// 设备唯一标识符
+    pub device_id: String,
+    /// 设备显示名称
+    pub device_name: String,
+    /// 设备平台
+    pub platform: ProtocolPlatform,
+}
+
+impl PairingPayload {
+    /// 创建新的配对载荷
+    pub fn new(device_id: impl Into<String>, device_name: impl Into<String>, platform: ProtocolPlatform) -> Self {
+        Self {
+            device_id: device_id.into(),
+            device_name: device_name.into(),
+            platform,
+        }
+    }
+
+    /// 序列化为 MessagePack 字节
+    pub fn serialize(&self) -> Result<Vec<u8>, ProtocolError> {
+        rmp_serde::to_vec(self).map_err(|e| ProtocolError::Serialization(e.to_string()))
+    }
+
+    /// 从 MessagePack 字节反序列化
+    pub fn deserialize(data: &[u8]) -> Result<Self, ProtocolError> {
+        rmp_serde::from_slice(data).map_err(|e| ProtocolError::Deserialization(e.to_string()))
+    }
+}
+
 /// 协议错误类型
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum ProtocolError {

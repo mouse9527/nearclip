@@ -403,7 +403,7 @@ private fun findLibraryName(componentName: String): String {
     if (libOverride != null) {
         return libOverride
     }
-    return "uniffi_nearclip"
+    return "nearclip_ffi"
 }
 
 private inline fun <reified Lib : Library> loadIndirect(componentName: String): Lib =
@@ -879,6 +879,11 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): RustBuffer.ByValue
 
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_id(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(
         `ptr`: Pointer,
         `deviceId`: RustBuffer.ByValue,
@@ -916,6 +921,11 @@ internal interface UniffiLib : Library {
         `content`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_devices(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Int
 
     fun uniffi_nearclip_ffi_fn_init_callback_vtable_ffinearclipcallback(`vtable`: UniffiVTableCallbackInterfaceFfiNearClipCallback): Unit
 
@@ -1154,6 +1164,8 @@ internal interface UniffiLib : Library {
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices(): Short
 
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_id(): Short
+
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_status(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_paired_devices(): Short
@@ -1167,6 +1179,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_sync_clipboard(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_paired_devices(): Short
 
     fun uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(): Short
 
@@ -1211,6 +1225,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices() != 29571.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_id() != 57304.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_status() != 59586.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1230,6 +1247,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_sync_clipboard() != 17869.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_paired_devices() != 18103.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new() != 16624.toShort()) {
@@ -1618,6 +1638,8 @@ public interface FfiNearClipManagerInterface {
 
     fun `getConnectedDevices`(): List<FfiDeviceInfo>
 
+    fun `getDeviceId`(): kotlin.String
+
     fun `getDeviceStatus`(`deviceId`: kotlin.String): DeviceStatus?
 
     fun `getPairedDevices`(): List<FfiDeviceInfo>
@@ -1631,6 +1653,8 @@ public interface FfiNearClipManagerInterface {
     fun `stop`()
 
     fun `syncClipboard`(`content`: kotlin.ByteArray)
+
+    fun `tryConnectPairedDevices`(): kotlin.UInt
 
     companion object
 }
@@ -1773,6 +1797,15 @@ open class FfiNearClipManager :
             },
         )
 
+    override fun `getDeviceId`(): kotlin.String =
+        FfiConverterString.lift(
+            callWithPointer {
+                uniffiRustCall { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_id(it, _status)
+                }
+            },
+        )
+
     override fun `getDeviceStatus`(`deviceId`: kotlin.String): DeviceStatus? =
         FfiConverterOptionalTypeDeviceStatus.lift(
             callWithPointer {
@@ -1841,6 +1874,15 @@ open class FfiNearClipManager :
                 )
             }
         }
+
+    override fun `tryConnectPairedDevices`(): kotlin.UInt =
+        FfiConverterUInt.lift(
+            callWithPointer {
+                uniffiRustCall { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_devices(it, _status)
+                }
+            },
+        )
 
     companion object
 }
@@ -1913,6 +1955,7 @@ public object FfiConverterTypeFfiDeviceInfo : FfiConverterRustBuffer<FfiDeviceIn
 
 data class FfiNearClipConfig(
     var `deviceName`: kotlin.String,
+    var `deviceId`: kotlin.String,
     var `wifiEnabled`: kotlin.Boolean,
     var `bleEnabled`: kotlin.Boolean,
     var `autoConnect`: kotlin.Boolean,
@@ -1930,6 +1973,7 @@ public object FfiConverterTypeFfiNearClipConfig : FfiConverterRustBuffer<FfiNear
     override fun read(buf: ByteBuffer): FfiNearClipConfig =
         FfiNearClipConfig(
             FfiConverterString.read(buf),
+            FfiConverterString.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
             FfiConverterBoolean.read(buf),
@@ -1941,6 +1985,7 @@ public object FfiConverterTypeFfiNearClipConfig : FfiConverterRustBuffer<FfiNear
     override fun allocationSize(value: FfiNearClipConfig) =
         (
             FfiConverterString.allocationSize(value.`deviceName`) +
+                FfiConverterString.allocationSize(value.`deviceId`) +
                 FfiConverterBoolean.allocationSize(value.`wifiEnabled`) +
                 FfiConverterBoolean.allocationSize(value.`bleEnabled`) +
                 FfiConverterBoolean.allocationSize(value.`autoConnect`) +
@@ -1954,6 +1999,7 @@ public object FfiConverterTypeFfiNearClipConfig : FfiConverterRustBuffer<FfiNear
         buf: ByteBuffer,
     ) {
         FfiConverterString.write(value.`deviceName`, buf)
+        FfiConverterString.write(value.`deviceId`, buf)
         FfiConverterBoolean.write(value.`wifiEnabled`, buf)
         FfiConverterBoolean.write(value.`bleEnabled`, buf)
         FfiConverterBoolean.write(value.`autoConnect`, buf)
@@ -2213,10 +2259,9 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = {
-                uniffiObj.`onDeviceConnected`(
-                    FfiConverterTypeFfiDeviceInfo.lift(`device`),
-                )
+            val makeCall = {  uniffiObj.`onDeviceConnected`(
+                FfiConverterTypeFfiDeviceInfo.lift(`device`),
+            )
             }
             val writeReturn = { _: Unit -> Unit }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
@@ -2231,10 +2276,9 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = {
-                uniffiObj.`onDeviceDisconnected`(
-                    FfiConverterString.lift(`deviceId`),
-                )
+            val makeCall = {  uniffiObj.`onDeviceDisconnected`(
+                FfiConverterString.lift(`deviceId`),
+            )
             }
             val writeReturn = { _: Unit -> Unit }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
@@ -2250,11 +2294,10 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = {
-                uniffiObj.`onClipboardReceived`(
-                    FfiConverterByteArray.lift(`content`),
-                    FfiConverterString.lift(`fromDevice`),
-                )
+            val makeCall = {  uniffiObj.`onClipboardReceived`(
+                FfiConverterByteArray.lift(`content`),
+                FfiConverterString.lift(`fromDevice`),
+            )
             }
             val writeReturn = { _: Unit -> Unit }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
@@ -2269,10 +2312,9 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
-            val makeCall = {
-                uniffiObj.`onSyncError`(
-                    FfiConverterString.lift(`errorMessage`),
-                )
+            val makeCall = {  uniffiObj.`onSyncError`(
+                FfiConverterString.lift(`errorMessage`),
+            )
             }
             val writeReturn = { _: Unit -> Unit }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)

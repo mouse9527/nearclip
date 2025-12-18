@@ -55,6 +55,7 @@ dictionary FfiDeviceInfo {
 // Configuration record
 dictionary FfiNearClipConfig {
     string device_name;
+    string device_id;
     boolean wifi_enabled;
     boolean ble_enabled;
     boolean auto_connect;
@@ -103,4 +104,10 @@ interface FfiNearClipManager {
 
     // Status
     DeviceStatus? get_device_status(string device_id);
+
+    // Device info
+    string get_device_id();
+
+    // Auto-connect
+    u32 try_connect_paired_devices();
 };

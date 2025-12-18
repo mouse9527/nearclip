@@ -7,6 +7,7 @@ final class NotificationManager: NSObject {
     static let shared = NotificationManager()
 
     private var isAuthorized = false
+    private var isAvailable = false
 
     // Notification categories and actions
     private static let syncFailureCategoryId = "SYNC_FAILURE"
@@ -21,6 +22,20 @@ final class NotificationManager: NSObject {
 
     private override init() {
         super.init()
+        // Defer notification setup to avoid crashes when bundle is not properly configured
+        DispatchQueue.main.async { [weak self] in
+            self?.initializeNotifications()
+        }
+    }
+
+    private func initializeNotifications() {
+        // Check if we can access the notification center
+        guard Bundle.main.bundleIdentifier != nil else {
+            print("NotificationManager: No bundle identifier, notifications disabled")
+            return
+        }
+
+        isAvailable = true
         setupNotificationCategories()
         requestAuthorization()
     }
@@ -28,6 +43,8 @@ final class NotificationManager: NSObject {
     // MARK: - Setup
 
     private func setupNotificationCategories() {
+        guard isAvailable else { return }
+
         // Define actions for each strategy
         let retryAction = UNNotificationAction(
             identifier: Self.retryActionId,
@@ -63,6 +80,7 @@ final class NotificationManager: NSObject {
 
     /// Request notification authorization from user
     func requestAuthorization() {
+        guard isAvailable else { return }
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, error in
             DispatchQueue.main.async {
                 self?.isAuthorized = granted
@@ -82,6 +100,10 @@ final class NotificationManager: NSObject {
 
     /// Check current authorization status
     func checkAuthorization(completion: @escaping (Bool) -> Void) {
+        guard isAvailable else {
+            completion(false)
+            return
+        }
         UNUserNotificationCenter.current().getNotificationSettings { settings in
             DispatchQueue.main.async {
                 let authorized = settings.authorizationStatus == .authorized
@@ -97,6 +119,8 @@ final class NotificationManager: NSObject {
     ///   - fromDevice: Name of the device that sent the clipboard content
     ///   - contentPreview: Optional preview of the content (first few characters)
     func showSyncSuccessNotification(fromDevice: String, contentPreview: String? = nil) {
+        guard isAvailable else { return }
+
         // Check if notifications are enabled in settings
         guard UserDefaults.standard.bool(forKey: "syncNotificationsEnabled") else {
             print("NotificationManager: Sync notifications disabled in settings")
@@ -141,6 +165,8 @@ final class NotificationManager: NSObject {
     ///   - toDevice: Name of the device we tried to sync to (optional)
     ///   - reason: The failure reason
     func showSyncFailureNotification(toDevice: String? = nil, reason: String) {
+        guard isAvailable else { return }
+
         // Check if notifications are enabled in settings
         guard UserDefaults.standard.bool(forKey: "syncNotificationsEnabled") else {
             return
@@ -179,6 +205,7 @@ final class NotificationManager: NSObject {
 
     /// Remove all pending and delivered notifications
     func clearAllNotifications() {
+        guard isAvailable else { return }
         UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
         UNUserNotificationCenter.current().removeAllDeliveredNotifications()
     }

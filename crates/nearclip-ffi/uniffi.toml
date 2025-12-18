@@ -10,3 +10,4 @@ omit_argument_labels = false
 [bindings.kotlin]
 # Kotlin-specific settings
 package_name = "com.nearclip.ffi"
+cdylib_name = "nearclip_ffi"

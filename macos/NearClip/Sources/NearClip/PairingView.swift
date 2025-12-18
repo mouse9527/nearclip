@@ -212,11 +212,8 @@ struct PairingView: View {
     }
 
     private var deviceId: String {
-        // Use a stable device identifier
-        if let uuid = getMacUUID() {
-            return uuid
-        }
-        return UUID().uuidString
+        // Use the device ID from NearClipManager (same as used for mDNS)
+        connectionManager.deviceId
     }
 
     private var pairingCode: String {
@@ -257,17 +254,6 @@ struct PairingView: View {
         }
 
         return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-    }
-
-    private func getMacUUID() -> String? {
-        // Get hardware UUID
-        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
-        defer { IOObjectRelease(service) }
-
-        if let uuidData = IORegistryEntryCreateCFProperty(service, "IOPlatformUUID" as CFString, kCFAllocatorDefault, 0) {
-            return uuidData.takeRetainedValue() as? String
-        }
-        return nil
     }
 
     // MARK: - Actions

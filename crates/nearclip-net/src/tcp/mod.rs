@@ -53,5 +53,5 @@ mod connection;
 mod server;
 
 pub use client::{TcpClient, TcpClientConfig};
-pub use connection::TcpConnection;
+pub use connection::{TcpConnection, TcpReadHalf, TcpWriteHalf};
 pub use server::{TcpServer, TcpServerConfig};

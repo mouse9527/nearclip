@@ -21,13 +21,14 @@
 use crate::CryptoError;
 use rcgen::{CertificateParams, DnType, KeyPair, PKCS_ECDSA_P256_SHA256};
 use rustls::{
+    client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     crypto::ring::default_provider,
-    pki_types::{CertificateDer, PrivateKeyDer},
-    ClientConfig, RootCertStore, ServerConfig,
+    pki_types::{CertificateDer, PrivateKeyDer, ServerName, UnixTime},
+    ClientConfig, DigitallySignedStruct, RootCertStore, ServerConfig, SignatureScheme,
 };
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, instrument};
+use tracing::{debug, instrument, warn};
 use zeroize::Zeroize;
 
 /// 自签名 TLS 证书
@@ -299,6 +300,85 @@ impl TlsClientConfig {
     /// 返回 `Arc<ClientConfig>` 供 TCP 客户端使用。
     pub fn config(&self) -> Arc<ClientConfig> {
         Arc::clone(&self.config)
+    }
+
+    /// 创建不验证证书的客户端 TLS 配置（仅用于测试）
+    ///
+    /// **警告**: 此配置不验证服务端证书，存在中间人攻击风险。
+    /// 仅应用于开发和测试环境，不应在生产环境中使用。
+    ///
+    /// # Returns
+    ///
+    /// TLS 客户端配置，或错误如果配置失败
+    #[instrument]
+    pub fn new_insecure() -> Result<Self, CryptoError> {
+        warn!("Creating insecure TLS client config - DO NOT USE IN PRODUCTION");
+
+        let config = ClientConfig::builder_with_provider(Arc::new(default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .map_err(|e| CryptoError::TlsConfiguration(e.to_string()))?
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(InsecureServerCertVerifier))
+            .with_no_client_auth();
+
+        debug!("Created insecure TLS client configuration");
+
+        Ok(Self {
+            config: Arc::new(config),
+        })
+    }
+}
+
+/// 不验证服务端证书的验证器（仅用于测试）
+///
+/// **警告**: 此验证器接受所有服务端证书，存在严重安全风险。
+#[derive(Debug)]
+struct InsecureServerCertVerifier;
+
+impl ServerCertVerifier for InsecureServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        // 接受所有证书 - 仅用于测试
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Ok(HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        vec![
+            SignatureScheme::ECDSA_NISTP256_SHA256,
+            SignatureScheme::ECDSA_NISTP384_SHA384,
+            SignatureScheme::ECDSA_NISTP521_SHA512,
+            SignatureScheme::RSA_PSS_SHA256,
+            SignatureScheme::RSA_PSS_SHA384,
+            SignatureScheme::RSA_PSS_SHA512,
+            SignatureScheme::RSA_PKCS1_SHA256,
+            SignatureScheme::RSA_PKCS1_SHA384,
+            SignatureScheme::RSA_PKCS1_SHA512,
+            SignatureScheme::ED25519,
+        ]
     }
 }
 

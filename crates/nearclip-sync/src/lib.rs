@@ -75,7 +75,7 @@ pub mod sender;
 pub mod switcher;
 
 // Re-export protocol types
-pub use protocol::{Message, MessageType, ProtocolError};
+pub use protocol::{Message, MessageType, PairingPayload, ProtocolError, ProtocolPlatform};
 
 // Re-export channel types
 pub use channel::{

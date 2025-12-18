@@ -58,6 +58,8 @@ pub const DEFAULT_MAX_RETRIES: u32 = 3;
 pub struct NearClipConfig {
     /// 本设备名称
     device_name: String,
+    /// 设备唯一标识（可选，如果不提供则自动生成）
+    device_id: Option<String>,
     /// 启用 WiFi 通道
     wifi_enabled: bool,
     /// 启用 BLE 通道
@@ -98,6 +100,7 @@ impl NearClipConfig {
     pub fn new(device_name: impl Into<String>) -> Self {
         Self {
             device_name: device_name.into(),
+            device_id: None,
             wifi_enabled: true,
             ble_enabled: true,
             auto_connect: true,
@@ -106,6 +109,16 @@ impl NearClipConfig {
             max_retries: DEFAULT_MAX_RETRIES,
             mdns_service_name: "_nearclip._tcp.local.".to_string(),
         }
+    }
+
+    /// 设置设备 ID（用于持久化）
+    ///
+    /// 如果提供了设备 ID，将使用该 ID 而不是生成新的。
+    /// 这允许应用在重启后保持相同的设备身份。
+    pub fn with_device_id(mut self, device_id: impl Into<String>) -> Self {
+        let id = device_id.into();
+        self.device_id = if id.is_empty() { None } else { Some(id) };
+        self
     }
 
     /// 设置 WiFi 通道启用状态
@@ -153,6 +166,11 @@ impl NearClipConfig {
     /// 获取设备名称
     pub fn device_name(&self) -> &str {
         &self.device_name
+    }
+
+    /// 获取设备 ID（如果已设置）
+    pub fn device_id(&self) -> Option<&str> {
+        self.device_id.as_deref()
     }
 
     /// 检查 WiFi 是否启用

@@ -89,4 +89,4 @@ pub use mdns::{
     DiscoveredDevice, DiscoveryEvent, MdnsAdvertiser, MdnsDiscovery, MdnsServiceConfig,
     SERVICE_TYPE, TXT_DEVICE_ID, TXT_PUBKEY_HASH,
 };
-pub use tcp::{TcpClient, TcpClientConfig, TcpConnection, TcpServer, TcpServerConfig};
+pub use tcp::{TcpClient, TcpClientConfig, TcpConnection, TcpReadHalf, TcpServer, TcpServerConfig, TcpWriteHalf};

@@ -524,6 +524,8 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func getConnectedDevices()  -> [FfiDeviceInfo]
     
+    func getDeviceId()  -> String
+    
     func getDeviceStatus(deviceId: String)  -> DeviceStatus?
     
     func getPairedDevices()  -> [FfiDeviceInfo]
@@ -537,6 +539,8 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     func stop() 
     
     func syncClipboard(content: Data) throws 
+    
+    func tryConnectPairedDevices()  -> UInt32
     
 }
 
@@ -627,6 +631,13 @@ open func getConnectedDevices() -> [FfiDeviceInfo] {
 })
 }
     
+open func getDeviceId() -> String {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_id(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
 open func getDeviceStatus(deviceId: String) -> DeviceStatus? {
     return try!  FfiConverterOptionTypeDeviceStatus.lift(try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(self.uniffiClonePointer(),
@@ -673,6 +684,13 @@ open func syncClipboard(content: Data)throws  {try rustCallWithError(FfiConverte
         FfiConverterData.lower(content),$0
     )
 }
+}
+    
+open func tryConnectPairedDevices() -> UInt32 {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_devices(self.uniffiClonePointer(),$0
+    )
+})
 }
     
 
@@ -814,6 +832,7 @@ public func FfiConverterTypeFfiDeviceInfo_lower(_ value: FfiDeviceInfo) -> RustB
 
 public struct FfiNearClipConfig {
     public var deviceName: String
+    public var deviceId: String
     public var wifiEnabled: Bool
     public var bleEnabled: Bool
     public var autoConnect: Bool
@@ -823,8 +842,9 @@ public struct FfiNearClipConfig {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(deviceName: String, wifiEnabled: Bool, bleEnabled: Bool, autoConnect: Bool, connectionTimeoutSecs: UInt64, heartbeatIntervalSecs: UInt64, maxRetries: UInt32) {
+    public init(deviceName: String, deviceId: String, wifiEnabled: Bool, bleEnabled: Bool, autoConnect: Bool, connectionTimeoutSecs: UInt64, heartbeatIntervalSecs: UInt64, maxRetries: UInt32) {
         self.deviceName = deviceName
+        self.deviceId = deviceId
         self.wifiEnabled = wifiEnabled
         self.bleEnabled = bleEnabled
         self.autoConnect = autoConnect
@@ -839,6 +859,9 @@ public struct FfiNearClipConfig {
 extension FfiNearClipConfig: Equatable, Hashable {
     public static func ==(lhs: FfiNearClipConfig, rhs: FfiNearClipConfig) -> Bool {
         if lhs.deviceName != rhs.deviceName {
+            return false
+        }
+        if lhs.deviceId != rhs.deviceId {
             return false
         }
         if lhs.wifiEnabled != rhs.wifiEnabled {
@@ -864,6 +887,7 @@ extension FfiNearClipConfig: Equatable, Hashable {
 
     public func hash(into hasher: inout Hasher) {
         hasher.combine(deviceName)
+        hasher.combine(deviceId)
         hasher.combine(wifiEnabled)
         hasher.combine(bleEnabled)
         hasher.combine(autoConnect)
@@ -882,6 +906,7 @@ public struct FfiConverterTypeFfiNearClipConfig: FfiConverterRustBuffer {
         return
             try FfiNearClipConfig(
                 deviceName: FfiConverterString.read(from: &buf), 
+                deviceId: FfiConverterString.read(from: &buf), 
                 wifiEnabled: FfiConverterBool.read(from: &buf), 
                 bleEnabled: FfiConverterBool.read(from: &buf), 
                 autoConnect: FfiConverterBool.read(from: &buf), 
@@ -893,6 +918,7 @@ public struct FfiConverterTypeFfiNearClipConfig: FfiConverterRustBuffer {
 
     public static func write(_ value: FfiNearClipConfig, into buf: inout [UInt8]) {
         FfiConverterString.write(value.deviceName, into: &buf)
+        FfiConverterString.write(value.deviceId, into: &buf)
         FfiConverterBool.write(value.wifiEnabled, into: &buf)
         FfiConverterBool.write(value.bleEnabled, into: &buf)
         FfiConverterBool.write(value.autoConnect, into: &buf)
@@ -1532,6 +1558,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices() != 29571) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_id() != 57304) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_status() != 59586) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1551,6 +1580,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_sync_clipboard() != 17869) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_paired_devices() != 18103) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new() != 16624) {

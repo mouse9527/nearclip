@@ -29,15 +29,18 @@ rmp-serde = "1"
 qrcode = "0.14"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+# UUID
+uuid = { version = "1", features = ["v4"] }
+
 # Crypto & TLS
 sha2 = "0.10"
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.13"
 base64 = "0.22"
 p256 = { version = "0.13", features = ["ecdh"] }
 time = "0.3"
 zeroize = "1.8"
-tokio-rustls = "0.26"
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
 # Note: p256's SecretKey uses FieldBytes which implements Zeroize internally via zeroize crate
 rand_core = { version = "0.6", features = ["getrandom"] }
 hex = "0.4"
@@ -48,6 +51,7 @@ mdns-sd = "0.11"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-android = "0.2"
 
 # Error handling
 thiserror = "1"

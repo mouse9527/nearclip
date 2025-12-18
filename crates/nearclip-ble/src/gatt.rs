@@ -1,6 +1,6 @@
 //! GATT 服务定义
 //!
-//! NearClip BLE GATT 服务和特征 UUID 定义。
+//! mearClip BLE GATT 服务和特征 UUID 定义。
 //!
 //! # GATT 结构
 //!

@@ -7,12 +7,14 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.nearclip.MainActivity
 import com.nearclip.R
+import com.nearclip.data.SecureStorage
 import com.nearclip.ffi.*
 
 class NearClipService : Service(), FfiNearClipCallback {
@@ -26,6 +28,9 @@ class NearClipService : Service(), FfiNearClipCallback {
         const val ACTION_RETRY_SYNC = NotificationHelper.ACTION_RETRY_SYNC
         const val ACTION_DISCARD_SYNC = NotificationHelper.ACTION_DISCARD_SYNC
         const val ACTION_WAIT_SYNC = NotificationHelper.ACTION_WAIT_SYNC
+        // Device ID persistence
+        private const val PREFS_NAME = "nearclip_prefs"
+        private const val KEY_DEVICE_ID = "nearclip_device_id"
 
         fun startService(context: Context) {
             val intent = Intent(context, NearClipService::class.java)
@@ -54,8 +59,10 @@ class NearClipService : Service(), FfiNearClipCallback {
     private var clipboardWriter: ClipboardWriter? = null
     private var notificationHelper: NotificationHelper? = null
     private var networkMonitor: NetworkMonitor? = null
+    private var secureStorage: SecureStorage? = null
     private var isRunning = false
     private var pendingContent: ByteArray? = null
+    private var multicastLock: WifiManager.MulticastLock? = null
 
     // Binder for local binding
     private val binder = LocalBinder()
@@ -83,6 +90,15 @@ class NearClipService : Service(), FfiNearClipCallback {
         listeners.remove(listener)
     }
 
+    /**
+     * Manually trigger clipboard sync.
+     * Called when user taps the sync notification.
+     */
+    fun syncClipboardNow() {
+        android.util.Log.i("NearClipService", "syncClipboardNow called")
+        clipboardMonitor?.syncCurrentClipboard()
+    }
+
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -98,6 +114,7 @@ class NearClipService : Service(), FfiNearClipCallback {
             }
             ACTION_SYNC_NOW, ACTION_RETRY_SYNC -> {
                 // Retry sync - resync current clipboard
+                android.util.Log.i("NearClipService", "ACTION_SYNC_NOW received, clipboardMonitor=${clipboardMonitor != null}")
                 clipboardMonitor?.syncCurrentClipboard()
                 return START_STICKY
             }
@@ -192,8 +209,15 @@ class NearClipService : Service(), FfiNearClipCallback {
 
     private fun initializeManager() {
         try {
+            android.util.Log.i("NearClipService", "initializeManager() starting")
+            // Load persisted device ID (empty string means auto-generate)
+            val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val persistedDeviceId = prefs.getString(KEY_DEVICE_ID, "") ?: ""
+            android.util.Log.i("NearClipService", "persistedDeviceId=$persistedDeviceId")
+
             val config = FfiNearClipConfig(
                 deviceName = "${Build.MANUFACTURER} ${Build.MODEL}",
+                deviceId = persistedDeviceId,
                 wifiEnabled = true,
                 bleEnabled = true,
                 autoConnect = true,
@@ -201,7 +225,22 @@ class NearClipService : Service(), FfiNearClipCallback {
                 heartbeatIntervalSecs = 5u,
                 maxRetries = 3u
             )
+            android.util.Log.i("NearClipService", "Creating FfiNearClipManager...")
             manager = FfiNearClipManager(config, this)
+            android.util.Log.i("NearClipService", "FfiNearClipManager created successfully")
+
+            // Save generated device ID if it was newly created
+            if (persistedDeviceId.isEmpty()) {
+                val generatedId = manager?.getDeviceId()
+                if (!generatedId.isNullOrEmpty()) {
+                    prefs.edit().putString(KEY_DEVICE_ID, generatedId).apply()
+                    android.util.Log.i("NearClipService", "Saved new device ID: $generatedId")
+                }
+            }
+
+            // Initialize secure storage and load paired devices
+            secureStorage = SecureStorage(this)
+            loadPairedDevicesFromStorage()
 
             // Initialize clipboard monitor
             clipboardMonitor = ClipboardMonitor(this) { content ->
@@ -233,7 +272,31 @@ class NearClipService : Service(), FfiNearClipCallback {
                 }
             }
         } catch (e: Exception) {
+            android.util.Log.e("NearClipService", "initializeManager failed: ${e.message}", e)
             e.printStackTrace()
+        }
+    }
+
+    private fun loadPairedDevicesFromStorage() {
+        val storage = secureStorage ?: return
+        val result = storage.loadPairedDevicesResult()
+        when (result) {
+            is SecureStorage.StorageResult.Success -> {
+                for (device in result.data) {
+                    try {
+                        manager?.addPairedDevice(device)
+                        android.util.Log.i("NearClipService", "Loaded paired device: ${device.name} (${device.id})")
+                    } catch (e: NearClipException) {
+                        // Device already exists in manager - this is expected
+                        android.util.Log.d("NearClipService", "Device ${device.id} already exists in manager")
+                    } catch (e: Exception) {
+                        android.util.Log.e("NearClipService", "Failed to add device ${device.id} to manager", e)
+                    }
+                }
+            }
+            is SecureStorage.StorageResult.Error -> {
+                android.util.Log.e("NearClipService", "Failed to load paired devices from storage: ${result.message}")
+            }
         }
     }
 
@@ -244,15 +307,49 @@ class NearClipService : Service(), FfiNearClipCallback {
         }, 500)
     }
 
+    private fun acquireMulticastLock() {
+        if (multicastLock == null) {
+            val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+            multicastLock = wifiManager?.createMulticastLock("NearClip-mDNS")?.apply {
+                setReferenceCounted(true)
+            }
+        }
+        multicastLock?.let { lock ->
+            if (!lock.isHeld) {
+                lock.acquire()
+                android.util.Log.i("NearClipService", "Acquired multicast lock for mDNS")
+            }
+        }
+    }
+
+    private fun releaseMulticastLock() {
+        multicastLock?.let { lock ->
+            if (lock.isHeld) {
+                lock.release()
+                android.util.Log.i("NearClipService", "Released multicast lock")
+            }
+        }
+    }
+
     private fun startSync() {
         try {
+            android.util.Log.i("NearClipService", "startSync() called, manager=${manager != null}")
+            // Acquire multicast lock before starting mDNS services
+            acquireMulticastLock()
             manager?.start()
+            android.util.Log.i("NearClipService", "manager.start() completed")
             clipboardMonitor?.startMonitoring()
             networkMonitor?.startMonitoring()
             isRunning = manager?.isRunning() ?: false
+            android.util.Log.i("NearClipService", "isRunning=$isRunning")
             listeners.forEach { it.onRunningStateChanged(isRunning) }
         } catch (e: NearClipException) {
+            android.util.Log.e("NearClipService", "startSync failed: ${e.message}", e)
+            releaseMulticastLock()
             listeners.forEach { it.onSyncError("Start failed: ${e.message}") }
+        } catch (e: Exception) {
+            android.util.Log.e("NearClipService", "startSync unexpected error: ${e.message}", e)
+            releaseMulticastLock()
         }
     }
 
@@ -260,6 +357,8 @@ class NearClipService : Service(), FfiNearClipCallback {
         clipboardMonitor?.stopMonitoring()
         networkMonitor?.stopMonitoring()
         manager?.stop()
+        // Release multicast lock after stopping mDNS services
+        releaseMulticastLock()
         isRunning = false
         listeners.forEach { it.onRunningStateChanged(isRunning) }
     }
@@ -269,12 +368,64 @@ class NearClipService : Service(), FfiNearClipCallback {
 
     fun getManager(): FfiNearClipManager? = manager
 
+    fun getConnectedDevices(): List<FfiDeviceInfo> = manager?.getConnectedDevices() ?: emptyList()
+
+    fun getPairedDevices(): List<FfiDeviceInfo> = manager?.getPairedDevices() ?: emptyList()
+
+    fun connectDevice(deviceId: String) {
+        android.util.Log.i("NearClipService", "connectDevice called for $deviceId, manager=${manager != null}")
+        // Run on background thread to avoid ANR
+        Thread {
+            try {
+                manager?.connectDevice(deviceId)
+                android.util.Log.i("NearClipService", "connectDevice completed for $deviceId")
+            } catch (e: NearClipException) {
+                android.util.Log.e("NearClipService", "connectDevice failed: ${e.message}", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    listeners.forEach { it.onSyncError("Connect failed: ${e.message}") }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "connectDevice unexpected error: ${e.message}", e)
+            }
+        }.start()
+    }
+
+    fun disconnectDevice(deviceId: String) {
+        android.util.Log.i("NearClipService", "disconnectDevice called for $deviceId")
+        // Run on background thread to avoid ANR
+        Thread {
+            try {
+                manager?.disconnectDevice(deviceId)
+                android.util.Log.i("NearClipService", "disconnectDevice completed for $deviceId")
+            } catch (e: NearClipException) {
+                android.util.Log.e("NearClipService", "disconnectDevice failed: ${e.message}", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    listeners.forEach { it.onSyncError("Disconnect failed: ${e.message}") }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "disconnectDevice unexpected error: ${e.message}", e)
+            }
+        }.start()
+    }
+
     fun syncClipboard(content: ByteArray) {
-        try {
-            manager?.syncClipboard(content)
-        } catch (e: NearClipException) {
-            listeners.forEach { it.onSyncError("Sync failed: ${e.message}") }
-        }
+        android.util.Log.i("NearClipService", "syncClipboard called with ${content.size} bytes, manager=${manager != null}")
+        // Run on background thread to avoid ANR (FFI uses block_on which blocks)
+        Thread {
+            try {
+                val connected = manager?.getConnectedDevices()?.size ?: 0
+                android.util.Log.i("NearClipService", "syncClipboard: $connected connected devices before sync")
+                manager?.syncClipboard(content)
+                android.util.Log.i("NearClipService", "syncClipboard completed successfully")
+            } catch (e: NearClipException) {
+                android.util.Log.e("NearClipService", "syncClipboard failed: ${e.message}", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    listeners.forEach { it.onSyncError("Sync failed: ${e.message}") }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "syncClipboard unexpected error: ${e.message}", e)
+            }
+        }.start()
     }
 
     // FfiNearClipCallback implementation

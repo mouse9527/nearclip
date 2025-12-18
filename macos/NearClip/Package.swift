@@ -20,6 +20,7 @@ let package = Package(
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("Security"),
                 .linkedLibrary("nearclip_ffi"),
+                // Note: Library path is relative from Package.swift location
                 .unsafeFlags(["-L../../target/swift"])
             ]
         ),

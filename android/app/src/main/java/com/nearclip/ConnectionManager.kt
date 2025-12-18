@@ -9,6 +9,7 @@ import com.nearclip.data.SecureStorage
 import com.nearclip.data.SyncRetryStrategy
 import com.nearclip.data.settingsDataStore
 import com.nearclip.ffi.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -26,6 +28,7 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         const val MAX_PAIRED_DEVICES = 5
         private const val PREFS_NAME = "nearclip_prefs"
         private const val KEY_PAUSED_DEVICES = "paused_device_ids"
+        private const val KEY_DEVICE_ID = "nearclip_device_id"
     }
 
     private var manager: FfiNearClipManager? = null
@@ -88,24 +91,46 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     }
 
     private fun initializeManager() {
-        try {
-            val config = FfiNearClipConfig(
-                deviceName = "${Build.MANUFACTURER} ${Build.MODEL}",
-                wifiEnabled = true,
-                bleEnabled = true,
-                autoConnect = true,
-                connectionTimeoutSecs = 30u,
-                heartbeatIntervalSecs = 5u,
-                maxRetries = 3u
-            )
-            manager = FfiNearClipManager(config, this)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Load persisted device ID (empty string means auto-generate)
+                val persistedDeviceId = prefs.getString(KEY_DEVICE_ID, "") ?: ""
 
-            // Load paired devices from secure storage
-            loadPairedDevicesFromStorage()
+                val config = FfiNearClipConfig(
+                    deviceName = "${Build.MANUFACTURER} ${Build.MODEL}",
+                    deviceId = persistedDeviceId,
+                    wifiEnabled = true,
+                    bleEnabled = true,
+                    autoConnect = true,
+                    connectionTimeoutSecs = 30u,
+                    heartbeatIntervalSecs = 5u,
+                    maxRetries = 3u
+                )
+                manager = FfiNearClipManager(config, this@ConnectionManager)
 
-            refreshDevices()
-        } catch (e: Exception) {
-            _lastError.value = "Failed to initialize: ${e.message}"
+                // Save generated device ID if it was newly created
+                if (persistedDeviceId.isEmpty()) {
+                    val generatedId = manager?.getDeviceId()
+                    if (!generatedId.isNullOrEmpty()) {
+                        prefs.edit().putString(KEY_DEVICE_ID, generatedId).apply()
+                        Log.i(TAG, "Saved new device ID: $generatedId")
+                    }
+                }
+
+                // Load paired devices from secure storage
+                loadPairedDevicesFromStorage()
+
+                val paired = manager?.getPairedDevices() ?: emptyList()
+                val connected = manager?.getConnectedDevices() ?: emptyList()
+                withContext(Dispatchers.Main) {
+                    _pairedDevices.value = paired
+                    _connectedDevices.value = connected
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    _lastError.value = "Failed to initialize: ${e.message}"
+                }
+            }
         }
     }
 
@@ -133,51 +158,85 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     }
 
     fun start() {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 manager?.start()
-                _isRunning.value = manager?.isRunning() ?: false
-                refreshDevices()
+                val running = manager?.isRunning() ?: false
+                val paired = manager?.getPairedDevices() ?: emptyList()
+                val connected = manager?.getConnectedDevices() ?: emptyList()
+                withContext(Dispatchers.Main) {
+                    _isRunning.value = running
+                    _pairedDevices.value = paired
+                    _connectedDevices.value = connected
+                }
             } catch (e: NearClipException) {
-                _lastError.value = "Start failed: ${e.message}"
+                withContext(Dispatchers.Main) {
+                    _lastError.value = "Start failed: ${e.message}"
+                }
             }
         }
     }
 
     fun stop() {
-        manager?.stop()
-        _isRunning.value = false
-        refreshDevices()
+        viewModelScope.launch(Dispatchers.IO) {
+            manager?.stop()
+            val paired = manager?.getPairedDevices() ?: emptyList()
+            val connected = manager?.getConnectedDevices() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _isRunning.value = false
+                _pairedDevices.value = paired
+                _connectedDevices.value = connected
+            }
+        }
     }
 
     fun connectDevice(deviceId: String) {
-        viewModelScope.launch {
+        Log.i(TAG, "connectDevice() called with deviceId=$deviceId, manager=${manager != null}")
+        viewModelScope.launch(Dispatchers.IO) {
             try {
+                Log.i(TAG, "Attempting to connect to device: $deviceId")
                 manager?.connectDevice(deviceId)
-                refreshDevices()
+                Log.i(TAG, "connectDevice() completed for $deviceId")
+                val paired = manager?.getPairedDevices() ?: emptyList()
+                val connected = manager?.getConnectedDevices() ?: emptyList()
+                withContext(Dispatchers.Main) {
+                    _pairedDevices.value = paired
+                    _connectedDevices.value = connected
+                }
             } catch (e: NearClipException) {
-                _lastError.value = "Connect failed: ${e.message}"
+                withContext(Dispatchers.Main) {
+                    _lastError.value = "Connect failed: ${e.message}"
+                }
             }
         }
     }
 
     fun disconnectDevice(deviceId: String) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 manager?.disconnectDevice(deviceId)
-                refreshDevices()
+                val paired = manager?.getPairedDevices() ?: emptyList()
+                val connected = manager?.getConnectedDevices() ?: emptyList()
+                withContext(Dispatchers.Main) {
+                    _pairedDevices.value = paired
+                    _connectedDevices.value = connected
+                }
             } catch (e: NearClipException) {
-                _lastError.value = "Disconnect failed: ${e.message}"
+                withContext(Dispatchers.Main) {
+                    _lastError.value = "Disconnect failed: ${e.message}"
+                }
             }
         }
     }
 
     fun syncClipboard(content: ByteArray) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 manager?.syncClipboard(content)
             } catch (e: NearClipException) {
-                _lastError.value = "Sync failed: ${e.message}"
+                withContext(Dispatchers.Main) {
+                    _lastError.value = "Sync failed: ${e.message}"
+                }
             }
         }
     }
@@ -187,7 +246,7 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
      * @throws IllegalArgumentException if the code is invalid or missing required fields
      * @throws IllegalStateException if the manager is not initialized or device limit reached
      */
-    fun addDeviceFromCode(code: String) {
+    suspend fun addDeviceFromCode(code: String) {
         // Check device limit first
         if (_pairedDevices.value.size >= MAX_PAIRED_DEVICES) {
             throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached. Remove a device to add a new one.")
@@ -214,12 +273,14 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
             throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached")
         }
 
-        // Validate platform enum
-        val platform = try {
-            DevicePlatform.valueOf(platformStr)
-        } catch (e: IllegalArgumentException) {
-            val validPlatforms = DevicePlatform.values().joinToString(", ") { it.name }
-            throw IllegalArgumentException("Invalid pairing code: unknown platform '$platformStr'. Valid: $validPlatforms")
+        // Validate platform enum (handle different naming conventions)
+        val platform = when (platformStr.lowercase()) {
+            "macos", "mac_os" -> DevicePlatform.MAC_OS
+            "android" -> DevicePlatform.ANDROID
+            else -> {
+                val validPlatforms = listOf("macOS", "Android")
+                throw IllegalArgumentException("Invalid pairing code: unknown platform '$platformStr'. Valid: $validPlatforms")
+            }
         }
 
         val device = FfiDeviceInfo(
@@ -233,24 +294,33 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         val mgr = manager
             ?: throw IllegalStateException("Connection manager not initialized")
 
-        // Add to manager first - this is the source of truth
-        try {
-            mgr.addPairedDevice(device)
-            Log.i(TAG, "Added paired device to manager: ${device.name} (${device.id})")
-        } catch (e: NearClipException) {
-            throw IllegalStateException("Failed to add device to manager: ${e.message}")
-        }
+        // Run FFI calls on IO dispatcher
+        withContext(Dispatchers.IO) {
+            // Add to manager first - this is the source of truth
+            try {
+                mgr.addPairedDevice(device)
+                Log.i(TAG, "Added paired device to manager: ${device.name} (${device.id})")
+            } catch (e: NearClipException) {
+                throw IllegalStateException("Failed to add device to manager: ${e.message}")
+            }
 
-        // Persist to secure storage (best effort - manager is already updated)
-        try {
-            secureStorage.addPairedDevice(device)
-            Log.i(TAG, "Persisted device to secure storage: ${device.id}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to persist device to storage (device added to manager)", e)
-            // Don't fail - device is already in manager and will work for this session
-        }
+            // Persist to secure storage (best effort - manager is already updated)
+            try {
+                secureStorage.addPairedDevice(device)
+                Log.i(TAG, "Persisted device to secure storage: ${device.id}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to persist device to storage (device added to manager)", e)
+                // Don't fail - device is already in manager and will work for this session
+            }
 
-        refreshDevices()
+            // Refresh devices on IO thread
+            val paired = manager?.getPairedDevices() ?: emptyList()
+            val connected = manager?.getConnectedDevices() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _pairedDevices.value = paired
+                _connectedDevices.value = connected
+            }
+        }
     }
 
     /**
@@ -258,40 +328,50 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
      * Removes from both manager and secure storage.
      */
     fun removeDevice(deviceId: String) {
-        var managerSuccess = false
-        var storageSuccess = false
+        viewModelScope.launch(Dispatchers.IO) {
+            var managerSuccess = false
+            var storageSuccess = false
 
-        // Remove from manager first
-        try {
-            manager?.removePairedDevice(deviceId)
-            managerSuccess = true
-            Log.i(TAG, "Removed device from manager: $deviceId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to remove device from manager: $deviceId", e)
+            // Remove from manager first
+            try {
+                manager?.removePairedDevice(deviceId)
+                managerSuccess = true
+                Log.i(TAG, "Removed device from manager: $deviceId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove device from manager: $deviceId", e)
+            }
+
+            // Remove from secure storage
+            try {
+                secureStorage.removePairedDevice(deviceId)
+                storageSuccess = true
+                Log.i(TAG, "Removed device from secure storage: $deviceId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to remove device from secure storage: $deviceId", e)
+            }
+
+            // Remove from paused list
+            val currentPaused = _pausedDeviceIds.value.toMutableSet()
+            if (currentPaused.remove(deviceId)) {
+                withContext(Dispatchers.Main) {
+                    _pausedDeviceIds.value = currentPaused
+                }
+                prefs.edit().putStringSet(KEY_PAUSED_DEVICES, currentPaused).apply()
+            }
+
+            // Log if partial removal occurred
+            if (managerSuccess != storageSuccess) {
+                Log.w(TAG, "Partial device removal - manager: $managerSuccess, storage: $storageSuccess")
+            }
+
+            // Refresh devices
+            val paired = manager?.getPairedDevices() ?: emptyList()
+            val connected = manager?.getConnectedDevices() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _pairedDevices.value = paired
+                _connectedDevices.value = connected
+            }
         }
-
-        // Remove from secure storage
-        try {
-            secureStorage.removePairedDevice(deviceId)
-            storageSuccess = true
-            Log.i(TAG, "Removed device from secure storage: $deviceId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to remove device from secure storage: $deviceId", e)
-        }
-
-        // Remove from paused list
-        val currentPaused = _pausedDeviceIds.value.toMutableSet()
-        if (currentPaused.remove(deviceId)) {
-            _pausedDeviceIds.value = currentPaused
-            prefs.edit().putStringSet(KEY_PAUSED_DEVICES, currentPaused).apply()
-        }
-
-        // Log if partial removal occurred
-        if (managerSuccess != storageSuccess) {
-            Log.w(TAG, "Partial device removal - manager: $managerSuccess, storage: $storageSuccess")
-        }
-
-        refreshDevices()
     }
 
     /**
@@ -334,9 +414,31 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         return json.toString()
     }
 
-    private fun refreshDevices() {
-        _pairedDevices.value = manager?.getPairedDevices() ?: emptyList()
-        _connectedDevices.value = manager?.getConnectedDevices() ?: emptyList()
+    fun refreshDevices() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val paired = manager?.getPairedDevices() ?: emptyList()
+            val connected = manager?.getConnectedDevices() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _pairedDevices.value = paired
+                _connectedDevices.value = connected
+            }
+        }
+    }
+
+    /**
+     * Refresh device state from an external service's manager.
+     * Use this when connecting/disconnecting through NearClipService.
+     */
+    fun refreshFromService(service: com.nearclip.service.NearClipService?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val paired = service?.getPairedDevices() ?: emptyList()
+            val connected = service?.getConnectedDevices() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _pairedDevices.value = paired
+                _connectedDevices.value = connected
+                _isRunning.value = service?.isRunning() ?: false
+            }
+        }
     }
 
     // MARK: - Retry Strategy Execution
@@ -390,7 +492,7 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         if (_connectedDevices.value.isEmpty()) return
 
         Log.i(TAG, "Sending pending content to reconnected device(s)")
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 manager?.syncClipboard(content)
                 // Only clear pending content on successful sync

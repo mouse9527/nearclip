@@ -321,7 +321,8 @@ impl MdnsAdvertiser {
             self.config.port,
             &properties_refs[..],
         )
-        .map_err(|e| NetError::ServiceRegistration(format!("Failed to create service info: {}", e)))?;
+        .map_err(|e| NetError::ServiceRegistration(format!("Failed to create service info: {}", e)))?
+        .enable_addr_auto();  // 启用地址自动发现
 
         let fullname = service_info.get_fullname().to_string();
 

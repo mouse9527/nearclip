@@ -107,6 +107,9 @@ impl From<FfiDeviceInfo> for DeviceInfo {
 #[derive(Debug, Clone)]
 pub struct FfiNearClipConfig {
     pub device_name: String,
+    /// 设备唯一标识（可选，用于持久化）
+    /// 如果为空字符串，则自动生成新的 ID
+    pub device_id: String,
     pub wifi_enabled: bool,
     pub ble_enabled: bool,
     pub auto_connect: bool,
@@ -118,6 +121,7 @@ pub struct FfiNearClipConfig {
 impl From<FfiNearClipConfig> for NearClipConfig {
     fn from(ffi: FfiNearClipConfig) -> Self {
         NearClipConfig::new(ffi.device_name)
+            .with_device_id(ffi.device_id)
             .with_wifi_enabled(ffi.wifi_enabled)
             .with_ble_enabled(ffi.ble_enabled)
             .with_auto_connect(ffi.auto_connect)
@@ -131,6 +135,7 @@ impl Default for FfiNearClipConfig {
     fn default() -> Self {
         Self {
             device_name: "NearClip Device".to_string(),
+            device_id: String::new(), // 空字符串表示自动生成
             wifi_enabled: true,
             ble_enabled: true,
             auto_connect: true,
@@ -256,7 +261,13 @@ impl FfiNearClipManager {
     ///
     /// * `content` - Clipboard content bytes
     pub fn sync_clipboard(&self, content: Vec<u8>) -> Result<(), NearClipError> {
-        self.runtime.block_on(async { self.inner.sync_clipboard(&content).await })
+        tracing::info!(content_size = content.len(), "FFI sync_clipboard called");
+        let result = self.runtime.block_on(async { self.inner.sync_clipboard(&content).await });
+        match &result {
+            Ok(_) => tracing::info!("FFI sync_clipboard completed successfully"),
+            Err(e) => tracing::error!(error = %e, "FFI sync_clipboard failed"),
+        }
+        result
     }
 
     /// Get list of paired devices
@@ -270,11 +281,10 @@ impl FfiNearClipManager {
 
     /// Get list of connected devices
     pub fn get_connected_devices(&self) -> Vec<FfiDeviceInfo> {
-        self.inner
-            .get_connected_devices()
-            .into_iter()
-            .map(FfiDeviceInfo::from)
-            .collect()
+        tracing::info!("FFI get_connected_devices called");
+        let devices = self.inner.get_connected_devices();
+        tracing::info!(count = devices.len(), "FFI get_connected_devices returning");
+        devices.into_iter().map(FfiDeviceInfo::from).collect()
     }
 
     /// Connect to a device
@@ -324,6 +334,26 @@ impl FfiNearClipManager {
     /// Device status if found, None otherwise.
     pub fn get_device_status(&self, device_id: String) -> Option<DeviceStatus> {
         self.inner.get_device_status(&device_id)
+    }
+
+    /// Get this device's unique ID
+    ///
+    /// # Returns
+    ///
+    /// The device ID used for mDNS advertising and message identification.
+    pub fn get_device_id(&self) -> String {
+        self.inner.device_id().to_string()
+    }
+
+    /// Try to connect to all discovered paired devices
+    ///
+    /// Scans for paired devices on the network and attempts to connect.
+    ///
+    /// # Returns
+    ///
+    /// Number of devices successfully connected.
+    pub fn try_connect_paired_devices(&self) -> u32 {
+        self.runtime.block_on(async { self.inner.try_connect_paired_devices().await }) as u32
     }
 }
 
@@ -406,6 +436,7 @@ mod tests {
     fn test_ffi_config_conversion() {
         let ffi = FfiNearClipConfig {
             device_name: "My Mac".to_string(),
+            device_id: "TEST-DEVICE-ID".to_string(),
             wifi_enabled: true,
             ble_enabled: false,
             auto_connect: true,
@@ -416,12 +447,25 @@ mod tests {
 
         let core: NearClipConfig = ffi.into();
         assert_eq!(core.device_name(), "My Mac");
+        assert_eq!(core.device_id(), Some("TEST-DEVICE-ID"));
         assert!(core.wifi_enabled());
         assert!(!core.ble_enabled());
         assert!(core.auto_connect());
         assert_eq!(core.connection_timeout(), Duration::from_secs(60));
         assert_eq!(core.heartbeat_interval(), Duration::from_secs(15));
         assert_eq!(core.max_retries(), 5);
+    }
+
+    #[test]
+    fn test_ffi_config_empty_device_id() {
+        let ffi = FfiNearClipConfig {
+            device_name: "My Mac".to_string(),
+            device_id: "".to_string(), // 空字符串
+            ..Default::default()
+        };
+
+        let core: NearClipConfig = ffi.into();
+        assert_eq!(core.device_id(), None); // 空字符串转换为 None
     }
 
     #[test]

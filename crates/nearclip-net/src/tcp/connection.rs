@@ -231,6 +231,126 @@ impl TcpConnection {
         debug!("Connection to {} closed", self.peer_addr);
         Ok(())
     }
+
+    /// 分离连接为读写两个独立的半连接
+    ///
+    /// 允许并发地读取和写入同一连接，无需共享锁。
+    /// 返回的读半连接和写半连接可以在不同任务中独立使用。
+    ///
+    /// # Returns
+    ///
+    /// * `TcpReadHalf` - 只读半连接
+    /// * `TcpWriteHalf` - 只写半连接
+    pub fn into_split(self) -> (TcpReadHalf, TcpWriteHalf) {
+        let (read, write) = tokio::io::split(self.stream);
+        let peer_addr = self.peer_addr;
+        (
+            TcpReadHalf { read, peer_addr },
+            TcpWriteHalf { write, peer_addr },
+        )
+    }
+}
+
+/// TLS 连接的只读半连接
+///
+/// 通过 `TcpConnection::into_split()` 创建。
+/// 可以与 `TcpWriteHalf` 在不同任务中并发使用。
+pub struct TcpReadHalf {
+    read: tokio::io::ReadHalf<TlsStreamWrapper>,
+    peer_addr: SocketAddr,
+}
+
+impl TcpReadHalf {
+    /// 获取对端地址
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
+
+    /// 读取数据
+    ///
+    /// 从连接中读取数据到缓冲区。
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - 目标缓冲区
+    ///
+    /// # Returns
+    ///
+    /// 实际读取的字节数，0 表示连接已关闭
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, NetError> {
+        use tokio::io::AsyncReadExt;
+        let n = self.read.read(buf).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                NetError::ConnectionClosed(format!("Peer {} disconnected", self.peer_addr))
+            } else {
+                NetError::Io(e)
+            }
+        })?;
+        Ok(n)
+    }
+}
+
+/// TLS 连接的只写半连接
+///
+/// 通过 `TcpConnection::into_split()` 创建。
+/// 可以与 `TcpReadHalf` 在不同任务中并发使用。
+pub struct TcpWriteHalf {
+    write: tokio::io::WriteHalf<TlsStreamWrapper>,
+    peer_addr: SocketAddr,
+}
+
+impl TcpWriteHalf {
+    /// 获取对端地址
+    pub fn peer_addr(&self) -> SocketAddr {
+        self.peer_addr
+    }
+
+    /// 写入数据
+    ///
+    /// 向连接写入数据。可能只写入部分数据。
+    pub async fn write(&mut self, data: &[u8]) -> Result<usize, NetError> {
+        use tokio::io::AsyncWriteExt;
+        let n = self.write.write(data).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::BrokenPipe
+                || e.kind() == std::io::ErrorKind::ConnectionReset
+            {
+                NetError::ConnectionClosed(format!("Connection to {} lost", self.peer_addr))
+            } else {
+                NetError::Io(e)
+            }
+        })?;
+        Ok(n)
+    }
+
+    /// 写入所有数据
+    ///
+    /// 确保所有数据都被写入连接。
+    pub async fn write_all(&mut self, data: &[u8]) -> Result<(), NetError> {
+        use tokio::io::AsyncWriteExt;
+        self.write.write_all(data).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::BrokenPipe
+                || e.kind() == std::io::ErrorKind::ConnectionReset
+            {
+                NetError::ConnectionClosed(format!("Connection to {} lost", self.peer_addr))
+            } else {
+                NetError::Io(e)
+            }
+        })
+    }
+
+    /// 刷新写入缓冲区
+    pub async fn flush(&mut self) -> Result<(), NetError> {
+        use tokio::io::AsyncWriteExt;
+        self.write.flush().await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::BrokenPipe
+                || e.kind() == std::io::ErrorKind::ConnectionReset
+            {
+                NetError::ConnectionClosed(format!("Connection to {} lost", self.peer_addr))
+            } else {
+                NetError::Io(e)
+            }
+        })
+    }
 }
 
 impl std::fmt::Debug for TcpConnection {

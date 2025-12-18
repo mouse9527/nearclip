@@ -1,22 +1,28 @@
 package com.nearclip.ui.screens
 
+import android.os.Build
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.Divider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nearclip.ConnectionManager
 import com.nearclip.SettingsViewModel
 import com.nearclip.data.SyncRetryStrategy
 import com.nearclip.ffi.FfiDeviceInfo
+import com.nearclip.service.NearClipAccessibilityService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -25,9 +31,18 @@ fun SettingsScreen(
     connectionManager: ConnectionManager = viewModel(),
     settingsViewModel: SettingsViewModel = viewModel()
 ) {
+    val context = LocalContext.current
     val settings by settingsViewModel.settings.collectAsState()
     val pairedDevices by connectionManager.pairedDevices.collectAsState()
     val pausedDeviceIds by connectionManager.pausedDeviceIds.collectAsState()
+
+    // Check accessibility service status (recheck on resume)
+    var accessibilityEnabled by remember { mutableStateOf(NearClipAccessibilityService.isEnabled(context)) }
+
+    // Recheck when screen becomes visible
+    LaunchedEffect(Unit) {
+        accessibilityEnabled = NearClipAccessibilityService.isEnabled(context)
+    }
 
     var showDeleteDialog by remember { mutableStateOf<FfiDeviceInfo?>(null) }
 
@@ -93,8 +108,31 @@ fun SettingsScreen(
                 )
             }
 
+            // Accessibility Service Section (Android 10+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                item {
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                }
+
+                item {
+                    SettingsSection(title = "Background Clipboard Access")
+                }
+
+                item {
+                    AccessibilityServiceItem(
+                        isEnabled = accessibilityEnabled,
+                        onEnableClick = {
+                            NearClipAccessibilityService.openAccessibilitySettings(context)
+                        },
+                        onRefreshClick = {
+                            accessibilityEnabled = NearClipAccessibilityService.isEnabled(context)
+                        }
+                    )
+                }
+            }
+
             item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
             }
 
             // Retry Strategy Section
@@ -110,7 +148,7 @@ fun SettingsScreen(
             }
 
             item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
             }
 
             // Paired Devices Section
@@ -162,7 +200,7 @@ fun SettingsScreen(
             }
 
             item {
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
             }
 
             // About Section
@@ -463,6 +501,91 @@ fun RetryStrategySelector(
                         }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun AccessibilityServiceItem(
+    isEnabled: Boolean,
+    onEnableClick: () -> Unit,
+    onRefreshClick: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Accessibility,
+                contentDescription = null,
+                tint = if (isEnabled)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Accessibility Service",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Text(
+                    text = if (isEnabled) "Enabled" else "Required for background sync",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isEnabled)
+                        MaterialTheme.colorScheme.primary
+                    else
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            if (isEnabled) {
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Enabled",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            } else {
+                Row {
+                    IconButton(onClick = onRefreshClick) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Refresh status",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Button(
+                        onClick = onEnableClick,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary
+                        )
+                    ) {
+                        Text("Enable")
+                    }
+                }
+            }
+        }
+
+        if (!isEnabled) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Text(
+                    text = "Android 10+ requires accessibility service to read clipboard in background. " +
+                            "Find \"NearClip\" in the list and enable it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.padding(12.dp)
+                )
             }
         }
     }

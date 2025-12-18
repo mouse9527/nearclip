@@ -166,9 +166,31 @@ final class ConnectionManager: ObservableObject {
         }
     }
 
+    /// Device ID persistence key
+    private static let deviceIdKey = "nearclip.deviceId"
+
+    /// Get or generate device ID (persisted in UserDefaults)
+    private var persistedDeviceId: String {
+        get {
+            UserDefaults.standard.string(forKey: Self.deviceIdKey) ?? ""
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: Self.deviceIdKey)
+        }
+    }
+
     /// Check if we can add more devices
     var canAddMoreDevices: Bool {
         pairedDevices.count < Self.maxPairedDevices
+    }
+
+    /// Get the device ID used for pairing and mDNS
+    /// Returns the persisted device ID, or queries the manager if available
+    var deviceId: String {
+        if let manager = nearClipManager {
+            return manager.getDeviceId()
+        }
+        return persistedDeviceId
     }
 
     private init() {
@@ -194,9 +216,10 @@ final class ConnectionManager: ObservableObject {
             // Initialize logging
             initLogging(level: .info)
 
-            // Create config
+            // Create config with persisted device ID
             let config = FfiNearClipConfig(
                 deviceName: Host.current().localizedName ?? "Mac",
+                deviceId: persistedDeviceId, // 使用持久化的设备 ID，空字符串会自动生成新的
                 wifiEnabled: true,
                 bleEnabled: true,
                 autoConnect: true,
@@ -211,6 +234,15 @@ final class ConnectionManager: ObservableObject {
             // Create manager
             nearClipManager = try FfiNearClipManager(config: config, callback: callback)
             try nearClipManager?.start()
+
+            // Save generated device ID if it was newly created
+            if let manager = nearClipManager {
+                let generatedId = manager.getDeviceId()
+                if persistedDeviceId.isEmpty && !generatedId.isEmpty {
+                    persistedDeviceId = generatedId
+                    print("Saved new device ID: \(generatedId)")
+                }
+            }
 
             isRunning = true
             lastError = nil

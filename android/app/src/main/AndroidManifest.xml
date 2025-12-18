@@ -31,6 +31,12 @@
     <!-- Vibration for notifications -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- READ_LOGS for detecting clipboard access denial (must be granted via ADB) -->
+    <uses-permission android:name="android.permission.READ_LOGS" />
+
+    <!-- SYSTEM_ALERT_WINDOW for floating clipboard activity -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- BLE feature declaration -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
@@ -63,11 +69,33 @@
             </intent-filter>
         </activity>
 
+        <!-- Transparent floating activity for clipboard access on Android 10+ -->
+        <activity
+            android:name=".service.ClipboardFloatingActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".service.NearClipService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <service
+            android:name=".service.NearClipAccessibilityService"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
     </application>
 

@@ -11,7 +11,12 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 tokio.workspace = true
+uuid.workspace = true
+base64.workspace = true
 nearclip-crypto.workspace = true
 nearclip-net.workspace = true
 nearclip-ble.workspace = true
 nearclip-sync.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+tracing-android.workspace = true

@@ -364,7 +364,9 @@ fn test_manager_connected_devices_filter() {
 // ============================================================
 
 #[tokio::test]
-async fn test_manager_connect_device() {
+async fn test_manager_connect_device_not_discovered() {
+    // connect_device() 需要设备先通过 mDNS 发现才能连接
+    // 如果设备已配对但未在网络上发现，应返回 Network 错误
     let config = NearClipConfig::new("Test Device");
     let callback = Arc::new(TestCallback::new());
     let manager = NearClipManager::new(config, callback.clone()).unwrap();
@@ -373,13 +375,19 @@ async fn test_manager_connect_device() {
     manager.add_paired_device(device);
     manager.start().await.unwrap();
 
-    manager.connect_device("d1").await.unwrap();
+    // 设备已配对但未在网络上发现
+    let result = manager.connect_device("d1").await;
 
+    assert!(result.is_err());
+    assert!(matches!(result, Err(NearClipError::Network(_))));
+
+    // 设备状态应保持不变
     assert_eq!(
         manager.get_device_status("d1"),
-        Some(DeviceStatus::Connected)
+        Some(DeviceStatus::Disconnected)
     );
-    assert_eq!(callback.connected_ids(), vec!["d1"]);
+    // 不应触发连接回调
+    assert!(callback.connected_ids().is_empty());
 }
 
 #[tokio::test]
@@ -607,6 +615,7 @@ fn test_manager_concurrent_device_access() {
 
 #[tokio::test]
 async fn test_complete_workflow() {
+    // 完整工作流测试（不包括实际网络连接，因为需要 mDNS 发现）
     let config = NearClipConfig::new("MacBook Pro")
         .with_wifi_enabled(true)
         .with_ble_enabled(true);
@@ -627,24 +636,32 @@ async fn test_complete_workflow() {
     manager.add_paired_device(device);
     assert_eq!(manager.get_paired_devices().len(), 1);
 
-    // 4. 连接设备
-    manager.connect_device("iphone-123").await.unwrap();
+    // 4. 连接设备 - 未在网络上发现，应返回错误
+    let connect_result = manager.connect_device("iphone-123").await;
+    assert!(connect_result.is_err());
+    assert!(matches!(connect_result, Err(NearClipError::Network(_))));
+
+    // 5. 模拟设备已连接（通过 handle_device_connected）
+    let connected_device = DeviceInfo::new("iphone-123", "iPhone 15")
+        .with_platform(DevicePlatform::Unknown)
+        .with_status(DeviceStatus::Connected);
+    manager.handle_device_connected(connected_device);
     assert_eq!(manager.get_connected_devices().len(), 1);
     assert_eq!(callback.connected_ids().len(), 1);
 
-    // 5. 同步剪贴板
+    // 6. 同步剪贴板
     manager.sync_clipboard(b"Hello from MacBook").await.unwrap();
 
-    // 6. 接收远程剪贴板
+    // 7. 接收远程剪贴板
     manager.handle_clipboard_received(b"Hello from iPhone", "iphone-123");
     assert_eq!(callback.received_clipboard().len(), 1);
 
-    // 7. 断开设备
+    // 8. 断开设备
     manager.disconnect_device("iphone-123").await.unwrap();
     assert_eq!(manager.get_connected_devices().len(), 0);
     assert_eq!(callback.disconnected_ids().len(), 1);
 
-    // 8. 停止服务
+    // 9. 停止服务
     manager.stop().await;
     assert!(!manager.is_running());
 }

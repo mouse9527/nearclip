@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Keyboard
@@ -12,6 +13,7 @@ import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.KeyboardType
@@ -32,6 +34,7 @@ fun PairingScreen(
     var manualCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     val pairingCode = remember {
         connectionManager.generatePairingCode()
@@ -88,24 +91,28 @@ fun PairingScreen(
                         onSubmit = {
                             isLoading = true
                             errorMessage = null
-                            try {
-                                connectionManager.addDeviceFromCode(manualCode)
-                                onNavigateBack()
-                            } catch (e: Exception) {
-                                errorMessage = e.message ?: "Failed to add device"
-                            } finally {
-                                isLoading = false
+                            coroutineScope.launch {
+                                try {
+                                    connectionManager.addDeviceFromCode(manualCode)
+                                    onNavigateBack()
+                                } catch (e: Exception) {
+                                    errorMessage = e.message ?: "Failed to add device"
+                                } finally {
+                                    isLoading = false
+                                }
                             }
                         },
                         onQrCodeScanned = { code ->
                             isLoading = true
                             errorMessage = null
-                            try {
-                                connectionManager.addDeviceFromCode(code)
-                                onNavigateBack()
-                            } catch (e: Exception) {
-                                errorMessage = e.message ?: "Invalid QR code"
-                                isLoading = false
+                            coroutineScope.launch {
+                                try {
+                                    connectionManager.addDeviceFromCode(code)
+                                    onNavigateBack()
+                                } catch (e: Exception) {
+                                    errorMessage = e.message ?: "Invalid QR code"
+                                    isLoading = false
+                                }
                             }
                         }
                     )

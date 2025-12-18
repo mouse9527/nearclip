@@ -12,8 +12,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nearclip.ConnectionManager
 import com.nearclip.LocalNearClipService
@@ -31,11 +34,30 @@ fun HomeScreen(
 ) {
     val context = LocalContext.current
     val service = LocalNearClipService.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val isRunning by connectionManager.isRunning.collectAsState()
     val pairedDevices by connectionManager.pairedDevices.collectAsState()
     val connectedDevices by connectionManager.connectedDevices.collectAsState()
     val lastReceivedClipboard by connectionManager.lastReceivedClipboard.collectAsState()
     val lastError by connectionManager.lastError.collectAsState()
+
+    // Refresh devices when screen becomes visible (e.g., returning from PairingScreen)
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Refresh from service if available, otherwise from connectionManager
+                if (service != null) {
+                    connectionManager.refreshFromService(service)
+                } else {
+                    connectionManager.refreshDevices()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -125,10 +147,19 @@ fun HomeScreen(
                             platform = device.platform.name,
                             status = device.status,
                             onConnect = {
-                                connectionManager.connectDevice(device.id)
+                                // Use service's manager for connection to ensure sync uses same manager
+                                service?.connectDevice(device.id)
+                                // Delay refresh since connect is async
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    connectionManager.refreshFromService(service)
+                                }, 500)
                             },
                             onDisconnect = {
-                                connectionManager.disconnectDevice(device.id)
+                                service?.disconnectDevice(device.id)
+                                // Delay refresh since disconnect is async
+                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                    connectionManager.refreshFromService(service)
+                                }, 500)
                             }
                         )
                         Spacer(modifier = Modifier.height(8.dp))

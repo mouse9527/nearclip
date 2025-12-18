@@ -12,7 +12,11 @@
 //! | `debug` | 开发调试信息 |
 //! | `trace` | 详细追踪 |
 
+#[cfg(not(target_os = "android"))]
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+#[cfg(target_os = "android")]
+use tracing_subscriber::{prelude::*, EnvFilter};
 
 /// 日志级别枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -72,6 +76,7 @@ impl LogLevel {
 /// use nearclip_core::logging::{init_logging, LogLevel};
 /// init_logging(LogLevel::Info);
 /// ```
+#[cfg(not(target_os = "android"))]
 pub fn init_logging(level: LogLevel) {
     // 支持 RUST_LOG 环境变量覆盖
     let filter = EnvFilter::try_from_default_env()
@@ -88,6 +93,33 @@ pub fn init_logging(level: LogLevel) {
     let _ = tracing_subscriber::registry()
         .with(filter)
         .with(subscriber)
+        .try_init();
+}
+
+/// 初始化日志系统（Android 版本）
+///
+/// 在 Android 平台上使用 tracing-android 输出到 logcat。
+#[cfg(target_os = "android")]
+pub fn init_logging(level: LogLevel) {
+    // 支持 RUST_LOG 环境变量覆盖
+    // 默认配置：减少 mDNS 库的日志噪音
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new(format!(
+            "{},mdns_sd=warn,mdns_sd::dns_parser=warn,mdns_sd::service_daemon=warn",
+            level.as_str()
+        ))
+    });
+
+    // 使用 tracing-android 输出到 logcat
+    let android_layer = match tracing_android::layer("NearClip") {
+        Ok(layer) => layer,
+        Err(_) => return, // 无法初始化 Android 日志，静默失败
+    };
+
+    // 初始化全局订阅者（多次调用安全，会被忽略）
+    let _ = tracing_subscriber::registry()
+        .with(filter)
+        .with(android_layer)
         .try_init();
 }
 
