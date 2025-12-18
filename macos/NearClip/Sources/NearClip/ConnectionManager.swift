@@ -431,14 +431,21 @@ final class ConnectionManager: ObservableObject {
             self.connectedDevices.removeAll { $0.id == device.id }
             self.connectedDevices.append(display)
 
-            // Update paired devices status
-            if let index = self.pairedDevices.firstIndex(where: { $0.id == device.id }) {
-                self.pairedDevices[index] = DeviceDisplay(
-                    id: device.id,
-                    name: device.name,
-                    platform: self.platformString(device.platform),
-                    isConnected: true
-                )
+            // Auto-add to paired devices if not already present (bidirectional pairing)
+            if !self.pairedDevices.contains(where: { $0.id == device.id }) {
+                print("Auto-adding connected device to paired list: \(device.name)")
+                self.savePairedDeviceToKeychain(display)
+                self.pairedDevices.append(display)
+            } else {
+                // Update paired devices status
+                if let index = self.pairedDevices.firstIndex(where: { $0.id == device.id }) {
+                    self.pairedDevices[index] = DeviceDisplay(
+                        id: device.id,
+                        name: device.name,
+                        platform: self.platformString(device.platform),
+                        isConnected: true
+                    )
+                }
             }
 
             self.updateStatus()

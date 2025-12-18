@@ -28,7 +28,7 @@ struct SettingsView: View {
                     Label("About", systemImage: "info.circle")
                 }
         }
-        .frame(width: 450, height: 300)
+        .frame(width: 450, height: 380)
     }
 }
 
@@ -376,7 +376,7 @@ final class SettingsWindowController: NSObject {
         self.hostingView = hostingView
 
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 450, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 450, height: 380),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

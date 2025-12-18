@@ -12,10 +12,46 @@ final class KeychainManager {
 
     // MARK: - Paired Devices Storage
 
+    /// JSON encoder with consistent date format
+    private lazy var encoder: JSONEncoder = {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .secondsSince1970
+        return encoder
+    }()
+
+    /// JSON decoder that handles multiple date formats
+    private lazy var decoder: JSONDecoder = {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            // Try decoding as Double (seconds since 1970) first
+            if let timestamp = try? container.decode(Double.self) {
+                return Date(timeIntervalSince1970: timestamp)
+            }
+            // Try decoding as String (ISO8601 format)
+            if let dateString = try? container.decode(String.self) {
+                let formatter = ISO8601DateFormatter()
+                if let date = formatter.date(from: dateString) {
+                    return date
+                }
+                // Try simpler date format
+                let simpleFormatter = DateFormatter()
+                simpleFormatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+                if let date = simpleFormatter.date(from: dateString) {
+                    return date
+                }
+            }
+            // Fallback to current date if parsing fails
+            print("KeychainManager: Could not parse date, using current date")
+            return Date()
+        }
+        return decoder
+    }()
+
     /// Save paired devices to Keychain
     func savePairedDevices(_ devices: [StoredDevice]) -> Bool {
         do {
-            let data = try JSONEncoder().encode(devices)
+            let data = try encoder.encode(devices)
             return save(data: data, account: pairedDevicesAccount)
         } catch {
             print("KeychainManager: Failed to encode devices: \(error)")
@@ -30,11 +66,13 @@ final class KeychainManager {
         }
 
         do {
-            let devices = try JSONDecoder().decode([StoredDevice].self, from: data)
+            let devices = try decoder.decode([StoredDevice].self, from: data)
             print("KeychainManager: Loaded \(devices.count) paired devices")
             return devices
         } catch {
-            print("KeychainManager: Failed to decode devices: \(error)")
+            print("KeychainManager: Failed to decode devices: \(error), clearing old data")
+            // Clear corrupted data and return empty
+            _ = delete(account: pairedDevicesAccount)
             return []
         }
     }

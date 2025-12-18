@@ -431,6 +431,19 @@ class NearClipService : Service(), FfiNearClipCallback {
     // FfiNearClipCallback implementation
     override fun onDeviceConnected(device: FfiDeviceInfo) {
         updateNotification()
+
+        // Auto-add to paired devices if not already present (bidirectional pairing)
+        val pairedDevices = manager?.getPairedDevices() ?: emptyList()
+        if (!pairedDevices.any { it.id == device.id }) {
+            android.util.Log.i("NearClipService", "Auto-adding connected device to paired list: ${device.name}")
+            try {
+                manager?.addPairedDevice(device)
+                secureStorage?.addPairedDevice(device)
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "Failed to auto-add device: ${e.message}")
+            }
+        }
+
         listeners.forEach { it.onDeviceConnected(device) }
 
         // Send pending content if using "wait for device" strategy
