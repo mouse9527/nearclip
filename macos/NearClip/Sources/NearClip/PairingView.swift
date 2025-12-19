@@ -11,36 +11,73 @@ struct PairingView: View {
     @State private var isPairing = false
     @State private var pairingError: String?
     @State private var pairingSuccess = false
+    @State private var pairedDeviceName: String?
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            header
+        ZStack {
+            VStack(spacing: 0) {
+                // Header
+                header
 
-            Divider()
+                Divider()
 
-            // Tab picker
-            Picker("", selection: $selectedTab) {
-                Text("Show QR Code").tag(0)
-                Text("Enter Code").tag(1)
+                // Tab picker
+                Picker("", selection: $selectedTab) {
+                    Text("Show QR Code").tag(0)
+                    Text("Enter Code").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding()
+
+                // Content based on tab
+                if selectedTab == 0 {
+                    qrCodeTab
+                } else {
+                    manualPairingTab
+                }
+
+                Spacer()
+
+                // Footer
+                footer
             }
-            .pickerStyle(.segmented)
-            .padding()
 
-            // Content based on tab
-            if selectedTab == 0 {
-                qrCodeTab
-            } else {
-                manualPairingTab
+            // Success overlay
+            if let deviceName = pairedDeviceName {
+                successOverlay(deviceName: deviceName)
             }
-
-            Spacer()
-
-            // Footer
-            footer
         }
         .frame(width: 400, height: 500)
         .background(Color(NSColor.windowBackgroundColor))
+        .onReceive(NotificationCenter.default.publisher(for: .devicePaired)) { notification in
+            if let device = notification.userInfo?["device"] as? DeviceDisplay {
+                // Show success message and auto-close
+                pairedDeviceName = device.name
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                    dismiss()
+                }
+            }
+        }
+    }
+
+    // MARK: - Success Overlay
+
+    private func successOverlay(deviceName: String) -> some View {
+        VStack(spacing: 16) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 60))
+                .foregroundColor(.green)
+
+            Text("Paired Successfully!")
+                .font(.title2)
+                .fontWeight(.semibold)
+
+            Text("Connected to \(deviceName)")
+                .font(.body)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(NSColor.windowBackgroundColor).opacity(0.95))
     }
 
     // MARK: - Header

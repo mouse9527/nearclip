@@ -218,7 +218,7 @@ struct DevicesSettingsTab: View {
 
             Divider()
 
-            // Footer with delete button
+            // Footer with actions
             HStack {
                 Button(action: { showDeleteConfirmation = true }) {
                     Image(systemName: "minus")
@@ -227,6 +227,11 @@ struct DevicesSettingsTab: View {
                 .help("Remove selected device")
 
                 Spacer()
+
+                Button(action: refreshDevices) {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh device list and try to reconnect")
             }
             .padding(8)
         }
@@ -248,6 +253,16 @@ struct DevicesSettingsTab: View {
         // Remove from Keychain and FFI
         connectionManager.removePairedDevice(device.id)
         selectedDeviceId = nil
+    }
+
+    private func refreshDevices() {
+        // Reload paired devices from Keychain
+        connectionManager.loadPairedDevicesFromKeychain()
+
+        // Try to connect to all paired devices
+        _ = connectionManager.nearClipManager?.tryConnectPairedDevices()
+
+        print("DevicesSettingsTab: Refreshed device list")
     }
 }
 

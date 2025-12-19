@@ -34,6 +34,7 @@ fun PairingScreen(
     var manualCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var successMessage by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
 
     val pairingCode = remember {
@@ -93,11 +94,13 @@ fun PairingScreen(
                             errorMessage = null
                             coroutineScope.launch {
                                 try {
-                                    connectionManager.addDeviceFromCode(manualCode)
+                                    val deviceName = connectionManager.addDeviceFromCode(manualCode)
+                                    successMessage = "Paired with $deviceName"
+                                    isLoading = false
+                                    kotlinx.coroutines.delay(1500)
                                     onNavigateBack()
                                 } catch (e: Exception) {
                                     errorMessage = e.message ?: "Failed to add device"
-                                } finally {
                                     isLoading = false
                                 }
                             }
@@ -107,14 +110,18 @@ fun PairingScreen(
                             errorMessage = null
                             coroutineScope.launch {
                                 try {
-                                    connectionManager.addDeviceFromCode(code)
+                                    val deviceName = connectionManager.addDeviceFromCode(code)
+                                    successMessage = "Paired with $deviceName"
+                                    isLoading = false
+                                    kotlinx.coroutines.delay(1500)
                                     onNavigateBack()
                                 } catch (e: Exception) {
                                     errorMessage = e.message ?: "Invalid QR code"
                                     isLoading = false
                                 }
                             }
-                        }
+                        },
+                        successMessage = successMessage
                     )
                 }
             }
@@ -181,7 +188,8 @@ fun ScanQRCodeTab(
     isLoading: Boolean,
     errorMessage: String?,
     onSubmit: () -> Unit,
-    onQrCodeScanned: (String) -> Unit
+    onQrCodeScanned: (String) -> Unit,
+    successMessage: String? = null
 ) {
     var showManualInput by remember { mutableStateOf(false) }
 
@@ -189,6 +197,39 @@ fun ScanQRCodeTab(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Show success message overlay
+        if (successMessage != null) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 32.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.QrCode,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = successMessage,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            return
+        }
+
         if (!showManualInput) {
             // QR Scanner
             QrScanner(

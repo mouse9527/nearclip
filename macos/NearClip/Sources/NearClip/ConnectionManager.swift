@@ -2,6 +2,12 @@ import Foundation
 import Combine
 import AppKit
 
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let devicePaired = Notification.Name("com.nearclip.devicePaired")
+}
+
 /// Retry strategy when sync fails after exhausting retries
 enum SyncRetryStrategy: String, CaseIterable {
     case discard = "discard"        // Give up on this sync
@@ -436,6 +442,13 @@ final class ConnectionManager: ObservableObject {
                 print("Auto-adding connected device to paired list: \(device.name)")
                 self.savePairedDeviceToKeychain(display)
                 self.pairedDevices.append(display)
+
+                // Notify that a new device was paired (for closing pairing window)
+                NotificationCenter.default.post(
+                    name: .devicePaired,
+                    object: nil,
+                    userInfo: ["device": display]
+                )
             } else {
                 // Update paired devices status
                 if let index = self.pairedDevices.firstIndex(where: { $0.id == device.id }) {
@@ -637,7 +650,7 @@ final class ConnectionManager: ObservableObject {
     // MARK: - Keychain Integration
 
     /// Load paired devices from Keychain
-    private func loadPairedDevicesFromKeychain() {
+    func loadPairedDevicesFromKeychain() {
         let storedDevices = KeychainManager.shared.loadPairedDevices()
         let paused = pausedDeviceIds
         pairedDevices = storedDevices.map { stored in

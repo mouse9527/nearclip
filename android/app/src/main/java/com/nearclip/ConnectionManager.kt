@@ -243,10 +243,11 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
 
     /**
      * Add a device from a pairing code (JSON string).
+     * @return the name of the added device
      * @throws IllegalArgumentException if the code is invalid or missing required fields
      * @throws IllegalStateException if the manager is not initialized or device limit reached
      */
-    suspend fun addDeviceFromCode(code: String) {
+    suspend fun addDeviceFromCode(code: String): String {
         // Check device limit first
         if (_pairedDevices.value.size >= MAX_PAIRED_DEVICES) {
             throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached. Remove a device to add a new one.")
@@ -321,6 +322,8 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
                 _connectedDevices.value = connected
             }
         }
+
+        return name
     }
 
     /**
