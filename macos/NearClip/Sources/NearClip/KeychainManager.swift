@@ -1,12 +1,13 @@
 import Foundation
-import Security
 
-/// Manages secure storage of pairing information in macOS Keychain
+/// Manages storage of pairing information using UserDefaults
+/// Note: Changed from Keychain to UserDefaults to avoid password prompts
+/// during development (code signature changes trigger Keychain access dialogs)
 final class KeychainManager {
     static let shared = KeychainManager()
 
-    private let service = "com.nearclip.pairing"
-    private let pairedDevicesAccount = "paired-devices"
+    private let defaults = UserDefaults.standard
+    private let pairedDevicesKey = "com.nearclip.pairedDevices"
 
     private init() {}
 
@@ -48,20 +49,23 @@ final class KeychainManager {
         return decoder
     }()
 
-    /// Save paired devices to Keychain
+    /// Save paired devices to UserDefaults
     func savePairedDevices(_ devices: [StoredDevice]) -> Bool {
         do {
             let data = try encoder.encode(devices)
-            return save(data: data, account: pairedDevicesAccount)
+            defaults.set(data, forKey: pairedDevicesKey)
+            print("KeychainManager: Saved \(devices.count) paired devices")
+            return true
         } catch {
             print("KeychainManager: Failed to encode devices: \(error)")
             return false
         }
     }
 
-    /// Load paired devices from Keychain
+    /// Load paired devices from UserDefaults
     func loadPairedDevices() -> [StoredDevice] {
-        guard let data = load(account: pairedDevicesAccount) else {
+        guard let data = defaults.data(forKey: pairedDevicesKey) else {
+            print("KeychainManager: No paired devices data found")
             return []
         }
 
@@ -72,7 +76,7 @@ final class KeychainManager {
         } catch {
             print("KeychainManager: Failed to decode devices: \(error), clearing old data")
             // Clear corrupted data and return empty
-            _ = delete(account: pairedDevicesAccount)
+            defaults.removeObject(forKey: pairedDevicesKey)
             return []
         }
     }
@@ -99,82 +103,14 @@ final class KeychainManager {
 
     /// Clear all paired devices
     func clearPairedDevices() -> Bool {
-        return delete(account: pairedDevicesAccount)
-    }
-
-    // MARK: - Generic Keychain Operations
-
-    /// Save data to Keychain
-    private func save(data: Data, account: String) -> Bool {
-        // First try to delete any existing item
-        _ = delete(account: account)
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
-        ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-
-        if status == errSecSuccess {
-            print("KeychainManager: Saved data for account '\(account)'")
-            return true
-        } else {
-            print("KeychainManager: Failed to save data, status: \(status)")
-            return false
-        }
-    }
-
-    /// Load data from Keychain
-    private func load(account: String) -> Data? {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne
-        ]
-
-        var result: AnyObject?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
-
-        if status == errSecSuccess {
-            return result as? Data
-        } else if status == errSecItemNotFound {
-            print("KeychainManager: No data found for account '\(account)'")
-            return nil
-        } else {
-            print("KeychainManager: Failed to load data, status: \(status)")
-            return nil
-        }
-    }
-
-    /// Delete data from Keychain
-    @discardableResult
-    private func delete(account: String) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
-
-        if status == errSecSuccess || status == errSecItemNotFound {
-            return true
-        } else {
-            print("KeychainManager: Failed to delete data, status: \(status)")
-            return false
-        }
+        defaults.removeObject(forKey: pairedDevicesKey)
+        return true
     }
 }
 
 // MARK: - Stored Device Model
 
-/// Device information stored in Keychain
+/// Device information stored in UserDefaults
 struct StoredDevice: Codable, Identifiable, Equatable {
     let id: String
     let name: String
