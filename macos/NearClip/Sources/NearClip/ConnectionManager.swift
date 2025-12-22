@@ -253,6 +253,28 @@ final class ConnectionManager: ObservableObject {
             isRunning = true
             lastError = nil
 
+            // Add paired devices from Keychain to FFI manager
+            for device in pairedDevices {
+                let ffiDevice = FfiDeviceInfo(
+                    id: device.id,
+                    name: device.name,
+                    platform: platformFromString(device.platform),
+                    status: DeviceStatus.disconnected
+                )
+                nearClipManager?.addPairedDevice(device: ffiDevice)
+                print("Added Keychain device to FFI manager: \(device.name) (\(device.id))")
+            }
+
+            // Try to connect to paired devices after a delay to allow mDNS discovery
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+                guard let self = self else { return }
+                let connectedCount = self.nearClipManager?.tryConnectPairedDevices() ?? 0
+                print("tryConnectPairedDevices returned: \(connectedCount)")
+
+                // Refresh device list after connection attempt
+                self.refreshDeviceLists()
+            }
+
             // Refresh device lists
             refreshDeviceLists()
 
