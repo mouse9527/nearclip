@@ -81,6 +81,7 @@ nearclip/
 │   ├── nearclip-ble/          # BLE 通信
 │   ├── nearclip-crypto/       # 加密模块
 │   ├── nearclip-sync/         # 同步逻辑
+│   ├── nearclip-transport/    # 统一传输层抽象
 │   └── nearclip-ffi/          # uniffi 绑定层
 ├── clients/
 │   ├── macos/                 # Swift/SwiftUI 项目
@@ -167,6 +168,40 @@ mkdir -p clients/{macos,android,windows,ios}
 | **BLE 传输** | 分片传输 | 支持长文本，需重组逻辑 |
 | **消息格式** | MessagePack | 紧凑二进制，跨语言 |
 | **失败处理** | 重试3次 → 用户选择 | 平衡可靠性与用户体验 |
+| **传输抽象** | Transport trait | 统一 WiFi/BLE 接口 |
+
+### Transport Layer Design
+
+统一传输层 (`nearclip-transport`) 提供了跨通道的抽象：
+
+**核心 Trait:**
+
+```rust
+#[async_trait]
+pub trait Transport: Send + Sync {
+    async fn send(&self, msg: &Message) -> Result<(), TransportError>;
+    async fn recv(&self) -> Result<Message, TransportError>;
+    fn is_connected(&self) -> bool;
+    fn channel(&self) -> Channel;
+    fn peer_device_id(&self) -> &str;
+    async fn close(&self) -> Result<(), TransportError>;
+}
+```
+
+**实现:**
+
+| 实现 | 用途 | 特点 |
+|------|------|------|
+| `WifiTransport` | TCP/TLS 连接 | 高带宽，低延迟 |
+| `BleTransport` | BLE FFI 桥接 | 低功耗，自动分片 |
+| `MockTransport` | 测试 | 可配置延迟/错误 |
+
+**TransportManager:**
+
+- 管理多设备、多通道连接
+- 自动选择最佳通道（WiFi 优先）
+- 故障转移：主通道失败时自动切换备用通道
+- 广播支持：向所有已连接设备发送消息
 
 ### Platform Integration
 
@@ -404,6 +439,19 @@ nearclip/
 │   │   │   └── channel.rs              # 通道选择策略
 │   │   └── tests/
 │   │
+│   ├── nearclip-transport/             # 统一传输层
+│   │   ├── Cargo.toml
+│   │   ├── README.md
+│   │   ├── src/
+│   │   │   ├── lib.rs                  # 模块入口
+│   │   │   ├── traits.rs               # Transport trait 定义
+│   │   │   ├── wifi.rs                 # WiFi/TCP 传输实现
+│   │   │   ├── ble.rs                  # BLE 传输实现 (FFI 桥接)
+│   │   │   ├── mock.rs                 # Mock 传输 (测试用)
+│   │   │   ├── manager.rs              # TransportManager
+│   │   │   └── error.rs                # TransportError
+│   │   └── tests/
+│   │
 │   └── nearclip-ffi/                   # FFI 绑定
 │       ├── Cargo.toml
 │       ├── build.rs                    # uniffi 构建脚本
@@ -478,11 +526,26 @@ nearclip-core (核心协调)
        │
    ┌───┼───┐
    ▼   ▼   ▼
- sync  net  ble
+ sync transport ble
+   │   │   │
+   │   ├───┤
+   │   ▼   │
+   │  net  │
    │   │   │
    └───┼───┘
        ▼
    crypto
+```
+
+**Transport Layer Architecture:**
+
+```
+nearclip-transport
+       │
+   ┌───┴───┐
+   ▼       ▼
+  net     ble
+(WiFi)  (BLE FFI)
 ```
 
 **Platform Client Layers:**
@@ -501,8 +564,9 @@ nearclip-core (核心协调)
 | FR-1.2 BLE 发现 | nearclip-ble | central.rs |
 | FR-1.3 二维码配对 | nearclip-crypto | qrcode.rs |
 | FR-2.1 剪贴板监听 | 平台客户端 | ClipboardMonitor.swift / ClipboardService.kt |
-| FR-3.1 TCP/TLS | nearclip-net | tcp/, tls.rs |
-| FR-3.2 BLE 传输 | nearclip-ble | peripheral.rs, chunking.rs |
+| FR-3.1 TCP/TLS | nearclip-net, nearclip-transport | tcp/, wifi.rs |
+| FR-3.2 BLE 传输 | nearclip-ble, nearclip-transport | peripheral.rs, ble.rs |
+| FR-3.3 通道切换 | nearclip-transport | manager.rs |
 | FR-4.1 TLS 加密 | nearclip-crypto | tls_config.rs |
 
 ### Data Flow
@@ -514,7 +578,11 @@ nearclip-core (核心协调)
       ↓
 [nearclip-crypto: 加密]
       ↓
-[nearclip-net/ble: 发送] ──→ [远程设备]
+[nearclip-transport: TransportManager]
+      ↓
+   ┌──┴──┐
+   ↓     ↓
+[WiFi] [BLE]  ──→ [远程设备]
       ↓
 [接收 → 解密 → 解析]
       ↓
@@ -526,9 +594,15 @@ nearclip-core (核心协调)
 ### Integration Points
 
 **Internal (Crate 间):**
-- nearclip-core 通过 trait 抽象调用 net/ble/crypto
+- nearclip-core 通过 TransportManager 管理所有传输
+- nearclip-transport 封装 net/ble 的具体实现
 - nearclip-sync 使用 nearclip-crypto 加解密
 - 所有 crate 通过 NearClipError 统一错误类型
+
+**Transport Layer (传输层):**
+- WifiTransport 封装 nearclip-net 的 TCP 连接
+- BleTransport 通过 FFI 回调桥接平台 BLE
+- MockTransport 用于测试，无外部依赖
 
 **External (平台集成):**
 - macOS: NSPasteboard, NSStatusItem
@@ -679,7 +753,7 @@ cargo init --name nearclip
 **Complete Architecture Document**
 - 所有架构决策带版本号文档化
 - AI Agent 一致性实现模式
-- 完整项目结构（6 个 Rust crate + 4 个平台客户端）
+- 完整项目结构（7 个 Rust crate + 4 个平台客户端）
 - 需求到架构的完整映射
 - 验证确认一致性和完整性
 
@@ -702,10 +776,11 @@ cargo init --name nearclip
 3. **nearclip-net** - mDNS + TCP 网络
 4. **nearclip-ble** - 蓝牙通信
 5. **nearclip-sync** - 同步协议
-6. **nearclip-core** - 核心协调
-7. **nearclip-ffi** - uniffi 绑定
-8. **macOS 客户端** - Swift/SwiftUI
-9. **Android 客户端** - Kotlin/Compose
+6. **nearclip-transport** - 统一传输层抽象
+7. **nearclip-core** - 核心协调
+8. **nearclip-ffi** - uniffi 绑定
+9. **macOS 客户端** - Swift/SwiftUI
+10. **Android 客户端** - Kotlin/Compose
 
 ### Project Success Factors
 
