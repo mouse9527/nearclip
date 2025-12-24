@@ -1,0 +1,4 @@
+module NearClipFFI {
+    header "NearClipFFI.h"
+    export *
+}

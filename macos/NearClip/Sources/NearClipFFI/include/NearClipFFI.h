@@ -251,6 +251,27 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD0
+typedef void (*UniffiCallbackInterfaceFfiBleSenderMethod0)(uint64_t, RustBuffer, RustBuffer, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD1
+typedef void (*UniffiCallbackInterfaceFfiBleSenderMethod1)(uint64_t, RustBuffer, int8_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD2
+typedef void (*UniffiCallbackInterfaceFfiBleSenderMethod2)(uint64_t, RustBuffer, uint32_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD0
 typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
@@ -291,6 +312,16 @@ typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod4)(uint64_t, Rust
 typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod5)(uint64_t, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_BLE_SENDER
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_BLE_SENDER
+typedef struct UniffiVTableCallbackInterfaceFfiBleSender {
+    UniffiCallbackInterfaceFfiBleSenderMethod0 _Nonnull sendBleData;
+    UniffiCallbackInterfaceFfiBleSenderMethod1 _Nonnull isBleConnected;
+    UniffiCallbackInterfaceFfiBleSenderMethod2 _Nonnull getMtu;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceFfiBleSender;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK
@@ -361,9 +392,24 @@ RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(v
 int8_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_is_running(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ON_BLE_CONNECTION_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ON_BLE_CONNECTION_CHANGED
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_connection_changed(void*_Nonnull ptr, RustBuffer device_id, int8_t connected, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ON_BLE_DATA_RECEIVED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ON_BLE_DATA_RECEIVED
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_data_received(void*_Nonnull ptr, RustBuffer device_id, RustBuffer data, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_sender(void*_Nonnull ptr, uint64_t sender, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_START
@@ -389,6 +435,11 @@ uint32_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_dev
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLESENDER
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLESENDER
+void uniffi_nearclip_ffi_fn_init_callback_vtable_ffiblesender(UniffiVTableCallbackInterfaceFfiBleSender* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFINEARCLIPCALLBACK
@@ -747,9 +798,27 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ON_BLE_CONNECTION_CHANGED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ON_BLE_CONNECTION_CHANGED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_connection_changed(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ON_BLE_DATA_RECEIVED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ON_BLE_DATA_RECEIVED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_data_received(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_sender(void
     
 );
 #endif
@@ -786,6 +855,24 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_unpair_device(vo
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_CONSTRUCTOR_FFINEARCLIPMANAGER_NEW
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_CONSTRUCTOR_FFINEARCLIPMANAGER_NEW
 uint16_t uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLESENDER_SEND_BLE_DATA
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLESENDER_SEND_BLE_DATA
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblesender_send_ble_data(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLESENDER_IS_BLE_CONNECTED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLESENDER_IS_BLE_CONNECTED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblesender_is_ble_connected(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLESENDER_GET_MTU
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLESENDER_GET_MTU
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblesender_get_mtu(void
     
 );
 #endif
