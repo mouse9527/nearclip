@@ -509,19 +509,24 @@ class NearClipService : Service(), FfiNearClipCallback {
 
     private fun initializeBleManager() {
         try {
+            android.util.Log.i("NearClipService", "Initializing BLE manager...")
             bleManager = BleManager(this).apply {
                 callback = bleCallback
             }
 
             // Configure with device info
-            val deviceId = manager?.getDeviceId() ?: return
+            val deviceId = manager?.getDeviceId()
+            if (deviceId == null) {
+                android.util.Log.w("NearClipService", "Cannot configure BLE manager - device ID not available yet")
+                return
+            }
             val publicKeyHash = deviceId.toByteArray(Charsets.UTF_8)
                 .let { java.security.MessageDigest.getInstance("SHA-256").digest(it) }
                 .let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
 
             bleManager?.configure(deviceId, publicKeyHash)
             bleManager?.startConnectionHealthMonitoring()
-            android.util.Log.i("NearClipService", "BLE manager initialized with health monitoring")
+            android.util.Log.i("NearClipService", "BLE manager initialized with deviceId=$deviceId")
         } catch (e: Exception) {
             android.util.Log.e("NearClipService", "Failed to initialize BLE manager: ${e.message}", e)
         }
