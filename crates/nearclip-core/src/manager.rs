@@ -1325,6 +1325,72 @@ impl NearClipManager {
 
         self.callback.on_device_disconnected(device_id);
     }
+
+    // --------------------------------------------------------
+    // BLE Transport 管理方法
+    // --------------------------------------------------------
+
+    /// 添加 BLE 传输通道
+    ///
+    /// 由 FFI 层调用，当 BLE 连接建立时。
+    /// 将 BLE transport 注册到 TransportManager，使其可用于消息发送。
+    ///
+    /// # 参数
+    ///
+    /// * `device_id` - 设备 ID
+    /// * `transport` - BLE 传输通道
+    pub async fn add_ble_transport(&self, device_id: &str, transport: Arc<dyn Transport>) {
+        tracing::info!(device_id = %device_id, "Adding BLE transport to TransportManager");
+
+        let network = self.network.lock().await;
+        if let Some(ref services) = *network {
+            services.transport_manager.add_transport(device_id, transport).await;
+            tracing::info!(device_id = %device_id, "BLE transport added to TransportManager");
+        } else {
+            tracing::warn!(device_id = %device_id, "Cannot add BLE transport: network services not initialized");
+        }
+
+        // 更新设备状态为已连接
+        {
+            let mut state = self.state.write().unwrap();
+            if let Some(device) = state.paired_devices.get_mut(device_id) {
+                device.set_status(DeviceStatus::Connected);
+            }
+        }
+    }
+
+    /// 移除 BLE 传输通道
+    ///
+    /// 由 FFI 层调用，当 BLE 连接断开时。
+    /// 从 TransportManager 中移除 BLE transport。
+    ///
+    /// # 参数
+    ///
+    /// * `device_id` - 设备 ID
+    pub async fn remove_ble_transport(&self, device_id: &str) {
+        tracing::info!(device_id = %device_id, "Removing BLE transport from TransportManager");
+
+        let network = self.network.lock().await;
+        if let Some(ref services) = *network {
+            services.transport_manager.remove_transport(device_id, Channel::Ble).await;
+            tracing::info!(device_id = %device_id, "BLE transport removed from TransportManager");
+        }
+
+        // 检查是否还有其他传输通道，如果没有则更新状态为断开
+        let has_other_transport = if let Some(ref services) = *network {
+            let channels = services.transport_manager.device_channels(device_id).await;
+            !channels.is_empty()
+        } else {
+            false
+        };
+
+        if !has_other_transport {
+            let mut state = self.state.write().unwrap();
+            if let Some(device) = state.paired_devices.get_mut(device_id) {
+                device.set_status(DeviceStatus::Disconnected);
+            }
+        }
+    }
 }
 
 impl std::fmt::Debug for NearClipManager {

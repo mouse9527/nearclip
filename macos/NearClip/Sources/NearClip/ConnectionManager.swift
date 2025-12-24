@@ -287,6 +287,11 @@ final class ConnectionManager: ObservableObject {
                 bleManager?.startScanning()
                 bleEnabled = true
                 NSLog("ConnectionManager: BLE enabled")
+
+                // Register BLE sender bridge with FFI manager
+                let bleSenderBridge = BleSenderBridge(bleManager: bleManager, connectionManager: self)
+                manager.setBleSender(sender: bleSenderBridge)
+                NSLog("ConnectionManager: BLE sender bridge registered with FFI manager")
             }
 
             isRunning = true
@@ -1069,6 +1074,10 @@ extension ConnectionManager: BleManagerDelegate {
                 NSLog("ConnectionManager: Warning - device not found in manager.connectedDevices: \(deviceId)")
             }
 
+            // Notify FFI layer about BLE connection state change
+            self.nearClipManager?.onBleConnectionChanged(deviceId: deviceId, connected: true)
+            NSLog("ConnectionManager: Notified FFI layer of BLE connection: \(deviceId)")
+
             print("BLE: Connected to device: \(deviceId)")
 
             // If WiFi connection is not available, use BLE
@@ -1110,6 +1119,10 @@ extension ConnectionManager: BleManagerDelegate {
             self.bleConnectedDevices.removeValue(forKey: deviceId)
             print("BLE: Disconnected from device: \(deviceId)")
 
+            // Notify FFI layer about BLE connection state change
+            self.nearClipManager?.onBleConnectionChanged(deviceId: deviceId, connected: false)
+            NSLog("ConnectionManager: Notified FFI layer of BLE disconnection: \(deviceId)")
+
             // Update connection type if device was connected via both
             if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
                 if self.connectedDevices[index].connectionType == .both {
@@ -1126,8 +1139,9 @@ extension ConnectionManager: BleManagerDelegate {
     func bleManager(_ manager: BleManager, didReceiveData data: Data, fromDevice deviceId: String) {
         print("BLE: Received \(data.count) bytes from \(deviceId)")
 
-        // Handle received clipboard data
-        handleClipboardReceived(data, from: deviceId)
+        // Forward BLE data to FFI layer for processing
+        nearClipManager?.onBleDataReceived(deviceId: deviceId, data: data)
+        NSLog("ConnectionManager: Forwarded BLE data to FFI layer: \(data.count) bytes from \(deviceId)")
     }
 
     func bleManager(_ manager: BleManager, didFailWithError error: Error, forDevice deviceId: String?) {
@@ -1145,5 +1159,43 @@ extension ConnectionManager: BleManagerDelegate {
     /// Check if a device is connected via BLE
     func isDeviceConnectedViaBle(_ deviceId: String) -> Bool {
         return bleConnectedDevices[deviceId] != nil
+    }
+}
+
+// MARK: - FfiBleSender Bridge
+
+/// Bridge class that implements FfiBleSender protocol and delegates to BleManager
+final class BleSenderBridge: FfiBleSender {
+    private weak var bleManager: BleManager?
+    private weak var connectionManager: ConnectionManager?
+
+    init(bleManager: BleManager?, connectionManager: ConnectionManager?) {
+        self.bleManager = bleManager
+        self.connectionManager = connectionManager
+    }
+
+    func sendBleData(deviceId: String, data: Data) -> String {
+        guard let bleManager = bleManager else {
+            return "BLE manager not available"
+        }
+
+        // Check if device is connected
+        guard connectionManager?.isDeviceConnectedViaBle(deviceId) == true else {
+            return "Device not connected via BLE: \(deviceId)"
+        }
+
+        // Send data through BleManager
+        bleManager.sendData(data, to: deviceId)
+        return "" // Empty string means success
+    }
+
+    func isBleConnected(deviceId: String) -> Bool {
+        return connectionManager?.isDeviceConnectedViaBle(deviceId) ?? false
+    }
+
+    func getMtu(deviceId: String) -> UInt32 {
+        // Return 0 to use default MTU
+        // BleManager handles MTU internally
+        return 0
     }
 }

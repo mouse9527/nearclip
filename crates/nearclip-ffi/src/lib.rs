@@ -592,14 +592,110 @@ impl FfiNearClipManager {
     /// * `device_id` - The device ID
     /// * `connected` - Whether the device is now connected
     pub fn on_ble_connection_changed(&self, device_id: String, connected: bool) {
+        tracing::info!(device_id = %device_id, connected = connected, "on_ble_connection_changed");
         self.runtime.block_on(async {
-            let transports = self.ble_transports.read().await;
-            if let Some(transport) = transports.get(&device_id) {
-                transport.on_connection_state_changed(connected);
-            }
+            if connected {
+                // Create BLE transport if we have a sender
+                let sender = self.ble_sender.read().await;
+                if let Some(ref sender) = *sender {
+                    let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
+                    transport.on_connection_state_changed(true);
 
-            if !connected {
-                // Remove transport and stop receive task when disconnected
+                    // Start a receive task for this transport
+                    let transport_for_task = transport.clone();
+                    let callback = self.callback.clone();
+                    let device_id_for_task = device_id.clone();
+
+                    let recv_task = tokio::spawn(async move {
+                        tracing::info!(device_id = %device_id_for_task, "BLE receive task started");
+                        loop {
+                            match transport_for_task.recv().await {
+                                Ok(message) => {
+                                    tracing::debug!(
+                                        device_id = %device_id_for_task,
+                                        msg_type = ?message.msg_type,
+                                        "BLE message received"
+                                    );
+
+                                    match message.msg_type {
+                                        MessageType::ClipboardSync => {
+                                            tracing::info!(
+                                                from = %message.device_id,
+                                                size = message.payload.len(),
+                                                "BLE clipboard received"
+                                            );
+                                            callback.on_clipboard_received(
+                                                message.payload.clone(),
+                                                message.device_id.clone(),
+                                            );
+                                        }
+                                        MessageType::Unpair => {
+                                            tracing::info!(
+                                                from = %message.device_id,
+                                                "BLE unpair notification received"
+                                            );
+                                            callback.on_device_unpaired(message.device_id.clone());
+                                            break;
+                                        }
+                                        _ => {
+                                            tracing::debug!(
+                                                msg_type = ?message.msg_type,
+                                                "Unhandled BLE message type"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        device_id = %device_id_for_task,
+                                        error = %e,
+                                        "BLE receive error, stopping task"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                        tracing::info!(device_id = %device_id_for_task, "BLE receive task ended");
+                    });
+
+                    let mut transports = self.ble_transports.write().await;
+                    transports.insert(device_id.clone(), transport.clone());
+
+                    let mut recv_tasks = self.ble_recv_tasks.write().await;
+                    recv_tasks.insert(device_id.clone(), recv_task);
+
+                    tracing::info!(device_id = %device_id, "BLE transport created and registered");
+
+                    // Register the BLE transport with the core manager's TransportManager
+                    self.inner.add_ble_transport(&device_id, transport.clone()).await;
+
+                    // Notify callback that device is connected
+                    // Get device info from paired devices if available
+                    let paired_devices = self.inner.get_paired_devices();
+                    let device_info = paired_devices.iter()
+                        .find(|d| d.id() == device_id)
+                        .cloned()
+                        .unwrap_or_else(|| {
+                            DeviceInfo::new(device_id.clone(), "BLE Device".to_string())
+                                .with_status(DeviceStatus::Connected)
+                        });
+
+                    let mut device_info = device_info;
+                    device_info.set_status(DeviceStatus::Connected);
+
+                    self.callback.on_device_connected(FfiDeviceInfo::from(device_info));
+                } else {
+                    tracing::warn!(
+                        device_id = %device_id,
+                        "BLE connection changed but no BLE sender is set"
+                    );
+                }
+            } else {
+                // Disconnected
+                let transports = self.ble_transports.read().await;
+                if let Some(transport) = transports.get(&device_id) {
+                    transport.on_connection_state_changed(false);
+                }
                 drop(transports);
 
                 // Stop receive task
@@ -613,6 +709,9 @@ impl FfiNearClipManager {
                 let mut transports = self.ble_transports.write().await;
                 transports.remove(&device_id);
                 tracing::info!(device_id = %device_id, "BLE transport removed");
+
+                // Remove from core manager's TransportManager
+                self.inner.remove_ble_transport(&device_id).await;
 
                 // Notify callback
                 self.callback.on_device_disconnected(device_id);

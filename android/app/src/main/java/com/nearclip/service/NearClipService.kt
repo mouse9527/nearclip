@@ -527,6 +527,11 @@ class NearClipService : Service(), FfiNearClipCallback {
             bleManager?.configure(deviceId, publicKeyHash)
             bleManager?.startConnectionHealthMonitoring()
             android.util.Log.i("NearClipService", "BLE manager initialized with deviceId=$deviceId")
+
+            // Register BLE sender bridge with FFI manager
+            val bleSenderBridge = BleSenderBridge(bleManager, this)
+            manager?.setBleSender(bleSenderBridge)
+            android.util.Log.i("NearClipService", "BLE sender bridge registered with FFI manager")
         } catch (e: Exception) {
             android.util.Log.e("NearClipService", "Failed to initialize BLE manager: ${e.message}", e)
         }
@@ -553,16 +558,23 @@ class NearClipService : Service(), FfiNearClipCallback {
 
         override fun onDeviceConnected(deviceId: String) {
             android.util.Log.i("NearClipService", "BLE device connected: $deviceId")
+            // Notify FFI layer about BLE connection state change
+            manager?.onBleConnectionChanged(deviceId, true)
+            android.util.Log.i("NearClipService", "Notified FFI layer of BLE connection: $deviceId")
         }
 
         override fun onDeviceDisconnected(deviceId: String) {
             android.util.Log.i("NearClipService", "BLE device disconnected: $deviceId")
+            // Notify FFI layer about BLE connection state change
+            manager?.onBleConnectionChanged(deviceId, false)
+            android.util.Log.i("NearClipService", "Notified FFI layer of BLE disconnection: $deviceId")
         }
 
         override fun onDataReceived(deviceId: String, data: ByteArray) {
             android.util.Log.i("NearClipService", "BLE data received from $deviceId: ${data.size} bytes")
-            // Handle received clipboard data same as WiFi
-            onClipboardReceived(data, deviceId)
+            // Forward BLE data to FFI layer for processing
+            manager?.onBleDataReceived(deviceId, data)
+            android.util.Log.i("NearClipService", "Forwarded BLE data to FFI layer: ${data.size} bytes from $deviceId")
         }
 
         override fun onError(deviceId: String?, error: String) {
@@ -969,5 +981,40 @@ class NearClipService : Service(), FfiNearClipCallback {
         // Show failure notification
         notificationHelper?.showSyncFailureNotification(reason = errorMessage)
         listeners.forEach { it.onSyncError(errorMessage) }
+    }
+}
+
+/**
+ * Bridge class that implements FfiBleSender interface and delegates to BleManager.
+ * This allows the Rust FFI layer to send BLE data through the platform's BLE implementation.
+ */
+class BleSenderBridge(
+    private val bleManager: BleManager?,
+    private val service: NearClipService
+) : FfiBleSender {
+
+    override fun sendBleData(deviceId: String, data: ByteArray): String {
+        if (bleManager == null) {
+            return "BLE manager not available"
+        }
+
+        // Check if device is connected
+        if (!bleManager.isDeviceConnected(deviceId)) {
+            return "Device not connected via BLE: $deviceId"
+        }
+
+        // Send data through BleManager
+        bleManager.sendData(deviceId, data)
+        return "" // Empty string means success
+    }
+
+    override fun isBleConnected(deviceId: String): Boolean {
+        return bleManager?.isDeviceConnected(deviceId) ?: false
+    }
+
+    override fun getMtu(deviceId: String): UInt {
+        // Return 0 to use default MTU
+        // BleManager handles MTU internally
+        return 0u
     }
 }
