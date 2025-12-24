@@ -1,5 +1,11 @@
 // swift-tools-version:5.9
 import PackageDescription
+import Foundation
+
+// Get the directory containing Package.swift
+let packageDir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
+let libraryPath = packageDir + "/../../target/swift"
+let staticLibraryPath = libraryPath + "/libnearclip_ffi.a"
 
 let package = Package(
     name: "NearClip",
@@ -19,9 +25,9 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("ServiceManagement"),
                 .linkedFramework("Security"),
-                .linkedLibrary("nearclip_ffi"),
-                // Note: Library path is relative from Package.swift location
-                .unsafeFlags(["-L../../target/swift"])
+                .linkedFramework("CoreBluetooth"),
+                // Force load the entire static library to ensure all symbols are included
+                .unsafeFlags(["-Xlinker", "-force_load", "-Xlinker", staticLibraryPath])
             ]
         ),
         .systemLibrary(

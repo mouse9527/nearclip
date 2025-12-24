@@ -542,6 +542,8 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func tryConnectPairedDevices()  -> UInt32
     
+    func unpairDevice(deviceId: String) throws 
+    
 }
 
 open class FfiNearClipManager:
@@ -691,6 +693,13 @@ open func tryConnectPairedDevices() -> UInt32 {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_devices(self.uniffiClonePointer(),$0
     )
 })
+}
+    
+open func unpairDevice(deviceId: String)throws  {try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(self.uniffiClonePointer(),
+        FfiConverterString.lower(deviceId),$0
+    )
+}
 }
     
 
@@ -1289,6 +1298,10 @@ public protocol FfiNearClipCallback : AnyObject {
     
     func onDeviceDisconnected(deviceId: String) 
     
+    func onDeviceUnpaired(deviceId: String) 
+    
+    func onPairingRejected(deviceId: String, reason: String) 
+    
     func onClipboardReceived(content: Data, fromDevice: String) 
     
     func onSyncError(errorMessage: String) 
@@ -1346,6 +1359,56 @@ fileprivate struct UniffiCallbackInterfaceFfiNearClipCallback {
                 }
                 return uniffiObj.onDeviceDisconnected(
                      deviceId: try FfiConverterString.lift(deviceId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onDeviceUnpaired: { (
+            uniffiHandle: UInt64,
+            deviceId: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiNearClipCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onDeviceUnpaired(
+                     deviceId: try FfiConverterString.lift(deviceId)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onPairingRejected: { (
+            uniffiHandle: UInt64,
+            deviceId: RustBuffer,
+            reason: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiNearClipCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onPairingRejected(
+                     deviceId: try FfiConverterString.lift(deviceId),
+                     reason: try FfiConverterString.lift(reason)
                 )
             }
 
@@ -1585,6 +1648,9 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_paired_devices() != 18103) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_unpair_device() != 63811) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new() != 16624) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -1592,6 +1658,12 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_disconnected() != 31870) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_unpaired() != 10576) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_pairing_rejected() != 26516) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_clipboard_received() != 47039) {

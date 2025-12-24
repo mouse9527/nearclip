@@ -321,6 +321,25 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
                 _pairedDevices.value = paired
                 _connectedDevices.value = connected
             }
+
+            // Try to connect to the newly added device after a delay for mDNS discovery
+            kotlinx.coroutines.delay(2000)
+            try {
+                Log.i(TAG, "Auto-connecting to newly paired device: ${device.id}")
+                mgr.connectDevice(device.id)
+                Log.i(TAG, "Auto-connect successful for: ${device.id}")
+            } catch (e: Exception) {
+                Log.w(TAG, "Auto-connect failed (device may not be discovered yet): ${e.message}")
+                // Not a fatal error - user can manually connect later
+            }
+
+            // Refresh again after connection attempt
+            val pairedAfter = manager?.getPairedDevices() ?: emptyList()
+            val connectedAfter = manager?.getConnectedDevices() ?: emptyList()
+            withContext(Dispatchers.Main) {
+                _pairedDevices.value = pairedAfter
+                _connectedDevices.value = connectedAfter
+            }
         }
 
         return name
@@ -331,17 +350,20 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
      * Removes from both manager and secure storage.
      */
     fun removeDevice(deviceId: String) {
+        Log.i(TAG, "removeDevice() called with deviceId=$deviceId")
         viewModelScope.launch(Dispatchers.IO) {
+            Log.i(TAG, "removeDevice() coroutine started, manager=${manager != null}")
             var managerSuccess = false
             var storageSuccess = false
 
-            // Remove from manager first
+            // Unpair device (sends notification to remote device and removes locally)
             try {
-                manager?.removePairedDevice(deviceId)
+                Log.i(TAG, "Calling unpairDevice($deviceId)")
+                manager?.unpairDevice(deviceId)
                 managerSuccess = true
-                Log.i(TAG, "Removed device from manager: $deviceId")
+                Log.i(TAG, "Unpaired device from manager: $deviceId")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove device from manager: $deviceId", e)
+                Log.e(TAG, "Failed to unpair device from manager: $deviceId", e)
             }
 
             // Remove from secure storage
@@ -517,6 +539,26 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     }
 
     override fun onDeviceDisconnected(deviceId: String) {
+        refreshDevices()
+    }
+
+    override fun onDeviceUnpaired(deviceId: String) {
+        Log.d(TAG, "Device unpaired by remote: $deviceId")
+        // Remove from local storage using SecureStorage
+        SecureStorage(getApplication()).removePairedDevice(deviceId)
+        Log.d(TAG, "Removed device $deviceId from storage")
+        // Refresh device lists
+        refreshDevices()
+    }
+
+    override fun onPairingRejected(deviceId: String, reason: String) {
+        Log.w(TAG, "Pairing rejected by device: $deviceId, reason: $reason")
+        // Remove from FFI manager
+        manager?.removePairedDevice(deviceId)
+        // Remove from local storage
+        SecureStorage(getApplication()).removePairedDevice(deviceId)
+        Log.d(TAG, "Removed rejected device $deviceId from storage")
+        // Refresh device lists
         refreshDevices()
     }
 

@@ -23,6 +23,7 @@ class NotificationHelper(private val context: Context) {
         const val ACTION_WAIT_SYNC = "com.nearclip.action.WAIT_SYNC"
         private const val SYNC_SUCCESS_NOTIFICATION_ID = 1000
         private const val SYNC_FAILURE_NOTIFICATION_ID = 1001
+        private const val PAIRING_REJECTED_NOTIFICATION_ID = 1002
     }
 
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -197,4 +198,33 @@ class NotificationHelper(private val context: Context) {
      * Uses cached value to avoid blocking the calling thread.
      */
     private fun isSyncNotificationsEnabled(): Boolean = syncNotificationsEnabled
+
+    /**
+     * Show a notification when pairing is rejected by remote device.
+     * @param deviceName Name of the device that rejected pairing
+     * @param reason The rejection reason
+     */
+    fun showPairingRejectedNotification(deviceName: String, reason: String) {
+        val openIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context, 0, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, SYNC_NOTIFICATION_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Pairing Rejected")
+            .setContentText("\"$deviceName\" rejected the connection. The device has been removed. Please re-pair to sync again.")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("\"$deviceName\" rejected the connection. The device has been removed. Please re-pair to sync again."))
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .build()
+
+        notificationManager.notify(PAIRING_REJECTED_NOTIFICATION_ID, notification)
+    }
 }

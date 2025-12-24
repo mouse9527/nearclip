@@ -35,6 +35,7 @@ import java.util.concurrent.Executors
 @Composable
 fun QrScanner(
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onQrCodeScanned: (String) -> Unit
 ) {
     val cameraPermissionState = rememberPermissionState(Manifest.permission.CAMERA)
@@ -43,6 +44,7 @@ fun QrScanner(
         cameraPermissionState.status.isGranted -> {
             CameraPreview(
                 modifier = modifier,
+                enabled = enabled,
                 onQrCodeScanned = onQrCodeScanned
             )
         }
@@ -67,13 +69,15 @@ fun QrScanner(
 @Composable
 private fun CameraPreview(
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onQrCodeScanned: (String) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
     // Track if we've already processed a code to prevent duplicates
-    var hasProcessed by remember { mutableStateOf(false) }
+    // Reset when enabled changes (e.g., after error)
+    var hasProcessed by remember(enabled) { mutableStateOf(false) }
 
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }

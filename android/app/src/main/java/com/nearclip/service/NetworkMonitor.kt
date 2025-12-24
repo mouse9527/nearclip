@@ -31,6 +31,9 @@ class NetworkMonitor(private val context: Context) {
     /** Callback when network connectivity is restored */
     var onNetworkRestored: (() -> Unit)? = null
 
+    /** Callback when network connectivity is lost */
+    var onNetworkLost: (() -> Unit)? = null
+
     /** Callback when reconnection fails after max attempts */
     var onReconnectFailed: (() -> Unit)? = null
 
@@ -50,6 +53,11 @@ class NetworkMonitor(private val context: Context) {
         override fun onLost(network: Network) {
             Log.d(TAG, "Network lost")
             wasDisconnected = true
+
+            // Notify about network loss (for BLE fallback)
+            handler.post {
+                onNetworkLost?.invoke()
+            }
         }
 
         override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {

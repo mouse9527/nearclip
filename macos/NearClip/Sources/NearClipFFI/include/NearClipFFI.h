@@ -267,14 +267,28 @@ typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod1)(uint64_t, Rust
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD2
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD2
-typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod2)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod2)(uint64_t, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
 #endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD3
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD3
-typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod3)(uint64_t, RustBuffer, void* _Nonnull, 
+typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod3)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD4
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD4
+typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod4)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD5
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD5
+typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod5)(uint64_t, RustBuffer, void* _Nonnull, 
         RustCallStatus *_Nonnull uniffiCallStatus
     );
 
@@ -284,8 +298,10 @@ typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod3)(uint64_t, Rust
 typedef struct UniffiVTableCallbackInterfaceFfiNearClipCallback {
     UniffiCallbackInterfaceFfiNearClipCallbackMethod0 _Nonnull onDeviceConnected;
     UniffiCallbackInterfaceFfiNearClipCallbackMethod1 _Nonnull onDeviceDisconnected;
-    UniffiCallbackInterfaceFfiNearClipCallbackMethod2 _Nonnull onClipboardReceived;
-    UniffiCallbackInterfaceFfiNearClipCallbackMethod3 _Nonnull onSyncError;
+    UniffiCallbackInterfaceFfiNearClipCallbackMethod2 _Nonnull onDeviceUnpaired;
+    UniffiCallbackInterfaceFfiNearClipCallbackMethod3 _Nonnull onPairingRejected;
+    UniffiCallbackInterfaceFfiNearClipCallbackMethod4 _Nonnull onClipboardReceived;
+    UniffiCallbackInterfaceFfiNearClipCallbackMethod5 _Nonnull onSyncError;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceFfiNearClipCallback;
 
@@ -368,6 +384,11 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_sync_clipboard(void*_Nonnu
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_TRY_CONNECT_PAIRED_DEVICES
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_TRY_CONNECT_PAIRED_DEVICES
 uint32_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_devices(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFINEARCLIPCALLBACK
@@ -756,6 +777,12 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_pair
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_unpair_device(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_CONSTRUCTOR_FFINEARCLIPMANAGER_NEW
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_CONSTRUCTOR_FFINEARCLIPMANAGER_NEW
 uint16_t uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(void
@@ -771,6 +798,18 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_conne
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_DISCONNECTED
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_DISCONNECTED
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_disconnected(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_UNPAIRED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_UNPAIRED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_unpaired(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_PAIRING_REJECTED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_PAIRING_REJECTED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_pairing_rejected(void
     
 );
 #endif

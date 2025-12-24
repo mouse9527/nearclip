@@ -16,6 +16,7 @@
 //! - `FfiNearClipConfig` -> `NearClipConfig`
 //! - `FfiNearClipManager` -> `NearClipManager`
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -23,6 +24,10 @@ use nearclip_core::{
     DeviceInfo, DevicePlatform, DeviceStatus, NearClipCallback, NearClipConfig, NearClipError,
     NearClipManager,
 };
+use nearclip_sync::MessageType;
+use nearclip_transport::{BleTransport, BleSender, Transport};
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
 // Include the uniffi generated scaffolding
 uniffi::include_scaffolding!("nearclip");
@@ -160,6 +165,15 @@ pub trait FfiNearClipCallback: Send + Sync {
     /// Called when a device disconnects
     fn on_device_disconnected(&self, device_id: String);
 
+    /// Called when a remote device requests to unpair
+    fn on_device_unpaired(&self, device_id: String);
+
+    /// Called when a pairing request is rejected by the remote device
+    ///
+    /// This happens when the remote device doesn't have us in their paired list.
+    /// The user should remove this device and re-pair.
+    fn on_pairing_rejected(&self, device_id: String, reason: String);
+
     /// Called when clipboard content is received
     fn on_clipboard_received(&self, content: Vec<u8>, from_device: String);
 
@@ -167,13 +181,73 @@ pub trait FfiNearClipCallback: Send + Sync {
     fn on_sync_error(&self, error_message: String);
 }
 
+// ============================================================
+// FFI BLE Sender Trait
+// ============================================================
+
+/// BLE sender callback interface
+///
+/// Platform clients implement this trait to provide BLE send capability.
+/// This allows the Rust transport layer to send data over BLE through
+/// platform-native BLE APIs.
+pub trait FfiBleSender: Send + Sync {
+    /// Send raw data over BLE to a device
+    ///
+    /// # Arguments
+    /// * `device_id` - The target device ID
+    /// * `data` - Raw bytes to send
+    ///
+    /// # Returns
+    /// Empty string on success, error message on failure
+    fn send_ble_data(&self, device_id: String, data: Vec<u8>) -> String;
+
+    /// Check if BLE is connected to a device
+    fn is_ble_connected(&self, device_id: String) -> bool;
+
+    /// Get the negotiated MTU for a device
+    ///
+    /// Return 0 to use the default MTU.
+    fn get_mtu(&self, device_id: String) -> u32;
+}
+
+/// Bridge that adapts FfiBleSender to the transport layer's BleSender trait
+struct BleSenderBridge {
+    ffi_sender: Box<dyn FfiBleSender>,
+}
+
+impl BleSenderBridge {
+    fn new(ffi_sender: Box<dyn FfiBleSender>) -> Self {
+        Self { ffi_sender }
+    }
+}
+
+impl BleSender for BleSenderBridge {
+    fn send_ble_data(&self, device_id: &str, data: &[u8]) -> Result<(), String> {
+        let result = self.ffi_sender
+            .send_ble_data(device_id.to_string(), data.to_vec());
+        if result.is_empty() {
+            Ok(())
+        } else {
+            Err(result)
+        }
+    }
+
+    fn is_ble_connected(&self, device_id: &str) -> bool {
+        self.ffi_sender.is_ble_connected(device_id.to_string())
+    }
+
+    fn get_mtu(&self, device_id: &str) -> usize {
+        self.ffi_sender.get_mtu(device_id.to_string()) as usize
+    }
+}
+
 /// Bridge callback that converts between FFI and core callbacks
 struct CallbackBridge {
-    ffi_callback: Box<dyn FfiNearClipCallback>,
+    ffi_callback: Arc<dyn FfiNearClipCallback>,
 }
 
 impl CallbackBridge {
-    fn new(ffi_callback: Box<dyn FfiNearClipCallback>) -> Self {
+    fn new(ffi_callback: Arc<dyn FfiNearClipCallback>) -> Self {
         Self { ffi_callback }
     }
 }
@@ -187,12 +261,20 @@ impl NearClipCallback for CallbackBridge {
         self.ffi_callback.on_device_disconnected(device_id.to_string());
     }
 
+    fn on_device_unpaired(&self, device_id: &str) {
+        self.ffi_callback.on_device_unpaired(device_id.to_string());
+    }
+
     fn on_clipboard_received(&self, content: &[u8], from_device: &str) {
         self.ffi_callback.on_clipboard_received(content.to_vec(), from_device.to_string());
     }
 
     fn on_sync_error(&self, error: &NearClipError) {
         self.ffi_callback.on_sync_error(error.to_string());
+    }
+
+    fn on_pairing_rejected(&self, device_id: &str, reason: &str) {
+        self.ffi_callback.on_pairing_rejected(device_id.to_string(), reason.to_string());
     }
 }
 
@@ -206,6 +288,14 @@ impl NearClipCallback for CallbackBridge {
 pub struct FfiNearClipManager {
     inner: NearClipManager,
     runtime: tokio::runtime::Runtime,
+    /// BLE sender bridge (set by platform)
+    ble_sender: RwLock<Option<Arc<BleSenderBridge>>>,
+    /// BLE transports per device
+    ble_transports: RwLock<HashMap<String, Arc<BleTransport>>>,
+    /// BLE receive tasks per device
+    ble_recv_tasks: RwLock<HashMap<String, JoinHandle<()>>>,
+    /// Callback for BLE message handling
+    callback: Arc<dyn FfiNearClipCallback>,
 }
 
 impl FfiNearClipManager {
@@ -224,7 +314,10 @@ impl FfiNearClipManager {
         callback: Box<dyn FfiNearClipCallback>,
     ) -> Result<Self, NearClipError> {
         let core_config: NearClipConfig = config.into();
-        let bridge = Arc::new(CallbackBridge::new(callback));
+
+        // Wrap callback in Arc for sharing
+        let callback: Arc<dyn FfiNearClipCallback> = callback.into();
+        let bridge = Arc::new(CallbackBridge::new(callback.clone()));
 
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -233,7 +326,14 @@ impl FfiNearClipManager {
 
         let inner = NearClipManager::new(core_config, bridge)?;
 
-        Ok(Self { inner, runtime })
+        Ok(Self {
+            inner,
+            runtime,
+            ble_sender: RwLock::new(None),
+            ble_transports: RwLock::new(HashMap::new()),
+            ble_recv_tasks: RwLock::new(HashMap::new()),
+            callback,
+        })
     }
 
     /// Start the manager
@@ -323,6 +423,18 @@ impl FfiNearClipManager {
         self.inner.remove_paired_device(&device_id);
     }
 
+    /// Unpair a device (send notification and remove)
+    ///
+    /// Sends an unpair notification to the target device before removing it.
+    /// The remote device will also remove this device from its paired list.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - ID of the device to unpair
+    pub fn unpair_device(&self, device_id: String) -> Result<(), NearClipError> {
+        self.runtime.block_on(async { self.inner.unpair_device(&device_id).await })
+    }
+
     /// Get the status of a device
     ///
     /// # Arguments
@@ -354,6 +466,158 @@ impl FfiNearClipManager {
     /// Number of devices successfully connected.
     pub fn try_connect_paired_devices(&self) -> u32 {
         self.runtime.block_on(async { self.inner.try_connect_paired_devices().await }) as u32
+    }
+
+    // ============================================================
+    // BLE Methods
+    // ============================================================
+
+    /// Set the BLE sender
+    ///
+    /// Platform clients call this to provide BLE send capability.
+    /// This must be called before BLE communication can work.
+    ///
+    /// # Arguments
+    ///
+    /// * `sender` - Platform implementation of FfiBleSender
+    pub fn set_ble_sender(&self, sender: Box<dyn FfiBleSender>) {
+        let bridge = Arc::new(BleSenderBridge::new(sender));
+        self.runtime.block_on(async {
+            let mut ble_sender = self.ble_sender.write().await;
+            *ble_sender = Some(bridge);
+        });
+        tracing::info!("BLE sender set");
+    }
+
+    /// Called by platform when BLE data is received
+    ///
+    /// Platform clients call this when they receive BLE data from a device.
+    /// The data will be processed and reassembled into complete messages.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The device ID that sent the data
+    /// * `data` - Raw bytes received from BLE
+    pub fn on_ble_data_received(&self, device_id: String, data: Vec<u8>) {
+        self.runtime.block_on(async {
+            let transports = self.ble_transports.read().await;
+            if let Some(transport) = transports.get(&device_id) {
+                transport.on_data_received(&data).await;
+            } else {
+                // Create a new transport if we have a sender
+                let sender = self.ble_sender.read().await;
+                if let Some(ref sender) = *sender {
+                    drop(transports);
+                    let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
+                    transport.on_data_received(&data).await;
+
+                    // Start a receive task for this transport
+                    let transport_for_task = transport.clone();
+                    let callback = self.callback.clone();
+                    let device_id_for_task = device_id.clone();
+
+                    let recv_task = tokio::spawn(async move {
+                        tracing::info!(device_id = %device_id_for_task, "BLE receive task started");
+                        loop {
+                            match transport_for_task.recv().await {
+                                Ok(message) => {
+                                    tracing::debug!(
+                                        device_id = %device_id_for_task,
+                                        msg_type = ?message.msg_type,
+                                        "BLE message received"
+                                    );
+
+                                    match message.msg_type {
+                                        MessageType::ClipboardSync => {
+                                            tracing::info!(
+                                                from = %message.device_id,
+                                                size = message.payload.len(),
+                                                "BLE clipboard received"
+                                            );
+                                            callback.on_clipboard_received(
+                                                message.payload.clone(),
+                                                message.device_id.clone(),
+                                            );
+                                        }
+                                        MessageType::Unpair => {
+                                            tracing::info!(
+                                                from = %message.device_id,
+                                                "BLE unpair notification received"
+                                            );
+                                            callback.on_device_unpaired(message.device_id.clone());
+                                            break;
+                                        }
+                                        _ => {
+                                            tracing::debug!(
+                                                msg_type = ?message.msg_type,
+                                                "Unhandled BLE message type"
+                                            );
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    tracing::warn!(
+                                        device_id = %device_id_for_task,
+                                        error = %e,
+                                        "BLE receive error, stopping task"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                        tracing::info!(device_id = %device_id_for_task, "BLE receive task ended");
+                    });
+
+                    let mut transports = self.ble_transports.write().await;
+                    transports.insert(device_id.clone(), transport);
+
+                    let mut recv_tasks = self.ble_recv_tasks.write().await;
+                    recv_tasks.insert(device_id, recv_task);
+                } else {
+                    tracing::warn!(
+                        device_id = %device_id,
+                        "Received BLE data but no BLE sender is set"
+                    );
+                }
+            }
+        });
+    }
+
+    /// Called by platform when BLE connection state changes
+    ///
+    /// Platform clients call this when a BLE connection is established or lost.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The device ID
+    /// * `connected` - Whether the device is now connected
+    pub fn on_ble_connection_changed(&self, device_id: String, connected: bool) {
+        self.runtime.block_on(async {
+            let transports = self.ble_transports.read().await;
+            if let Some(transport) = transports.get(&device_id) {
+                transport.on_connection_state_changed(connected);
+            }
+
+            if !connected {
+                // Remove transport and stop receive task when disconnected
+                drop(transports);
+
+                // Stop receive task
+                let mut recv_tasks = self.ble_recv_tasks.write().await;
+                if let Some(task) = recv_tasks.remove(&device_id) {
+                    task.abort();
+                    tracing::debug!(device_id = %device_id, "BLE receive task aborted");
+                }
+
+                // Remove transport
+                let mut transports = self.ble_transports.write().await;
+                transports.remove(&device_id);
+                tracing::info!(device_id = %device_id, "BLE transport removed");
+
+                // Notify callback
+                self.callback.on_device_disconnected(device_id);
+            }
+        });
     }
 }
 
@@ -394,12 +658,22 @@ mod tests {
             self.disconnected.lock().unwrap().push(device_id);
         }
 
+        fn on_device_unpaired(&self, device_id: String) {
+            // Treat unpair as disconnect for test purposes
+            self.disconnected.lock().unwrap().push(device_id);
+        }
+
         fn on_clipboard_received(&self, content: Vec<u8>, from_device: String) {
             self.clipboard.lock().unwrap().push((content, from_device));
         }
 
         fn on_sync_error(&self, error_message: String) {
             self.errors.lock().unwrap().push(error_message);
+        }
+
+        fn on_pairing_rejected(&self, device_id: String, _reason: String) {
+            // Treat rejection as a form of disconnect for test purposes
+            self.disconnected.lock().unwrap().push(device_id);
         }
     }
 

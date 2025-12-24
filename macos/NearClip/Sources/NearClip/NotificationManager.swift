@@ -160,6 +160,34 @@ final class NotificationManager: NSObject {
         }
     }
 
+    /// Show a notification when pairing is rejected by remote device
+    /// - Parameters:
+    ///   - deviceName: Name of the device that rejected pairing
+    ///   - reason: The rejection reason
+    func showPairingRejectedNotification(deviceName: String, reason: String) {
+        guard isAvailable else { return }
+        guard isAuthorized else { return }
+
+        let content = UNMutableNotificationContent()
+        content.title = "NearClip Pairing Rejected"
+        content.body = "\"\(deviceName)\" rejected the connection. The device has been removed. Please re-pair to sync again."
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: "pairing-rejected-\(UUID().uuidString)",
+            content: content,
+            trigger: nil
+        )
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("NotificationManager: Failed to show pairing rejected notification - \(error.localizedDescription)")
+            } else {
+                print("NotificationManager: Showed pairing rejected notification")
+            }
+        }
+    }
+
     /// Show a notification when clipboard sync fails
     /// - Parameters:
     ///   - toDevice: Name of the device we tried to sync to (optional)

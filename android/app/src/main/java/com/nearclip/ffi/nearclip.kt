@@ -772,8 +772,7 @@ internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod1 : com.sun.j
 internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod2 : com.sun.jna.Callback {
     fun callback(
         `uniffiHandle`: Long,
-        `content`: RustBuffer.ByValue,
-        `fromDevice`: RustBuffer.ByValue,
+        `deviceId`: RustBuffer.ByValue,
         `uniffiOutReturn`: Pointer,
         uniffiCallStatus: UniffiRustCallStatus,
     )
@@ -782,29 +781,63 @@ internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod2 : com.sun.j
 internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod3 : com.sun.jna.Callback {
     fun callback(
         `uniffiHandle`: Long,
+        `deviceId`: RustBuffer.ByValue,
+        `reason`: RustBuffer.ByValue,
+        `uniffiOutReturn`: Pointer,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
+}
+
+internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod4 : com.sun.jna.Callback {
+    fun callback(
+        `uniffiHandle`: Long,
+        `content`: RustBuffer.ByValue,
+        `fromDevice`: RustBuffer.ByValue,
+        `uniffiOutReturn`: Pointer,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
+}
+
+internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod5 : com.sun.jna.Callback {
+    fun callback(
+        `uniffiHandle`: Long,
         `errorMessage`: RustBuffer.ByValue,
         `uniffiOutReturn`: Pointer,
         uniffiCallStatus: UniffiRustCallStatus,
     )
 }
 
-@Structure.FieldOrder("onDeviceConnected", "onDeviceDisconnected", "onClipboardReceived", "onSyncError", "uniffiFree")
+@Structure.FieldOrder(
+    "onDeviceConnected",
+    "onDeviceDisconnected",
+    "onDeviceUnpaired",
+    "onPairingRejected",
+    "onClipboardReceived",
+    "onSyncError",
+    "uniffiFree",
+)
 internal open class UniffiVTableCallbackInterfaceFfiNearClipCallback(
     @JvmField internal var `onDeviceConnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod0? = null,
     @JvmField internal var `onDeviceDisconnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod1? = null,
-    @JvmField internal var `onClipboardReceived`: UniffiCallbackInterfaceFfiNearClipCallbackMethod2? = null,
-    @JvmField internal var `onSyncError`: UniffiCallbackInterfaceFfiNearClipCallbackMethod3? = null,
+    @JvmField internal var `onDeviceUnpaired`: UniffiCallbackInterfaceFfiNearClipCallbackMethod2? = null,
+    @JvmField internal var `onPairingRejected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod3? = null,
+    @JvmField internal var `onClipboardReceived`: UniffiCallbackInterfaceFfiNearClipCallbackMethod4? = null,
+    @JvmField internal var `onSyncError`: UniffiCallbackInterfaceFfiNearClipCallbackMethod5? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
         `onDeviceConnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod0? = null,
         `onDeviceDisconnected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod1? = null,
-        `onClipboardReceived`: UniffiCallbackInterfaceFfiNearClipCallbackMethod2? = null,
-        `onSyncError`: UniffiCallbackInterfaceFfiNearClipCallbackMethod3? = null,
+        `onDeviceUnpaired`: UniffiCallbackInterfaceFfiNearClipCallbackMethod2? = null,
+        `onPairingRejected`: UniffiCallbackInterfaceFfiNearClipCallbackMethod3? = null,
+        `onClipboardReceived`: UniffiCallbackInterfaceFfiNearClipCallbackMethod4? = null,
+        `onSyncError`: UniffiCallbackInterfaceFfiNearClipCallbackMethod5? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
     ) : UniffiVTableCallbackInterfaceFfiNearClipCallback(
             `onDeviceConnected`,
             `onDeviceDisconnected`,
+            `onDeviceUnpaired`,
+            `onPairingRejected`,
             `onClipboardReceived`,
             `onSyncError`,
             `uniffiFree`,
@@ -814,6 +847,8 @@ internal open class UniffiVTableCallbackInterfaceFfiNearClipCallback(
     internal fun uniffiSetValue(other: UniffiVTableCallbackInterfaceFfiNearClipCallback) {
         `onDeviceConnected` = other.`onDeviceConnected`
         `onDeviceDisconnected` = other.`onDeviceDisconnected`
+        `onDeviceUnpaired` = other.`onDeviceUnpaired`
+        `onPairingRejected` = other.`onPairingRejected`
         `onClipboardReceived` = other.`onClipboardReceived`
         `onSyncError` = other.`onSyncError`
         `uniffiFree` = other.`uniffiFree`
@@ -926,6 +961,12 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer,
         uniffi_out_err: UniffiRustCallStatus,
     ): Int
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(
+        `ptr`: Pointer,
+        `deviceId`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
 
     fun uniffi_nearclip_ffi_fn_init_callback_vtable_ffinearclipcallback(`vtable`: UniffiVTableCallbackInterfaceFfiNearClipCallback): Unit
 
@@ -1182,11 +1223,17 @@ internal interface UniffiLib : Library {
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_paired_devices(): Short
 
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_unpair_device(): Short
+
     fun uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_connected(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_disconnected(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_unpaired(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_pairing_rejected(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_clipboard_received(): Short
 
@@ -1252,6 +1299,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_try_connect_paired_devices() != 18103.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_unpair_device() != 63811.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new() != 16624.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1259,6 +1309,12 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_disconnected() != 31870.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_unpaired() != 10576.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_pairing_rejected() != 26516.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_clipboard_received() != 47039.toShort()) {
@@ -1656,6 +1712,8 @@ public interface FfiNearClipManagerInterface {
 
     fun `tryConnectPairedDevices`(): kotlin.UInt
 
+    fun `unpairDevice`(`deviceId`: kotlin.String)
+
     companion object
 }
 
@@ -1883,6 +1941,18 @@ open class FfiNearClipManager :
                 }
             },
         )
+
+    @Throws(NearClipException::class)
+    override fun `unpairDevice`(`deviceId`: kotlin.String) =
+        callWithPointer {
+            uniffiRustCallWithError(NearClipException) { _status ->
+                UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(
+                    it,
+                    FfiConverterString.lower(`deviceId`),
+                    _status,
+                )
+            }
+        }
 
     companion object
 }
@@ -2204,6 +2274,13 @@ public interface FfiNearClipCallback {
 
     fun `onDeviceDisconnected`(`deviceId`: kotlin.String)
 
+    fun `onDeviceUnpaired`(`deviceId`: kotlin.String)
+
+    fun `onPairingRejected`(
+        `deviceId`: kotlin.String,
+        `reason`: kotlin.String,
+    )
+
     fun `onClipboardReceived`(
         `content`: kotlin.ByteArray,
         `fromDevice`: kotlin.String,
@@ -2285,7 +2362,43 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
         }
     }
 
-    internal object `onClipboardReceived` : UniffiCallbackInterfaceFfiNearClipCallbackMethod2 {
+    internal object `onDeviceUnpaired` : UniffiCallbackInterfaceFfiNearClipCallbackMethod2 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `deviceId`: RustBuffer.ByValue,
+            `uniffiOutReturn`: Pointer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
+            val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
+            val makeCall = {  uniffiObj.`onDeviceUnpaired`(
+                FfiConverterString.lift(`deviceId`),
+            )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object `onPairingRejected` : UniffiCallbackInterfaceFfiNearClipCallbackMethod3 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `deviceId`: RustBuffer.ByValue,
+            `reason`: RustBuffer.ByValue,
+            `uniffiOutReturn`: Pointer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
+            val uniffiObj = FfiConverterTypeFfiNearClipCallback.handleMap.get(uniffiHandle)
+            val makeCall = {  uniffiObj.`onPairingRejected`(
+                FfiConverterString.lift(`deviceId`),
+                FfiConverterString.lift(`reason`),
+            )
+            }
+            val writeReturn = { _: Unit -> Unit }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object `onClipboardReceived` : UniffiCallbackInterfaceFfiNearClipCallbackMethod4 {
         override fun callback(
             `uniffiHandle`: Long,
             `content`: RustBuffer.ByValue,
@@ -2304,7 +2417,7 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
         }
     }
 
-    internal object `onSyncError` : UniffiCallbackInterfaceFfiNearClipCallbackMethod3 {
+    internal object `onSyncError` : UniffiCallbackInterfaceFfiNearClipCallbackMethod5 {
         override fun callback(
             `uniffiHandle`: Long,
             `errorMessage`: RustBuffer.ByValue,
@@ -2331,6 +2444,8 @@ internal object uniffiCallbackInterfaceFfiNearClipCallback {
         UniffiVTableCallbackInterfaceFfiNearClipCallback.UniffiByValue(
             `onDeviceConnected`,
             `onDeviceDisconnected`,
+            `onDeviceUnpaired`,
+            `onPairingRejected`,
             `onClipboardReceived`,
             `onSyncError`,
             uniffiFree,

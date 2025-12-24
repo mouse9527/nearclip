@@ -22,6 +22,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.nearclip.ConnectionManager
+import com.nearclip.LocalNearClipService
 import com.nearclip.ui.components.QrScanner
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -30,6 +31,7 @@ fun PairingScreen(
     onNavigateBack: () -> Unit,
     connectionManager: ConnectionManager = viewModel()
 ) {
+    val service = LocalNearClipService.current
     var selectedTab by remember { mutableStateOf(0) }
     var manualCode by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
@@ -39,6 +41,17 @@ fun PairingScreen(
 
     val pairingCode = remember {
         connectionManager.generatePairingCode()
+    }
+
+    // Helper to add device - uses service if available (preferred) for state consistency
+    suspend fun addDevice(code: String): String {
+        return if (service != null) {
+            android.util.Log.i("PairingScreen", "Using service to add device")
+            service.addDeviceFromCode(code)
+        } else {
+            android.util.Log.i("PairingScreen", "Using connectionManager to add device (service unavailable)")
+            connectionManager.addDeviceFromCode(code)
+        }
     }
 
     Scaffold(
@@ -94,10 +107,11 @@ fun PairingScreen(
                             errorMessage = null
                             coroutineScope.launch {
                                 try {
-                                    val deviceName = connectionManager.addDeviceFromCode(manualCode)
+                                    val deviceName = addDevice(manualCode)
                                     successMessage = "Paired with $deviceName"
                                     isLoading = false
-                                    kotlinx.coroutines.delay(1500)
+                                    // addDeviceFromCode now includes auto-connect delay, just show success briefly
+                                    kotlinx.coroutines.delay(500)
                                     onNavigateBack()
                                 } catch (e: Exception) {
                                     errorMessage = e.message ?: "Failed to add device"
@@ -110,10 +124,11 @@ fun PairingScreen(
                             errorMessage = null
                             coroutineScope.launch {
                                 try {
-                                    val deviceName = connectionManager.addDeviceFromCode(code)
+                                    val deviceName = addDevice(code)
                                     successMessage = "Paired with $deviceName"
                                     isLoading = false
-                                    kotlinx.coroutines.delay(1500)
+                                    // addDeviceFromCode now includes auto-connect delay, just show success briefly
+                                    kotlinx.coroutines.delay(500)
                                     onNavigateBack()
                                 } catch (e: Exception) {
                                     errorMessage = e.message ?: "Invalid QR code"
@@ -121,7 +136,8 @@ fun PairingScreen(
                                 }
                             }
                         },
-                        successMessage = successMessage
+                        successMessage = successMessage,
+                        scannerEnabled = !isLoading
                     )
                 }
             }
@@ -189,7 +205,8 @@ fun ScanQRCodeTab(
     errorMessage: String?,
     onSubmit: () -> Unit,
     onQrCodeScanned: (String) -> Unit,
-    successMessage: String? = null
+    successMessage: String? = null,
+    scannerEnabled: Boolean = true
 ) {
     var showManualInput by remember { mutableStateOf(false) }
 
@@ -236,6 +253,7 @@ fun ScanQRCodeTab(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(280.dp),
+                enabled = scannerEnabled,
                 onQrCodeScanned = onQrCodeScanned
             )
 

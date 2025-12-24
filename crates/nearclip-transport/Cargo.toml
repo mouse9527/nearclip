@@ -1,0 +1,26 @@
+[package]
+name = "nearclip-transport"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Unified transport layer for NearClip - abstracts WiFi and BLE transports"
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+serde.workspace = true
+rmp-serde.workspace = true
+async-trait.workspace = true
+
+# Internal crates
+nearclip-sync.workspace = true
+nearclip-net.workspace = true
+nearclip-ble.workspace = true
+
+# TLS (for WifiTransport)
+rustls.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util", "macros"] }

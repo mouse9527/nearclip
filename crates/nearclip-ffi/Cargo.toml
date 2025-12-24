@@ -19,6 +19,8 @@ thiserror.workspace = true
 tracing.workspace = true
 uniffi = { workspace = true, features = ["cli"] }
 nearclip-core.workspace = true
+nearclip-transport.workspace = true
+nearclip-sync.workspace = true
 tokio.workspace = true
 
 [build-dependencies]

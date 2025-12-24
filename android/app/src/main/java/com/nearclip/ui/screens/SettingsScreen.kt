@@ -16,9 +16,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nearclip.ConnectionManager
+import com.nearclip.LocalNearClipService
 import com.nearclip.SettingsViewModel
 import com.nearclip.data.SyncRetryStrategy
 import com.nearclip.ffi.FfiDeviceInfo
@@ -32,6 +36,8 @@ fun SettingsScreen(
     settingsViewModel: SettingsViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val service = LocalNearClipService.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val settings by settingsViewModel.settings.collectAsState()
     val pairedDevices by connectionManager.pairedDevices.collectAsState()
     val pausedDeviceIds by connectionManager.pausedDeviceIds.collectAsState()
@@ -39,9 +45,27 @@ fun SettingsScreen(
     // Check accessibility service status (recheck on resume)
     var accessibilityEnabled by remember { mutableStateOf(NearClipAccessibilityService.isEnabled(context)) }
 
-    // Recheck when screen becomes visible
-    LaunchedEffect(Unit) {
-        accessibilityEnabled = NearClipAccessibilityService.isEnabled(context)
+    // Refresh devices from service to ensure data consistency
+    LaunchedEffect(service) {
+        if (service != null) {
+            connectionManager.refreshFromService(service)
+        }
+    }
+
+    // Refresh when screen becomes visible
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                accessibilityEnabled = NearClipAccessibilityService.isEnabled(context)
+                if (service != null) {
+                    connectionManager.refreshFromService(service)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     var showDeleteDialog by remember { mutableStateOf<FfiDeviceInfo?>(null) }
@@ -203,6 +227,22 @@ fun SettingsScreen(
                 Divider(modifier = Modifier.padding(vertical = 8.dp))
             }
 
+            // Debug Section
+            item {
+                SettingsSection(title = "Debug")
+            }
+
+            item {
+                DebugSection(
+                    service = service,
+                    connectionManager = connectionManager
+                )
+            }
+
+            item {
+                Divider(modifier = Modifier.padding(vertical = 8.dp))
+            }
+
             // About Section
             item {
                 SettingsSection(title = "About")
@@ -235,7 +275,11 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(
                     onClick = {
-                        connectionManager.removeDevice(device.id)
+                        // Use service's unpairDevice instead of connectionManager's
+                        // to ensure we use the correct FFI manager instance
+                        service?.unpairDevice(device.id)
+                        // Refresh device list from service
+                        connectionManager.refreshFromService(service)
                         showDeleteDialog = null
                     },
                     colors = ButtonDefaults.textButtonColors(
@@ -586,6 +630,185 @@ fun AccessibilityServiceItem(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(12.dp)
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DebugSection(
+    service: com.nearclip.service.NearClipService?,
+    connectionManager: ConnectionManager
+) {
+    var testMessage by remember { mutableStateOf("Hello from NearClip!") }
+    var sendStatus by remember { mutableStateOf("") }
+    var selectedChannel by remember { mutableStateOf("Auto") }
+    val channels = listOf("Auto", "WiFi", "BLE")
+
+    val connectedDevices by connectionManager.connectedDevices.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        // Connection Status
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 8.dp)
+        ) {
+            Icon(
+                imageVector = if (connectedDevices.isNotEmpty()) Icons.Default.CheckCircle else Icons.Default.Cancel,
+                contentDescription = null,
+                tint = if (connectedDevices.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (connectedDevices.isNotEmpty()) "${connectedDevices.size} device(s) connected" else "No devices connected",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        // Connected devices list
+        connectedDevices.forEach { device ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 24.dp, bottom = 4.dp)
+            ) {
+                Icon(
+                    imageVector = when (device.platform.name) {
+                        "MAC_OS" -> Icons.Default.Laptop
+                        else -> Icons.Default.PhoneAndroid
+                    },
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = device.name,
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                val isBleConnected = service?.isDeviceConnectedViaBle(device.id) == true
+                Text(
+                    text = if (isBleConnected) "BLE" else "WiFi",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Test message input
+        OutlinedTextField(
+            value = testMessage,
+            onValueChange = { testMessage = it },
+            label = { Text("Test Message") },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Channel selector
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            channels.forEach { channel ->
+                FilterChip(
+                    selected = selectedChannel == channel,
+                    onClick = { selectedChannel = channel },
+                    label = { Text(channel) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Send button
+        Button(
+            onClick = {
+                val data = testMessage.toByteArray(Charsets.UTF_8)
+                when (selectedChannel) {
+                    "Auto" -> {
+                        service?.syncClipboard(data)
+                        sendStatus = "✅ Sent via Auto channel"
+                    }
+                    "WiFi" -> {
+                        try {
+                            service?.getManager()?.syncClipboard(data)
+                            sendStatus = "✅ Sent via WiFi"
+                        } catch (e: Exception) {
+                            sendStatus = "❌ WiFi failed: ${e.message}"
+                        }
+                    }
+                    "BLE" -> {
+                        val bleDevices = connectedDevices.filter {
+                            service?.isDeviceConnectedViaBle(it.id) == true
+                        }
+                        if (bleDevices.isEmpty()) {
+                            sendStatus = "❌ No BLE connected devices"
+                        } else {
+                            bleDevices.forEach { device ->
+                                service?.syncClipboardViaBle(data, device.id)
+                            }
+                            sendStatus = "✅ Sent via BLE to ${bleDevices.size} device(s)"
+                        }
+                    }
+                }
+            },
+            enabled = testMessage.isNotEmpty() && connectedDevices.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.Send, contentDescription = null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Send Test Message")
+        }
+
+        // Status message
+        if (sendStatus.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = sendStatus,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (sendStatus.startsWith("✅"))
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.error
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Quick actions
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = {
+                    service?.startBle()
+                    sendStatus = "BLE restarted"
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Restart BLE", style = MaterialTheme.typography.labelSmall)
+            }
+
+            OutlinedButton(
+                onClick = {
+                    connectionManager.refreshFromService(service)
+                    sendStatus = "Devices refreshed"
+                },
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Refresh", style = MaterialTheme.typography.labelSmall)
             }
         }
     }

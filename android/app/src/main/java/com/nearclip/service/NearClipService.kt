@@ -15,7 +15,16 @@ import androidx.core.app.NotificationCompat
 import com.nearclip.MainActivity
 import com.nearclip.R
 import com.nearclip.data.SecureStorage
+import com.nearclip.data.SyncDirection
+import com.nearclip.data.SyncHistoryRepository
 import com.nearclip.ffi.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONException
+import org.json.JSONObject
 
 class NearClipService : Service(), FfiNearClipCallback {
 
@@ -31,6 +40,7 @@ class NearClipService : Service(), FfiNearClipCallback {
         // Device ID persistence
         private const val PREFS_NAME = "nearclip_prefs"
         private const val KEY_DEVICE_ID = "nearclip_device_id"
+        const val MAX_PAIRED_DEVICES = 5
 
         fun startService(context: Context) {
             val intent = Intent(context, NearClipService::class.java)
@@ -60,9 +70,12 @@ class NearClipService : Service(), FfiNearClipCallback {
     private var notificationHelper: NotificationHelper? = null
     private var networkMonitor: NetworkMonitor? = null
     private var secureStorage: SecureStorage? = null
+    private var syncHistoryRepository: SyncHistoryRepository? = null
+    private var bleManager: BleManager? = null
     private var isRunning = false
     private var pendingContent: ByteArray? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     // Binder for local binding
     private val binder = LocalBinder()
@@ -242,6 +255,9 @@ class NearClipService : Service(), FfiNearClipCallback {
             secureStorage = SecureStorage(this)
             loadPairedDevicesFromStorage()
 
+            // Initialize sync history repository
+            syncHistoryRepository = SyncHistoryRepository(this)
+
             // Initialize clipboard monitor
             clipboardMonitor = ClipboardMonitor(this) { content ->
                 syncClipboard(content)
@@ -255,9 +271,14 @@ class NearClipService : Service(), FfiNearClipCallback {
 
             // Initialize network monitor
             networkMonitor = NetworkMonitor(this).apply {
+                onNetworkLost = {
+                    android.util.Log.i("NearClipService", "Network lost, attempting BLE fallback")
+                    handleNetworkLost()
+                }
+
                 onNetworkRestored = {
-                    android.util.Log.i("NearClipService", "Network restored, restarting service")
-                    restartSync()
+                    android.util.Log.i("NearClipService", "Network restored, restarting WiFi sync (preserving BLE)")
+                    restartWifiSync()
                 }
 
                 onReconnectFailed = {
@@ -268,9 +289,15 @@ class NearClipService : Service(), FfiNearClipCallback {
                 }
 
                 isConnectedToDevices = {
-                    manager?.getConnectedDevices()?.isNotEmpty() == true
+                    // Check both WiFi and BLE connections
+                    val wifiConnected = manager?.getConnectedDevices()?.isNotEmpty() == true
+                    val bleConnected = bleManager?.hasConnectedDevices() == true
+                    wifiConnected || bleConnected
                 }
             }
+
+            // Initialize BLE manager
+            initializeBleManager()
         } catch (e: Exception) {
             android.util.Log.e("NearClipService", "initializeManager failed: ${e.message}", e)
             e.printStackTrace()
@@ -307,6 +334,91 @@ class NearClipService : Service(), FfiNearClipCallback {
         }, 500)
     }
 
+    /**
+     * Restart only WiFi-related sync services without affecting BLE connections.
+     * This is used when network is restored to avoid disrupting existing BLE connections.
+     */
+    private fun restartWifiSync() {
+        android.util.Log.i("NearClipService", "Restarting WiFi sync (preserving BLE connections)")
+
+        // Stop WiFi-related services only (don't touch BLE)
+        manager?.stop()
+        releaseMulticastLock()
+
+        // Restart after a short delay
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+            // Re-initialize WiFi services
+            acquireMulticastLock()
+
+            // Restart the FFI manager
+            try {
+                val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                val persistedDeviceId = prefs.getString(KEY_DEVICE_ID, "") ?: ""
+
+                val config = FfiNearClipConfig(
+                    deviceName = "${Build.MANUFACTURER} ${Build.MODEL}",
+                    deviceId = persistedDeviceId,
+                    wifiEnabled = true,
+                    bleEnabled = true,
+                    autoConnect = true,
+                    connectionTimeoutSecs = 30u,
+                    heartbeatIntervalSecs = 5u,
+                    maxRetries = 3u
+                )
+                manager = FfiNearClipManager(config, this)
+                manager?.start()
+
+                // Re-add paired devices
+                loadPairedDevicesFromStorage()
+
+                // Try to connect to paired devices after a delay
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    val connectedCount = manager?.tryConnectPairedDevices() ?: 0u
+                    android.util.Log.i("NearClipService", "Auto-connecting to $connectedCount paired devices after WiFi restore")
+                }, 2000)
+
+                android.util.Log.i("NearClipService", "WiFi sync restarted successfully")
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "Failed to restart WiFi sync: ${e.message}")
+            }
+        }, 500)
+    }
+
+    /**
+     * Handle network loss - attempt to connect to paired devices via BLE.
+     */
+    private fun handleNetworkLost() {
+        if (!isRunning) return
+
+        android.util.Log.i("NearClipService", "Network lost, attempting BLE fallback for paired devices")
+
+        // Ensure BLE is active
+        if (!hasBlePermissions()) {
+            android.util.Log.w("NearClipService", "BLE permissions not granted, cannot fallback to BLE")
+            return
+        }
+
+        // Start BLE scanning if not already scanning
+        bleManager?.startScanning()
+        bleManager?.startAdvertising()
+
+        // Try to connect to paired devices via BLE
+        val pairedDevices = manager?.getPairedDevices() ?: return
+        for (device in pairedDevices) {
+            if (bleManager?.isDeviceConnected(device.id) != true) {
+                // Check if device was discovered via BLE
+                if (bleManager?.isDeviceDiscovered(device.id) == true) {
+                    android.util.Log.i("NearClipService", "Attempting BLE connection to: ${device.name} (${device.id})")
+                    bleManager?.connect(device.id)
+                } else {
+                    android.util.Log.i("NearClipService", "Device ${device.name} not discovered via BLE yet, scanning...")
+                }
+            } else {
+                android.util.Log.i("NearClipService", "Device ${device.name} already connected via BLE")
+            }
+        }
+    }
+
     private fun acquireMulticastLock() {
         if (multicastLock == null) {
             val wifiManager = applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
@@ -340,9 +452,16 @@ class NearClipService : Service(), FfiNearClipCallback {
             android.util.Log.i("NearClipService", "manager.start() completed")
             clipboardMonitor?.startMonitoring()
             networkMonitor?.startMonitoring()
+            // Start BLE scanning and advertising
+            startBle()
             isRunning = manager?.isRunning() ?: false
             android.util.Log.i("NearClipService", "isRunning=$isRunning")
             listeners.forEach { it.onRunningStateChanged(isRunning) }
+
+            // Auto-connect to all paired devices after a delay for mDNS discovery
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                autoConnectAllPairedDevices()
+            }, 3000)
         } catch (e: NearClipException) {
             android.util.Log.e("NearClipService", "startSync failed: ${e.message}", e)
             releaseMulticastLock()
@@ -353,14 +472,134 @@ class NearClipService : Service(), FfiNearClipCallback {
         }
     }
 
+    /**
+     * Auto-connect to all paired devices that are not already connected.
+     */
+    private fun autoConnectAllPairedDevices() {
+        val mgr = manager ?: return
+        val pairedDevices = mgr.getPairedDevices()
+        val connectedIds = mgr.getConnectedDevices().map { it.id }.toSet()
+
+        android.util.Log.i("NearClipService", "Auto-connecting to ${pairedDevices.size} paired devices (${connectedIds.size} already connected)")
+
+        Thread {
+            for (device in pairedDevices) {
+                if (device.id !in connectedIds) {
+                    try {
+                        android.util.Log.i("NearClipService", "Auto-connecting to: ${device.name} (${device.id})")
+                        mgr.connectDevice(device.id)
+                    } catch (e: Exception) {
+                        android.util.Log.w("NearClipService", "Auto-connect failed for ${device.name}: ${e.message}")
+                    }
+                }
+            }
+        }.start()
+    }
+
     private fun stopSync() {
         clipboardMonitor?.stopMonitoring()
         networkMonitor?.stopMonitoring()
+        bleManager?.destroy()
         manager?.stop()
         // Release multicast lock after stopping mDNS services
         releaseMulticastLock()
         isRunning = false
         listeners.forEach { it.onRunningStateChanged(isRunning) }
+    }
+
+    private fun initializeBleManager() {
+        try {
+            bleManager = BleManager(this).apply {
+                callback = bleCallback
+            }
+
+            // Configure with device info
+            val deviceId = manager?.getDeviceId() ?: return
+            val publicKeyHash = deviceId.toByteArray(Charsets.UTF_8)
+                .let { java.security.MessageDigest.getInstance("SHA-256").digest(it) }
+                .let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+
+            bleManager?.configure(deviceId, publicKeyHash)
+            bleManager?.startConnectionHealthMonitoring()
+            android.util.Log.i("NearClipService", "BLE manager initialized with health monitoring")
+        } catch (e: Exception) {
+            android.util.Log.e("NearClipService", "Failed to initialize BLE manager: ${e.message}", e)
+        }
+    }
+
+    private val bleCallback = object : BleManager.Callback {
+        override fun onDeviceDiscovered(deviceId: String, publicKeyHash: String?, rssi: Int) {
+            android.util.Log.i("NearClipService", "BLE device discovered: $deviceId, RSSI: $rssi")
+
+            // Auto-connect to paired devices
+            val pairedDevices = manager?.getPairedDevices() ?: emptyList()
+            if (pairedDevices.any { it.id == deviceId }) {
+                // Check if not already connected via BLE
+                if (!isDeviceConnectedViaBle(deviceId)) {
+                    android.util.Log.i("NearClipService", "Auto-connecting to paired device via BLE: $deviceId")
+                    bleManager?.connect(deviceId)
+                }
+            }
+        }
+
+        override fun onDeviceLost(deviceId: String) {
+            android.util.Log.i("NearClipService", "BLE device lost: $deviceId")
+        }
+
+        override fun onDeviceConnected(deviceId: String) {
+            android.util.Log.i("NearClipService", "BLE device connected: $deviceId")
+        }
+
+        override fun onDeviceDisconnected(deviceId: String) {
+            android.util.Log.i("NearClipService", "BLE device disconnected: $deviceId")
+        }
+
+        override fun onDataReceived(deviceId: String, data: ByteArray) {
+            android.util.Log.i("NearClipService", "BLE data received from $deviceId: ${data.size} bytes")
+            // Handle received clipboard data same as WiFi
+            onClipboardReceived(data, deviceId)
+        }
+
+        override fun onError(deviceId: String?, error: String) {
+            android.util.Log.e("NearClipService", "BLE error for $deviceId: $error")
+        }
+    }
+
+    fun startBle() {
+        android.util.Log.i("NearClipService", "startBle() called")
+        // Check BLE permissions before starting
+        if (!hasBlePermissions()) {
+            android.util.Log.w("NearClipService", "BLE permissions not granted, skipping BLE start")
+            return
+        }
+        android.util.Log.i("NearClipService", "BLE permissions granted, starting scanning and advertising")
+        bleManager?.startScanning()
+        bleManager?.startAdvertising()
+    }
+
+    private fun hasBlePermissions(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+ requires BLUETOOTH_SCAN and BLUETOOTH_ADVERTISE
+            checkSelfPermission(android.Manifest.permission.BLUETOOTH_SCAN) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.BLUETOOTH_ADVERTISE) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            // Older Android versions use location permission for BLE
+            checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    fun stopBle() {
+        bleManager?.stopScanning()
+        bleManager?.stopAdvertising()
+    }
+
+    fun syncClipboardViaBle(content: ByteArray, deviceId: String) {
+        bleManager?.sendData(deviceId, content)
+    }
+
+    fun isDeviceConnectedViaBle(deviceId: String): Boolean {
+        return bleManager?.isDeviceConnected(deviceId) == true
     }
 
     // Public methods for UI interaction
@@ -372,20 +611,52 @@ class NearClipService : Service(), FfiNearClipCallback {
 
     fun getPairedDevices(): List<FfiDeviceInfo> = manager?.getPairedDevices() ?: emptyList()
 
+    fun getSyncHistoryRepository(): SyncHistoryRepository? = syncHistoryRepository
+
     fun connectDevice(deviceId: String) {
         android.util.Log.i("NearClipService", "connectDevice called for $deviceId, manager=${manager != null}")
         // Run on background thread to avoid ANR
         Thread {
+            var wifiConnected = false
+
+            // First try WiFi connection
             try {
                 manager?.connectDevice(deviceId)
-                android.util.Log.i("NearClipService", "connectDevice completed for $deviceId")
+                wifiConnected = true
+                android.util.Log.i("NearClipService", "WiFi connectDevice completed for $deviceId")
             } catch (e: NearClipException) {
-                android.util.Log.e("NearClipService", "connectDevice failed: ${e.message}", e)
-                android.os.Handler(android.os.Looper.getMainLooper()).post {
-                    listeners.forEach { it.onSyncError("Connect failed: ${e.message}") }
-                }
+                android.util.Log.w("NearClipService", "WiFi connectDevice failed: ${e.message}, trying BLE fallback")
             } catch (e: Exception) {
-                android.util.Log.e("NearClipService", "connectDevice unexpected error: ${e.message}", e)
+                android.util.Log.w("NearClipService", "WiFi connectDevice unexpected error: ${e.message}, trying BLE fallback")
+            }
+
+            // If WiFi failed, try BLE connection
+            if (!wifiConnected) {
+                android.util.Log.i("NearClipService", "Attempting BLE connection for $deviceId")
+
+                // Ensure BLE is scanning
+                bleManager?.startScanning()
+
+                // Check if device is already discovered via BLE
+                if (bleManager?.isDeviceDiscovered(deviceId) == true) {
+                    android.util.Log.i("NearClipService", "Device $deviceId found via BLE, connecting...")
+                    bleManager?.connect(deviceId)
+                } else if (bleManager?.isDeviceConnected(deviceId) == true) {
+                    android.util.Log.i("NearClipService", "Device $deviceId already connected via BLE")
+                } else {
+                    android.util.Log.i("NearClipService", "Device $deviceId not discovered via BLE yet, scanning...")
+                    // Wait a bit for BLE discovery
+                    Thread.sleep(3000)
+                    if (bleManager?.isDeviceDiscovered(deviceId) == true) {
+                        android.util.Log.i("NearClipService", "Device $deviceId found via BLE after waiting, connecting...")
+                        bleManager?.connect(deviceId)
+                    } else {
+                        android.util.Log.w("NearClipService", "Device $deviceId not found via BLE")
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            listeners.forEach { it.onSyncError("Connect failed: Device not found (WiFi and BLE unavailable)") }
+                        }
+                    }
+                }
             }
         }.start()
     }
@@ -408,15 +679,94 @@ class NearClipService : Service(), FfiNearClipCallback {
         }.start()
     }
 
+    /**
+     * Unpair and remove a device.
+     * This notifies the remote device and removes from local storage.
+     */
+    fun unpairDevice(deviceId: String) {
+        android.util.Log.i("NearClipService", "unpairDevice called for $deviceId")
+        // Run on background thread to avoid ANR
+        Thread {
+            try {
+                manager?.unpairDevice(deviceId)
+                android.util.Log.i("NearClipService", "unpairDevice from manager completed for $deviceId")
+
+                // Also remove from secure storage
+                secureStorage?.removePairedDevice(deviceId)
+                android.util.Log.i("NearClipService", "Removed device from secure storage: $deviceId")
+
+                updateNotification()
+            } catch (e: NearClipException) {
+                android.util.Log.e("NearClipService", "unpairDevice failed: ${e.message}", e)
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    listeners.forEach { it.onSyncError("Unpair failed: ${e.message}") }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "unpairDevice unexpected error: ${e.message}", e)
+            }
+        }.start()
+    }
+
     fun syncClipboard(content: ByteArray) {
         android.util.Log.i("NearClipService", "syncClipboard called with ${content.size} bytes, manager=${manager != null}")
         // Run on background thread to avoid ANR (FFI uses block_on which blocks)
         Thread {
             try {
-                val connected = manager?.getConnectedDevices()?.size ?: 0
-                android.util.Log.i("NearClipService", "syncClipboard: $connected connected devices before sync")
-                manager?.syncClipboard(content)
-                android.util.Log.i("NearClipService", "syncClipboard completed successfully")
+                val wifiConnectedDevices = manager?.getConnectedDevices() ?: emptyList()
+                val pairedDevices = manager?.getPairedDevices() ?: emptyList()
+
+                // Find BLE-only devices (paired but not connected via WiFi, but connected via BLE)
+                val wifiConnectedIds = wifiConnectedDevices.map { it.id }.toSet()
+                val bleOnlyDevices = pairedDevices.filter { device ->
+                    !wifiConnectedIds.contains(device.id) && isDeviceConnectedViaBle(device.id)
+                }
+
+                android.util.Log.i("NearClipService", "syncClipboard: ${wifiConnectedDevices.size} WiFi devices, ${bleOnlyDevices.size} BLE-only devices")
+
+                val syncedDevices = mutableListOf<FfiDeviceInfo>()
+
+                // Try WiFi first (preferred)
+                if (wifiConnectedDevices.isNotEmpty()) {
+                    try {
+                        manager?.syncClipboard(content)
+                        syncedDevices.addAll(wifiConnectedDevices)
+                        android.util.Log.i("NearClipService", "syncClipboard via WiFi completed successfully")
+                    } catch (e: Exception) {
+                        android.util.Log.w("NearClipService", "WiFi sync failed: ${e.message}, trying BLE")
+                        // WiFi failed, try BLE for each device
+                        for (device in wifiConnectedDevices) {
+                            if (isDeviceConnectedViaBle(device.id)) {
+                                syncClipboardViaBle(content, device.id)
+                                syncedDevices.add(device)
+                                android.util.Log.i("NearClipService", "Synced to ${device.name} via BLE (fallback)")
+                            }
+                        }
+                    }
+                }
+
+                // Sync to BLE-only devices
+                for (device in bleOnlyDevices) {
+                    syncClipboardViaBle(content, device.id)
+                    syncedDevices.add(device)
+                    android.util.Log.i("NearClipService", "Synced to ${device.name} via BLE (BLE-only)")
+                }
+
+                // Record sync history for synced devices
+                if (syncedDevices.isNotEmpty()) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        serviceScope.launch {
+                            for (device in syncedDevices) {
+                                syncHistoryRepository?.recordSent(
+                                    deviceId = device.id,
+                                    deviceName = device.name,
+                                    content = content
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    android.util.Log.w("NearClipService", "No devices available for sync")
+                }
             } catch (e: NearClipException) {
                 android.util.Log.e("NearClipService", "syncClipboard failed: ${e.message}", e)
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -426,6 +776,93 @@ class NearClipService : Service(), FfiNearClipCallback {
                 android.util.Log.e("NearClipService", "syncClipboard unexpected error: ${e.message}", e)
             }
         }.start()
+    }
+
+    /**
+     * Add a device from a pairing code (JSON string).
+     * @return the name of the added device
+     * @throws IllegalArgumentException if the code is invalid or missing required fields
+     * @throws IllegalStateException if the manager is not initialized or device limit reached
+     */
+    suspend fun addDeviceFromCode(code: String): String {
+        val mgr = manager
+            ?: throw IllegalStateException("Service manager not initialized")
+
+        val currentPaired = mgr.getPairedDevices()
+
+        // Check device limit first
+        if (currentPaired.size >= MAX_PAIRED_DEVICES) {
+            throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached. Remove a device to add a new one.")
+        }
+
+        // Parse and validate JSON
+        val json = try {
+            JSONObject(code)
+        } catch (e: JSONException) {
+            throw IllegalArgumentException("Invalid pairing code format: not valid JSON")
+        }
+
+        // Validate required fields
+        val id = json.optString("id", "").takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("Invalid pairing code: missing 'id' field")
+        val name = json.optString("name", "").takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("Invalid pairing code: missing 'name' field")
+        val platformStr = json.optString("platform", "").takeIf { it.isNotEmpty() }
+            ?: throw IllegalArgumentException("Invalid pairing code: missing 'platform' field")
+
+        // Check if device already exists (allow re-adding)
+        val isExisting = currentPaired.any { it.id == id }
+        if (!isExisting && currentPaired.size >= MAX_PAIRED_DEVICES) {
+            throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached")
+        }
+
+        // Validate platform enum (handle different naming conventions)
+        val platform = when (platformStr.lowercase()) {
+            "macos", "mac_os" -> DevicePlatform.MAC_OS
+            "android" -> DevicePlatform.ANDROID
+            else -> {
+                val validPlatforms = listOf("macOS", "Android")
+                throw IllegalArgumentException("Invalid pairing code: unknown platform '$platformStr'. Valid: $validPlatforms")
+            }
+        }
+
+        val device = FfiDeviceInfo(
+            id = id,
+            name = name,
+            platform = platform,
+            status = DeviceStatus.DISCONNECTED
+        )
+
+        // Run FFI calls on IO dispatcher
+        return withContext(Dispatchers.IO) {
+            // Add to manager first - this is the source of truth
+            try {
+                mgr.addPairedDevice(device)
+                android.util.Log.i("NearClipService", "Added paired device to manager: ${device.name} (${device.id})")
+            } catch (e: NearClipException) {
+                throw IllegalStateException("Failed to add device to manager: ${e.message}")
+            }
+
+            // Persist to secure storage (best effort - manager is already updated)
+            try {
+                secureStorage?.addPairedDevice(device)
+                android.util.Log.i("NearClipService", "Persisted device to secure storage: ${device.id}")
+            } catch (e: Exception) {
+                android.util.Log.e("NearClipService", "Failed to persist device to storage (device added to manager)", e)
+            }
+
+            // Try to connect to the newly added device after a delay for mDNS discovery
+            kotlinx.coroutines.delay(2000)
+            try {
+                android.util.Log.i("NearClipService", "Auto-connecting to newly paired device: ${device.id}")
+                mgr.connectDevice(device.id)
+                android.util.Log.i("NearClipService", "Auto-connect successful for: ${device.id}")
+            } catch (e: Exception) {
+                android.util.Log.w("NearClipService", "Auto-connect failed (device may not be discovered yet): ${e.message}")
+            }
+
+            name
+        }
     }
 
     // FfiNearClipCallback implementation
@@ -468,6 +905,34 @@ class NearClipService : Service(), FfiNearClipCallback {
         listeners.forEach { it.onDeviceDisconnected(deviceId) }
     }
 
+    override fun onDeviceUnpaired(deviceId: String) {
+        // Remove from local storage
+        SecureStorage(this).removePairedDevice(deviceId)
+        // Update notification and notify listeners
+        updateNotification()
+        listeners.forEach { it.onDeviceDisconnected(deviceId) }
+    }
+
+    override fun onPairingRejected(deviceId: String, reason: String) {
+        android.util.Log.w("NearClipService", "Pairing rejected by device: $deviceId, reason: $reason")
+
+        // Get device name before removing
+        val deviceName = manager?.getPairedDevices()?.find { it.id == deviceId }?.name ?: deviceId
+
+        // Remove from FFI manager
+        manager?.removePairedDevice(deviceId)
+
+        // Remove from local storage
+        secureStorage?.removePairedDevice(deviceId)
+
+        // Show notification to user
+        notificationHelper?.showPairingRejectedNotification(deviceName, reason)
+
+        // Update notification and notify listeners
+        updateNotification()
+        listeners.forEach { it.onDeviceDisconnected(deviceId) }
+    }
+
     override fun onClipboardReceived(content: ByteArray, fromDevice: String) {
         // Write to local clipboard (also marks as remote to prevent sync loop)
         clipboardWriter?.writeText(content, "NearClip from $fromDevice")
@@ -482,6 +947,15 @@ class NearClipService : Service(), FfiNearClipCallback {
         // Find device name from connected devices
         val deviceName = manager?.getConnectedDevices()?.find { it.id == fromDevice }?.name ?: fromDevice
         notificationHelper?.showSyncSuccessNotification(deviceName, contentPreview)
+
+        // Record sync history
+        serviceScope.launch {
+            syncHistoryRepository?.recordReceived(
+                deviceId = fromDevice,
+                deviceName = deviceName,
+                content = content
+            )
+        }
 
         listeners.forEach { it.onClipboardReceived(content, fromDevice) }
     }

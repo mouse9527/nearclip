@@ -30,6 +30,9 @@ final class NetworkMonitor {
     /// Callback when network connectivity is restored
     var onNetworkRestored: (() -> Void)?
 
+    /// Callback when network connectivity is lost
+    var onNetworkLost: (() -> Void)?
+
     /// Callback when reconnection fails after max attempts
     var onReconnectFailed: (() -> Void)?
 
@@ -83,6 +86,11 @@ final class NetworkMonitor {
             // Network went down
             wasDisconnected = true
             print("NetworkMonitor: Network disconnected")
+
+            // Notify about network loss (for BLE fallback)
+            DispatchQueue.main.async { [weak self] in
+                self?.onNetworkLost?()
+            }
         } else if newIsConnected && wasDisconnected {
             // Network recovered
             wasDisconnected = false

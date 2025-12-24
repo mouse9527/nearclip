@@ -20,6 +20,12 @@
 //!     fn on_device_disconnected(&self, device_id: &str) {
 //!         println!("Device disconnected: {}", device_id);
 //!     }
+//!     fn on_device_unpaired(&self, device_id: &str) {
+//!         println!("Device unpaired: {}", device_id);
+//!     }
+//!     fn on_pairing_rejected(&self, device_id: &str, reason: &str) {
+//!         println!("Pairing rejected by {}: {}", device_id, reason);
+//!     }
 //!     fn on_clipboard_received(&self, content: &[u8], from_device: &str) {
 //!         println!("Received {} bytes from {}", content.len(), from_device);
 //!     }
@@ -41,9 +47,10 @@ use crate::error::{NearClipError, Result};
 use nearclip_crypto::{TlsCertificate, TlsClientConfig, TlsServerConfig};
 use nearclip_net::{
     DiscoveredDevice, MdnsAdvertiser, MdnsDiscovery, MdnsServiceConfig,
-    TcpClient, TcpClientConfig, TcpReadHalf, TcpServer, TcpServerConfig, TcpWriteHalf,
+    TcpClient, TcpClientConfig, TcpServer, TcpServerConfig,
 };
 use nearclip_sync::{Channel, Message, MessageType, PairingPayload, ProtocolPlatform};
+use nearclip_transport::{Transport, TransportListener, TransportManager, WifiTransport, WifiTransportListener};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -55,15 +62,6 @@ use tokio::task::JoinHandle;
 // 平台类型转换辅助函数
 // ============================================================
 
-/// 将 DevicePlatform 转换为 ProtocolPlatform
-fn device_platform_to_protocol(platform: DevicePlatform) -> ProtocolPlatform {
-    match platform {
-        DevicePlatform::MacOS => ProtocolPlatform::MacOS,
-        DevicePlatform::Android => ProtocolPlatform::Android,
-        DevicePlatform::Unknown => ProtocolPlatform::Unknown,
-    }
-}
-
 /// 将 ProtocolPlatform 转换为 DevicePlatform
 fn protocol_platform_to_device(platform: ProtocolPlatform) -> DevicePlatform {
     match platform {
@@ -71,92 +69,6 @@ fn protocol_platform_to_device(platform: ProtocolPlatform) -> DevicePlatform {
         ProtocolPlatform::Android => DevicePlatform::Android,
         ProtocolPlatform::Unknown => DevicePlatform::Unknown,
     }
-}
-
-// ============================================================
-// 消息帧协议辅助函数
-// ============================================================
-
-/// 最大消息大小 (16 MB)
-const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
-
-/// 通过分离的写半连接发送带长度前缀的消息
-///
-/// 消息格式：[4字节长度(大端序)] + [消息数据]
-async fn send_framed_message_split(writer: &mut TcpWriteHalf, msg: &Message) -> Result<()> {
-    let data = msg.serialize()
-        .map_err(|e| NearClipError::Sync(format!("Failed to serialize message: {}", e)))?;
-
-    let len = data.len() as u32;
-    if len > MAX_MESSAGE_SIZE {
-        return Err(NearClipError::Sync(format!("Message too large: {} bytes", len)));
-    }
-
-    // 写入长度前缀 (4字节大端序)
-    let len_bytes = len.to_be_bytes();
-    writer.write_all(&len_bytes).await
-        .map_err(|e| NearClipError::Network(format!("Failed to write length prefix: {}", e)))?;
-
-    // 写入消息数据
-    writer.write_all(&data).await
-        .map_err(|e| NearClipError::Network(format!("Failed to write message data: {}", e)))?;
-
-    writer.flush().await
-        .map_err(|e| NearClipError::Network(format!("Failed to flush: {}", e)))?;
-
-    Ok(())
-}
-
-/// 通过分离的读半连接接收带长度前缀的消息
-///
-/// 返回 None 表示连接已关闭
-async fn receive_framed_message_split(reader: &mut TcpReadHalf) -> Result<Option<Message>> {
-    // 读取长度前缀 (4字节大端序)
-    let mut len_buf = [0u8; 4];
-    let n = reader.read(&mut len_buf).await
-        .map_err(|e| NearClipError::Network(format!("Failed to read length prefix: {}", e)))?;
-
-    if n == 0 {
-        // 连接已关闭
-        return Ok(None);
-    }
-
-    if n < 4 {
-        // 部分读取，继续读取剩余字节
-        let mut total = n;
-        while total < 4 {
-            let m = reader.read(&mut len_buf[total..]).await
-                .map_err(|e| NearClipError::Network(format!("Failed to read length prefix: {}", e)))?;
-            if m == 0 {
-                return Ok(None);
-            }
-            total += m;
-        }
-    }
-
-    let len = u32::from_be_bytes(len_buf);
-
-    if len > MAX_MESSAGE_SIZE {
-        return Err(NearClipError::Sync(format!("Message too large: {} bytes", len)));
-    }
-
-    // 读取消息数据
-    let mut data = vec![0u8; len as usize];
-    let mut total = 0;
-    while total < len as usize {
-        let n = reader.read(&mut data[total..]).await
-            .map_err(|e| NearClipError::Network(format!("Failed to read message data: {}", e)))?;
-        if n == 0 {
-            return Err(NearClipError::Network("Connection closed while reading message".to_string()));
-        }
-        total += n;
-    }
-
-    // 反序列化消息
-    let msg = Message::deserialize(&data)
-        .map_err(|e| NearClipError::Sync(format!("Failed to deserialize message: {}", e)))?;
-
-    Ok(Some(msg))
 }
 
 // ============================================================
@@ -181,6 +93,12 @@ async fn receive_framed_message_split(reader: &mut TcpReadHalf) -> Result<Option
 ///     fn on_device_disconnected(&self, device_id: &str) {
 ///         println!("Disconnected: {}", device_id);
 ///     }
+///     fn on_device_unpaired(&self, device_id: &str) {
+///         println!("Unpaired: {}", device_id);
+///     }
+///     fn on_pairing_rejected(&self, device_id: &str, reason: &str) {
+///         println!("Pairing rejected by {}: {}", device_id, reason);
+///     }
 ///     fn on_clipboard_received(&self, content: &[u8], from_device: &str) {
 ///         println!("Clipboard from {}: {} bytes", from_device, content.len());
 ///     }
@@ -195,6 +113,15 @@ pub trait NearClipCallback: Send + Sync {
 
     /// 设备断开连接时调用
     fn on_device_disconnected(&self, device_id: &str);
+
+    /// 远端设备请求取消配对时调用
+    fn on_device_unpaired(&self, device_id: &str);
+
+    /// 配对请求被拒绝时调用
+    ///
+    /// 当连接到的设备没有我们的配对记录时触发，
+    /// 表示需要先移除该设备然后重新配对。
+    fn on_pairing_rejected(&self, device_id: &str, reason: &str);
 
     /// 收到剪贴板内容时调用
     fn on_clipboard_received(&self, content: &[u8], from_device: &str);
@@ -216,6 +143,8 @@ pub struct NoOpCallback;
 impl NearClipCallback for NoOpCallback {
     fn on_device_connected(&self, _device: &DeviceInfo) {}
     fn on_device_disconnected(&self, _device_id: &str) {}
+    fn on_device_unpaired(&self, _device_id: &str) {}
+    fn on_pairing_rejected(&self, _device_id: &str, _reason: &str) {}
     fn on_clipboard_received(&self, _content: &[u8], _from_device: &str) {}
     fn on_sync_error(&self, _error: &NearClipError) {}
 }
@@ -237,24 +166,19 @@ struct ManagerState {
 // NetworkServices - 网络服务组件
 // ============================================================
 
-/// 连接包装器，包含分离的读写半连接和接收任务
-///
-/// 使用分离的读写流避免发送时阻塞在接收任务持有的锁上
-struct ConnectionHandle {
-    /// 写半连接 (用于发送，受 mutex 保护以支持并发发送)
-    writer: Arc<TokioMutex<TcpWriteHalf>>,
-    /// 接收任务句柄 (读半连接由任务独占)
-    recv_task: Option<JoinHandle<()>>,
+/// 接收任务句柄
+struct RecvTaskHandle {
+    /// 接收任务句柄
+    task: JoinHandle<()>,
 }
 
 /// 网络服务组件
 ///
 /// 管理 TCP 服务器、mDNS 广播和发现服务。
+/// 使用 TransportManager 统一管理所有传输连接。
 struct NetworkServices {
     /// TLS 证书
-    tls_cert: TlsCertificate,
-    /// TCP 服务器 (Arc 包装以支持共享给 accept 任务)
-    tcp_server: Option<Arc<TcpServer>>,
+    _tls_cert: TlsCertificate,
     /// 服务器端口
     server_port: u16,
     /// mDNS 广播器
@@ -265,21 +189,23 @@ struct NetworkServices {
     accept_task: Option<JoinHandle<()>>,
     /// 发现事件处理任务
     discovery_task: Option<JoinHandle<()>>,
-    /// 活跃连接 (device_id -> ConnectionHandle)
-    connections: HashMap<String, ConnectionHandle>,
+    /// 传输管理器 - 统一管理所有连接
+    transport_manager: Arc<TransportManager>,
+    /// 接收任务 (device_id -> RecvTaskHandle)
+    recv_tasks: HashMap<String, RecvTaskHandle>,
 }
 
 impl NetworkServices {
     fn new(tls_cert: TlsCertificate) -> Self {
         Self {
-            tls_cert,
-            tcp_server: None,
+            _tls_cert: tls_cert,
             server_port: 0,
             mdns_advertiser: None,
             mdns_discovery: None,
             accept_task: None,
             discovery_task: None,
-            connections: HashMap::new(),
+            transport_manager: Arc::new(TransportManager::new()),
+            recv_tasks: HashMap::new(),
         }
     }
 }
@@ -457,44 +383,55 @@ impl NearClipManager {
 
             tracing::info!("mDNS discovery started");
 
-            // 包装 TCP 服务器为 Arc 以支持共享
-            let tcp_server = Arc::new(tcp_server);
-            let tcp_server_for_accept = tcp_server.clone();
+            // 创建网络服务
+            let mut network_services = NetworkServices::new(tls_cert);
+            network_services.server_port = server_port;
+            network_services.mdns_advertiser = Some(mdns_advertiser);
+            network_services.mdns_discovery = Some(mdns_discovery);
+
+            // 创建 WiFi 传输监听器
+            let wifi_listener = WifiTransportListener::new(tcp_server);
+            let wifi_listener = Arc::new(wifi_listener);
 
             // 创建 accept 任务
             let network_for_accept = self.network.clone();
             let callback_for_accept = self.callback.clone();
             let state_for_accept = self.state.clone();
+            let _my_device_id_for_accept = self.device_id.clone();
+            let wifi_listener_for_accept = wifi_listener.clone();
 
             let accept_task = tokio::spawn(async move {
                 tracing::info!("Accept task started");
                 loop {
-                    match tcp_server_for_accept.accept().await {
-                        Ok(conn) => {
-                            let peer_addr = conn.peer_addr();
-                            tracing::info!(peer = %peer_addr, "Incoming connection accepted");
+                    match wifi_listener_for_accept.accept().await {
+                        Ok(transport) => {
+                            let peer_id = transport.peer_device_id().to_string();
+                            tracing::info!(peer = %peer_id, "Incoming connection accepted");
 
-                            // 使用 peer IP 作为临时标识，收到 PairingRequest 后会更新为真实设备 ID
-                            let temp_device_id = format!("incoming_{}", peer_addr);
+                            // 使用 peer 地址作为临时标识，收到 PairingRequest 后会更新为真实设备 ID
+                            let temp_device_id = peer_id.clone();
 
-                            // 分离连接为读写半连接，避免读写死锁
-                            let (reader, writer) = conn.into_split();
-                            let writer = Arc::new(TokioMutex::new(writer));
+                            // 将 transport 添加到 TransportManager
+                            {
+                                let mut network = network_for_accept.lock().await;
+                                if let Some(ref mut services) = *network {
+                                    services.transport_manager.add_transport(&temp_device_id, transport.clone()).await;
+                                }
+                            }
+
+                            // 启动接收任务
                             let device_id_for_recv = temp_device_id.clone();
                             let callback_for_recv = callback_for_accept.clone();
                             let state_for_recv = state_for_accept.clone();
                             let network_for_recv = network_for_accept.clone();
+                            let transport_for_recv = transport;
 
-                            // 启动接收任务 (独占读半连接，无需锁)
                             let recv_task = tokio::spawn(async move {
-                                let mut reader = reader;
                                 let mut actual_device_id = device_id_for_recv.clone();
                                 tracing::info!(device_id = %device_id_for_recv, "Receive task started");
                                 loop {
-                                    let msg = receive_framed_message_split(&mut reader).await;
-
-                                    match msg {
-                                        Ok(Some(message)) => {
+                                    match transport_for_recv.recv().await {
+                                        Ok(message) => {
                                             tracing::debug!(
                                                 device_id = %actual_device_id,
                                                 msg_type = ?message.msg_type,
@@ -522,10 +459,24 @@ impl NearClipManager {
                                                                 from_id = %payload.device_id,
                                                                 from_name = %payload.device_name,
                                                                 platform = ?payload.platform,
-                                                                "PairingRequest received, adding device"
+                                                                "PairingRequest received"
                                                             );
 
-                                                            // 创建新设备信息并添加到配对设备列表
+                                                            // 自动双向配对
+                                                            let is_new_device = {
+                                                                let state = state_for_recv.read().unwrap();
+                                                                !state.paired_devices.contains_key(&payload.device_id)
+                                                            };
+
+                                                            if is_new_device {
+                                                                tracing::info!(
+                                                                    from_id = %payload.device_id,
+                                                                    from_name = %payload.device_name,
+                                                                    "Auto-pairing new device (mutual pairing)"
+                                                                );
+                                                            }
+
+                                                            // 创建设备信息
                                                             let device = DeviceInfo::new(
                                                                 payload.device_id.clone(),
                                                                 payload.device_name.clone(),
@@ -533,34 +484,40 @@ impl NearClipManager {
                                                             .with_platform(protocol_platform_to_device(payload.platform))
                                                             .with_status(DeviceStatus::Connected);
 
-                                                            // 更新连接映射中的设备 ID
                                                             let old_device_id = device_id_for_recv.clone();
                                                             let new_device_id = payload.device_id.clone();
 
-                                                            // 将设备添加到配对列表
+                                                            // 更新配对设备状态
                                                             {
                                                                 let mut state = state_for_recv.write().unwrap();
                                                                 state.paired_devices.insert(new_device_id.clone(), device.clone());
                                                             }
 
-                                                            // 更新连接映射：将旧的临时 ID 映射移到新的真实设备 ID
+                                                            // 更新 TransportManager 中的设备 ID 映射
                                                             {
                                                                 let mut network = network_for_recv.lock().await;
                                                                 if let Some(ref mut services) = *network {
-                                                                    if let Some(handle) = services.connections.remove(&old_device_id) {
-                                                                        services.connections.insert(new_device_id.clone(), handle);
-                                                                        tracing::info!(
-                                                                            old_id = %old_device_id,
-                                                                            new_id = %new_device_id,
-                                                                            "Connection remapped to real device ID"
-                                                                        );
+                                                                    // 获取旧 ID 的 transport 并重新添加到新 ID
+                                                                    let transports = services.transport_manager.get_transports(&old_device_id).await;
+                                                                    for t in transports {
+                                                                        services.transport_manager.add_transport(&new_device_id, t).await;
                                                                     }
+                                                                    services.transport_manager.remove_device(&old_device_id).await;
+
+                                                                    // 更新 recv_tasks 映射
+                                                                    if let Some(task_handle) = services.recv_tasks.remove(&old_device_id) {
+                                                                        services.recv_tasks.insert(new_device_id.clone(), task_handle);
+                                                                    }
+
+                                                                    tracing::info!(
+                                                                        old_id = %old_device_id,
+                                                                        new_id = %new_device_id,
+                                                                        "Connection remapped to real device ID"
+                                                                    );
                                                                 }
                                                             }
 
                                                             actual_device_id = new_device_id;
-
-                                                            // 触发设备连接回调
                                                             callback_for_recv.on_device_connected(&device);
                                                         }
                                                         Err(e) => {
@@ -577,6 +534,18 @@ impl NearClipManager {
                                                 MessageType::Ack => {
                                                     tracing::debug!(from = %message.device_id, "Ack received");
                                                 }
+                                                MessageType::Unpair => {
+                                                    tracing::info!(
+                                                        from = %message.device_id,
+                                                        "Unpair notification received, removing device"
+                                                    );
+                                                    {
+                                                        let mut state = state_for_recv.write().unwrap();
+                                                        state.paired_devices.remove(&message.device_id);
+                                                    }
+                                                    callback_for_recv.on_device_unpaired(&message.device_id);
+                                                    break;
+                                                }
                                                 _ => {
                                                     tracing::debug!(
                                                         msg_type = ?message.msg_type,
@@ -585,12 +554,8 @@ impl NearClipManager {
                                                 }
                                             }
                                         }
-                                        Ok(None) => {
-                                            tracing::info!(device_id = %actual_device_id, "Connection closed by peer");
-                                            break;
-                                        }
                                         Err(e) => {
-                                            tracing::warn!(device_id = %actual_device_id, error = %e, "Receive error");
+                                            tracing::info!(device_id = %actual_device_id, error = %e, "Connection closed or error");
                                             break;
                                         }
                                     }
@@ -598,35 +563,22 @@ impl NearClipManager {
                                 tracing::info!(device_id = %actual_device_id, "Receive task ended");
                             });
 
-                            // 创建连接句柄
-                            let handle = ConnectionHandle {
-                                writer,
-                                recv_task: Some(recv_task),
-                            };
-
-                            // 存储连接
+                            // 存储接收任务
                             {
                                 let mut network = network_for_accept.lock().await;
                                 if let Some(ref mut services) = *network {
-                                    services.connections.insert(temp_device_id.clone(), handle);
+                                    services.recv_tasks.insert(temp_device_id.clone(), RecvTaskHandle { task: recv_task });
                                     tracing::info!(device_id = %temp_device_id, "Connection stored");
                                 }
                             }
                         }
                         Err(e) => {
                             tracing::warn!(error = %e, "Failed to accept connection");
-                            // 继续尝试接受其他连接
                         }
                     }
                 }
             });
 
-            // 创建网络服务
-            let mut network_services = NetworkServices::new(tls_cert);
-            network_services.tcp_server = Some(tcp_server);
-            network_services.server_port = server_port;
-            network_services.mdns_advertiser = Some(mdns_advertiser);
-            network_services.mdns_discovery = Some(mdns_discovery);
             network_services.accept_task = Some(accept_task);
 
             // 存储网络服务
@@ -677,19 +629,17 @@ impl NearClipManager {
                     tracing::debug!("Discovery task stopped");
                 }
 
-                // 2. 关闭所有连接
-                for (device_id, mut handle) in services.connections.drain() {
-                    // 先停止接收任务
-                    if let Some(recv_task) = handle.recv_task.take() {
-                        recv_task.abort();
-                        tracing::debug!(device_id = %device_id, "Receive task aborted");
-                    }
-                    // 写半连接在被 drop 时会关闭
-                    drop(handle.writer);
-                    tracing::debug!(device_id = %device_id, "Connection closed");
+                // 2. 停止所有接收任务并关闭连接
+                for (device_id, task_handle) in services.recv_tasks.drain() {
+                    task_handle.task.abort();
+                    tracing::debug!(device_id = %device_id, "Receive task aborted");
                 }
 
-                // 3. 停止 mDNS 发现
+                // 3. 关闭 TransportManager 中的所有连接
+                services.transport_manager.close_all().await;
+                tracing::debug!("All transports closed");
+
+                // 4. 停止 mDNS 发现
                 if let Some(ref mut discovery) = services.mdns_discovery {
                     if let Err(e) = discovery.stop().await {
                         tracing::warn!(error = %e, "Failed to stop mDNS discovery");
@@ -697,17 +647,13 @@ impl NearClipManager {
                     tracing::debug!("mDNS discovery stopped");
                 }
 
-                // 4. 停止 mDNS 广播
+                // 5. 停止 mDNS 广播
                 if let Some(ref mut advertiser) = services.mdns_advertiser {
                     if let Err(e) = advertiser.stop().await {
                         tracing::warn!(error = %e, "Failed to stop mDNS advertiser");
                     }
                     tracing::debug!("mDNS advertiser stopped");
                 }
-
-                // 5. TCP 服务器会在 drop 时自动关闭
-                services.tcp_server = None;
-                tracing::debug!("TCP server stopped");
             }
             *network = None;
         }
@@ -782,15 +728,15 @@ impl NearClipManager {
 
         tracing::debug!("sync_clipboard: Acquiring network lock");
 
-        // 发送到所有活跃连接
+        // 使用 TransportManager 广播到所有连接
         let network = self.network.lock().await;
 
         tracing::debug!("sync_clipboard: Network lock acquired");
 
         if let Some(ref services) = *network {
-            let connection_ids: Vec<String> = services.connections.keys().cloned().collect();
+            let device_ids = services.transport_manager.connected_devices().await;
 
-            if connection_ids.is_empty() {
+            if device_ids.is_empty() {
                 tracing::debug!("No active connections, skipping sync");
                 return Ok(());
             }
@@ -798,40 +744,41 @@ impl NearClipManager {
             tracing::info!(
                 content_size = content.len(),
                 channel = ?channel,
-                connection_count = connection_ids.len(),
+                connection_count = device_ids.len(),
                 "Syncing clipboard"
             );
 
-            let mut failed_devices = Vec::new();
-
-            for device_id in &connection_ids {
-                if let Some(handle) = services.connections.get(device_id) {
-                    let mut writer = handle.writer.lock().await;
-                    match send_framed_message_split(&mut *writer, &msg).await {
-                        Ok(_) => {
-                            tracing::debug!(device_id = %device_id, "Sent clipboard");
-                        }
-                        Err(e) => {
-                            tracing::error!(device_id = %device_id, error = %e, "Failed to send clipboard");
-                            failed_devices.push(device_id.clone());
-                        }
-                    }
-                }
-            }
+            // 使用 TransportManager 广播
+            let results = services.transport_manager.broadcast(&msg).await;
 
             drop(network);
 
+            // 处理失败的设备
+            let failed_devices: Vec<String> = results
+                .into_iter()
+                .filter_map(|(device_id, result)| {
+                    if result.is_err() {
+                        tracing::error!(device_id = %device_id, "Failed to send clipboard");
+                        Some(device_id)
+                    } else {
+                        tracing::debug!(device_id = %device_id, "Sent clipboard");
+                        None
+                    }
+                })
+                .collect();
+
             // 移除失败的连接
             if !failed_devices.is_empty() {
-                let mut network = self.network.lock().await;
-                if let Some(ref mut services) = *network {
+                let network = self.network.lock().await;
+                if let Some(ref services) = *network {
                     for device_id in &failed_devices {
-                        if let Some(mut handle) = services.connections.remove(device_id) {
-                            // 停止接收任务
-                            if let Some(recv_task) = handle.recv_task.take() {
-                                recv_task.abort();
-                            }
-                        }
+                        // 停止接收任务
+                        // Note: recv_tasks 需要 &mut，但我们只有 &ref，所以这里暂时跳过
+                        // 接收任务会在连接断开时自动结束
+
+                        // 从 TransportManager 移除
+                        services.transport_manager.remove_device(device_id).await;
+
                         // 更新设备状态
                         let mut state = self.state.write().unwrap();
                         if let Some(device) = state.paired_devices.get_mut(device_id) {
@@ -1043,21 +990,19 @@ impl NearClipManager {
 
         tracing::info!(device_id = %device_id, "Connected to device");
 
-        // 分离连接为读写半连接，避免读写死锁
-        let (reader, writer) = conn.into_split();
-        let writer = Arc::new(TokioMutex::new(writer));
+        // 创建 WifiTransport
+        let transport = Arc::new(WifiTransport::new(device_id.to_string(), conn));
+        let transport_for_recv = transport.clone();
+
         let device_id_for_recv = device_id.to_string();
         let callback_for_recv = self.callback.clone();
 
-        // 启动接收任务 (独占读半连接，无需锁)
+        // 启动接收任务
         let recv_task = tokio::spawn(async move {
-            let mut reader = reader;
             tracing::info!(device_id = %device_id_for_recv, "Receive task started (outgoing connection)");
             loop {
-                let msg = receive_framed_message_split(&mut reader).await;
-
-                match msg {
-                    Ok(Some(message)) => {
+                match transport_for_recv.recv().await {
+                    Ok(message) => {
                         tracing::debug!(
                             device_id = %device_id_for_recv,
                             msg_type = ?message.msg_type,
@@ -1077,6 +1022,24 @@ impl NearClipManager {
                                     &message.device_id,
                                 );
                             }
+                            MessageType::PairingRejection => {
+                                let reason = String::from_utf8_lossy(&message.payload).to_string();
+                                tracing::warn!(
+                                    from = %message.device_id,
+                                    reason = %reason,
+                                    "Pairing rejected by remote device"
+                                );
+                                callback_for_recv.on_pairing_rejected(&message.device_id, &reason);
+                                break;
+                            }
+                            MessageType::Unpair => {
+                                tracing::info!(
+                                    from = %message.device_id,
+                                    "Unpair notification received from remote"
+                                );
+                                callback_for_recv.on_device_unpaired(&message.device_id);
+                                break;
+                            }
                             MessageType::Heartbeat => {
                                 tracing::debug!(from = %message.device_id, "Heartbeat received");
                             }
@@ -1091,12 +1054,8 @@ impl NearClipManager {
                             }
                         }
                     }
-                    Ok(None) => {
-                        tracing::info!(device_id = %device_id_for_recv, "Connection closed by peer");
-                        break;
-                    }
                     Err(e) => {
-                        tracing::warn!(device_id = %device_id_for_recv, error = %e, "Receive error");
+                        tracing::info!(device_id = %device_id_for_recv, error = %e, "Connection closed or error");
                         break;
                     }
                 }
@@ -1104,17 +1063,12 @@ impl NearClipManager {
             tracing::info!(device_id = %device_id_for_recv, "Receive task ended");
         });
 
-        // 创建连接句柄
-        let handle = ConnectionHandle {
-            writer,
-            recv_task: Some(recv_task),
-        };
-
-        // 保存连接
+        // 保存连接到 TransportManager
         {
             let mut network = self.network.lock().await;
             if let Some(ref mut services) = *network {
-                services.connections.insert(device_id.to_string(), handle);
+                services.transport_manager.add_transport(device_id, transport.clone()).await;
+                services.recv_tasks.insert(device_id.to_string(), RecvTaskHandle { task: recv_task });
             }
         }
 
@@ -1138,16 +1092,10 @@ impl NearClipManager {
             if let Ok(payload_bytes) = pairing_payload.serialize() {
                 let pairing_msg = Message::pairing_request(payload_bytes, self.device_id.clone());
 
-                let mut network = self.network.lock().await;
-                if let Some(ref mut services) = *network {
-                    if let Some(handle) = services.connections.get(device_id) {
-                        let mut writer = handle.writer.lock().await;
-                        if let Err(e) = send_framed_message_split(&mut writer, &pairing_msg).await {
-                            tracing::warn!(device_id = %device_id, error = %e, "Failed to send PairingRequest");
-                        } else {
-                            tracing::info!(device_id = %device_id, "PairingRequest sent");
-                        }
-                    }
+                if let Err(e) = transport.send(&pairing_msg).await {
+                    tracing::warn!(device_id = %device_id, error = %e, "Failed to send PairingRequest");
+                } else {
+                    tracing::info!(device_id = %device_id, "PairingRequest sent");
                 }
             }
         }
@@ -1191,16 +1139,14 @@ impl NearClipManager {
         {
             let mut network = self.network.lock().await;
             if let Some(ref mut services) = *network {
-                if let Some(mut handle) = services.connections.remove(device_id) {
-                    // 先停止接收任务
-                    if let Some(recv_task) = handle.recv_task.take() {
-                        recv_task.abort();
-                        tracing::debug!(device_id = %device_id, "Receive task aborted");
-                    }
-                    // 写半连接在被 drop 时会关闭
-                    drop(handle.writer);
-                    tracing::debug!(device_id = %device_id, "Connection closed");
+                // 停止接收任务
+                if let Some(task_handle) = services.recv_tasks.remove(device_id) {
+                    task_handle.task.abort();
+                    tracing::debug!(device_id = %device_id, "Receive task aborted");
                 }
+                // 从 TransportManager 移除并关闭连接
+                services.transport_manager.remove_device(device_id).await;
+                tracing::debug!(device_id = %device_id, "Connection closed");
             }
         }
 
@@ -1214,6 +1160,43 @@ impl NearClipManager {
 
         self.callback.on_device_disconnected(device_id);
 
+        Ok(())
+    }
+
+    /// 取消配对设备
+    ///
+    /// 向目标设备发送取消配对通知，然后断开连接并移除配对关系。
+    /// 对方设备收到通知后也会删除本设备的配对信息。
+    ///
+    /// # 参数
+    ///
+    /// * `device_id` - 设备 ID
+    pub async fn unpair_device(&self, device_id: &str) -> Result<()> {
+        tracing::info!(device_id = %device_id, "Unpairing device");
+
+        // 创建取消配对消息
+        let unpair_msg = Message::unpair(self.device_id.clone());
+
+        // 尝试发送取消配对通知（如果连接存在）
+        {
+            let network = self.network.lock().await;
+            if let Some(ref services) = *network {
+                if let Err(e) = services.transport_manager.send_to_device(device_id, &unpair_msg).await {
+                    // 发送失败不影响取消配对流程
+                    tracing::warn!(device_id = %device_id, error = %e, "Failed to send unpair message");
+                } else {
+                    tracing::debug!(device_id = %device_id, "Unpair message sent");
+                }
+            }
+        }
+
+        // 断开连接（如果已连接）
+        let _ = self.disconnect_device(device_id).await;
+
+        // 从配对设备列表中移除
+        self.remove_paired_device(device_id);
+
+        tracing::info!(device_id = %device_id, "Device unpaired successfully");
         Ok(())
     }
 
@@ -1418,6 +1401,10 @@ mod tests {
         fn on_device_disconnected(&self, device_id: &str) {
             self.disconnected.lock().unwrap().push(device_id.to_string());
         }
+
+        fn on_device_unpaired(&self, _device_id: &str) {}
+
+        fn on_pairing_rejected(&self, _device_id: &str, _reason: &str) {}
 
         fn on_clipboard_received(&self, content: &[u8], from_device: &str) {
             self.clipboard

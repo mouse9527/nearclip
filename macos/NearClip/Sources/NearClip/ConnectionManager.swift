@@ -6,6 +6,7 @@ import AppKit
 
 extension Notification.Name {
     static let devicePaired = Notification.Name("com.nearclip.devicePaired")
+    static let requestAddDevice = Notification.Name("com.nearclip.requestAddDevice")
 }
 
 /// Retry strategy when sync fails after exhausting retries
@@ -39,20 +40,28 @@ enum SyncRetryStrategy: String, CaseIterable {
 
 /// Device information for display in UI
 struct DeviceDisplay: Identifiable, Equatable {
+    enum ConnectionType: Equatable {
+        case wifi
+        case ble
+        case both
+    }
+
     let id: String
     let name: String
     let platform: String
     let isConnected: Bool
     let lastSeen: Date?
     var isPaused: Bool
+    var connectionType: ConnectionType
 
-    init(id: String, name: String, platform: String, isConnected: Bool, lastSeen: Date? = nil, isPaused: Bool = false) {
+    init(id: String, name: String, platform: String, isConnected: Bool, lastSeen: Date? = nil, isPaused: Bool = false, connectionType: ConnectionType = .wifi) {
         self.id = id
         self.name = name
         self.platform = platform
         self.isConnected = isConnected
         self.lastSeen = lastSeen
         self.isPaused = isPaused
+        self.connectionType = connectionType
     }
 }
 
@@ -148,10 +157,20 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var lastSyncTime: Date?
 
+    /// BLE connection status
+    @Published private(set) var bleEnabled = false
+    @Published private(set) var bleConnectedDevices: [String: BleDevice] = [:]
+
     private(set) var nearClipManager: FfiNearClipManager?
     private var isRunning = false
     private var syncInProgress = false
     private var previousStatus: ConnectionStatus = .disconnected
+
+    /// Timer for periodic device list refresh
+    private var refreshTimer: Timer?
+
+    /// BLE Manager for Bluetooth communication
+    private(set) var bleManager: BleManager?
 
     /// Pending content queue for "wait for device" strategy
     private var pendingContent: Data?
@@ -202,6 +221,13 @@ final class ConnectionManager: ObservableObject {
     private init() {
         // Load paired devices from Keychain
         loadPairedDevicesFromKeychain()
+
+        // Initialize BLE manager
+        NSLog("ConnectionManager: Initializing BleManager")
+        bleManager = BleManager()
+        bleManager?.delegate = self
+        bleManager?.startConnectionHealthMonitoring()
+        NSLog("ConnectionManager: BleManager initialized, delegate set")
     }
 
     // MARK: - Public API
@@ -248,6 +274,19 @@ final class ConnectionManager: ObservableObject {
                     persistedDeviceId = generatedId
                     print("Saved new device ID: \(generatedId)")
                 }
+
+                // Configure and start BLE
+                // Use a hash of device ID as public key hash for now
+                // TODO: Get actual public key hash from FFI when available
+                let publicKeyHash = generatedId.data(using: .utf8)?.sha256Hash ?? ""
+                NSLog("ConnectionManager: Configuring BLE with deviceId=\(generatedId)")
+                bleManager?.configure(deviceId: generatedId, publicKeyHash: publicKeyHash)
+                NSLog("ConnectionManager: Starting BLE advertising")
+                bleManager?.startAdvertising()
+                NSLog("ConnectionManager: Starting BLE scanning")
+                bleManager?.startScanning()
+                bleEnabled = true
+                NSLog("ConnectionManager: BLE enabled")
             }
 
             isRunning = true
@@ -278,6 +317,12 @@ final class ConnectionManager: ObservableObject {
             // Refresh device lists
             refreshDeviceLists()
 
+            // Start periodic refresh timer (every 2 seconds)
+            refreshTimer?.invalidate()
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+                self?.refreshDeviceLists()
+            }
+
             print("NearClip service started")
         } catch {
             let errorMessage = String(describing: error)
@@ -290,6 +335,17 @@ final class ConnectionManager: ObservableObject {
 
     /// Stop the NearClip service
     func stop() {
+        // Stop refresh timer
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+
+        // Stop BLE
+        bleManager?.stopScanning()
+        bleManager?.stopAdvertising()
+        bleManager?.stopConnectionHealthMonitoring()
+        bleEnabled = false
+        bleConnectedDevices.removeAll()
+
         nearClipManager?.stop()
         nearClipManager = nil
         isRunning = false
@@ -306,6 +362,56 @@ final class ConnectionManager: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.start()
         }
+    }
+
+    /// Handle network loss - attempt to connect to paired devices via BLE
+    func handleNetworkLost() {
+        guard isRunning else { return }
+
+        print("ConnectionManager: Network lost, attempting BLE fallback for paired devices")
+
+        // Mark all WiFi-connected devices as disconnected (they will be updated if BLE is available)
+        for i in connectedDevices.indices {
+            if connectedDevices[i].connectionType == .wifi {
+                // Check if device is also connected via BLE
+                if bleConnectedDevices[connectedDevices[i].id] != nil {
+                    connectedDevices[i].connectionType = .ble
+                    print("ConnectionManager: Device \(connectedDevices[i].name) switched to BLE")
+                }
+            } else if connectedDevices[i].connectionType == .both {
+                connectedDevices[i].connectionType = .ble
+                print("ConnectionManager: Device \(connectedDevices[i].name) now BLE-only")
+            }
+        }
+
+        // Remove devices that were WiFi-only and not connected via BLE
+        let wifiOnlyDevices = connectedDevices.filter {
+            $0.connectionType == .wifi && bleConnectedDevices[$0.id] == nil
+        }
+        for device in wifiOnlyDevices {
+            print("ConnectionManager: Device \(device.name) lost (WiFi-only, no BLE)")
+        }
+        connectedDevices.removeAll { $0.connectionType == .wifi && bleConnectedDevices[$0.id] == nil }
+
+        // Try to connect to paired devices via BLE if not already connected
+        for device in pairedDevices {
+            if bleConnectedDevices[device.id] == nil {
+                // Check if device was discovered via BLE
+                if bleManager?.discoveredDevices[device.id] != nil {
+                    print("ConnectionManager: Attempting BLE connection to \(device.name)")
+                    bleManager?.connect(deviceId: device.id)
+                } else {
+                    print("ConnectionManager: Device \(device.name) not discovered via BLE, scanning...")
+                }
+            }
+        }
+
+        // Ensure BLE scanning is active to discover devices
+        if bleManager?.isScanning == false {
+            bleManager?.startScanning()
+        }
+
+        updateStatus()
     }
 
     /// Sync clipboard content to connected devices
@@ -326,21 +432,57 @@ final class ConnectionManager: ObservableObject {
         // Set syncing state
         setSyncing(true)
 
-        do {
-            try nearClipManager?.syncClipboard(content: content)
+        // Separate devices by connection type
+        let wifiDevices = activeDevices.filter { $0.connectionType == .wifi || $0.connectionType == .both }
+        let bleOnlyDevices = activeDevices.filter { $0.connectionType == .ble }
+
+        var syncedDevices: [DeviceDisplay] = []
+
+        // Sync via WiFi (preferred)
+        if !wifiDevices.isEmpty {
+            do {
+                try nearClipManager?.syncClipboard(content: content)
+                syncedDevices.append(contentsOf: wifiDevices)
+                print("Clipboard synced via WiFi to \(wifiDevices.count) device(s)")
+            } catch {
+                print("WiFi sync failed: \(error), will try BLE for these devices")
+                // WiFi failed, try BLE for devices that support it
+                for device in wifiDevices {
+                    if isDeviceConnectedViaBle(device.id) {
+                        syncClipboardViaBle(content, to: device.id)
+                        syncedDevices.append(device)
+                    }
+                }
+            }
+        }
+
+        // Sync via BLE for BLE-only devices
+        for device in bleOnlyDevices {
+            syncClipboardViaBle(content, to: device.id)
+            syncedDevices.append(device)
+            print("Clipboard synced via BLE to \(device.name)")
+        }
+
+        if !syncedDevices.isEmpty {
             lastSyncTime = Date()
             lastError = nil
-            print("Clipboard synced to \(activeDevices.count) device(s): \(content.count) bytes")
+            print("Clipboard synced to \(syncedDevices.count) device(s): \(content.count) bytes")
 
-            // Clear syncing state after a brief delay
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-                self?.setSyncing(false)
+            // Record sync history
+            for device in syncedDevices {
+                SyncHistoryManager.shared.recordSent(
+                    deviceId: device.id,
+                    deviceName: device.name,
+                    content: content
+                )
             }
-        } catch {
-            let errorMessage = String(describing: error)
-            print("Failed to sync clipboard: \(errorMessage)")
-            lastError = errorMessage
-            setSyncing(false)
+        } else {
+            lastError = "Failed to sync to any device"
+        }
+
+        // Clear syncing state after a brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            self?.setSyncing(false)
         }
     }
 
@@ -447,12 +589,17 @@ final class ConnectionManager: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
+            // Check if already connected via BLE
+            let isBleConnected = self.bleConnectedDevices[device.id] != nil
+            let connectionType: DeviceDisplay.ConnectionType = isBleConnected ? .both : .wifi
+
             let display = DeviceDisplay(
                 id: device.id,
                 name: device.name,
                 platform: self.platformString(device.platform),
                 isConnected: true,
-                lastSeen: Date()
+                lastSeen: Date(),
+                connectionType: connectionType
             )
 
             // Update connected devices
@@ -495,23 +642,83 @@ final class ConnectionManager: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            // Remove from connected devices
-            let disconnectedDevice = self.connectedDevices.first { $0.id == deviceId }
-            self.connectedDevices.removeAll { $0.id == deviceId }
+            // Check if still connected via BLE
+            let isBleConnected = self.bleConnectedDevices[deviceId] != nil
 
-            // Update paired devices status
-            if let index = self.pairedDevices.firstIndex(where: { $0.id == deviceId }),
-               let device = disconnectedDevice {
-                self.pairedDevices[index] = DeviceDisplay(
-                    id: device.id,
-                    name: device.name,
-                    platform: device.platform,
-                    isConnected: false
-                )
+            if isBleConnected {
+                // WiFi disconnected but BLE still connected, update connection type
+                if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
+                    self.connectedDevices[index].connectionType = .ble
+                }
+                print("Device WiFi disconnected, still connected via BLE: \(deviceId)")
+            } else {
+                // Fully disconnected
+                let disconnectedDevice = self.connectedDevices.first { $0.id == deviceId }
+                self.connectedDevices.removeAll { $0.id == deviceId }
+
+                // Update paired devices status
+                if let index = self.pairedDevices.firstIndex(where: { $0.id == deviceId }),
+                   let device = disconnectedDevice {
+                    self.pairedDevices[index] = DeviceDisplay(
+                        id: device.id,
+                        name: device.name,
+                        platform: device.platform,
+                        isConnected: false
+                    )
+                }
+                print("Device disconnected: \(deviceId)")
             }
 
             self.updateStatus()
-            print("Device disconnected: \(deviceId)")
+        }
+    }
+
+    func handleDeviceUnpaired(_ deviceId: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            print("Device unpaired by remote: \(deviceId)")
+
+            // Remove from connected devices
+            self.connectedDevices.removeAll { $0.id == deviceId }
+
+            // Remove from paired devices list
+            self.pairedDevices.removeAll { $0.id == deviceId }
+
+            // Remove from Keychain storage
+            self.removePairedDeviceFromKeychain(deviceId)
+
+            self.updateStatus()
+        }
+    }
+
+    func handlePairingRejected(_ deviceId: String, reason: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            print("Pairing rejected by device: \(deviceId), reason: \(reason)")
+
+            // Get device name for user-friendly message
+            let deviceName = self.pairedDevices.first { $0.id == deviceId }?.name ?? deviceId
+
+            // Remove from paired devices since the remote doesn't recognize us
+            self.pairedDevices.removeAll { $0.id == deviceId }
+            self.connectedDevices.removeAll { $0.id == deviceId }
+
+            // Remove from Keychain storage
+            self.removePairedDeviceFromKeychain(deviceId)
+
+            // Remove from FFI manager
+            self.nearClipManager?.removePairedDevice(deviceId: deviceId)
+
+            // Show user notification about the rejection
+            NotificationManager.shared.showPairingRejectedNotification(
+                deviceName: deviceName,
+                reason: reason
+            )
+
+            self.lastError = "Pairing rejected: \(reason)"
+            self.updateStatus()
         }
     }
 
@@ -525,13 +732,22 @@ final class ConnectionManager: ObservableObject {
             // Write to local clipboard (markAsRemote prevents sync loop)
             let success = ClipboardWriter.shared.write(content)
 
+            // Get device name for history and notification
+            let deviceName = self.connectedDevices.first { $0.id == deviceId }?.name ?? deviceId
+
             if success {
                 self.lastSyncTime = Date()
                 self.lastError = nil
                 print("Received and wrote clipboard from \(deviceId): \(content.count) bytes")
 
+                // Record in sync history
+                SyncHistoryManager.shared.recordReceived(
+                    deviceId: deviceId,
+                    deviceName: deviceName,
+                    content: content
+                )
+
                 // Show notification
-                let deviceName = self.connectedDevices.first { $0.id == deviceId }?.name ?? deviceId
                 let contentPreview = String(data: content, encoding: .utf8)
                 NotificationManager.shared.showSyncSuccessNotification(
                     fromDevice: deviceName,
@@ -540,6 +756,14 @@ final class ConnectionManager: ObservableObject {
             } else {
                 self.lastError = "Failed to write clipboard"
                 print("Failed to write clipboard from \(deviceId)")
+
+                // Record error in sync history
+                SyncHistoryManager.shared.recordError(
+                    direction: .received,
+                    deviceId: deviceId,
+                    deviceName: deviceName,
+                    errorMessage: "Failed to write clipboard"
+                )
             }
 
             // Clear syncing state after a brief delay
@@ -733,8 +957,16 @@ final class ConnectionManager: ObservableObject {
         return true
     }
 
-    /// Remove a paired device (removes from Keychain and updates FFI)
+    /// Remove a paired device (sends unpair notification to remote device, removes from Keychain and updates FFI)
     func removePairedDevice(_ deviceId: String) {
+        // Unpair device via FFI (sends notification to remote device and removes from FFI)
+        do {
+            try nearClipManager?.unpairDevice(deviceId: deviceId)
+            print("ConnectionManager: Unpaired device via FFI: \(deviceId)")
+        } catch {
+            print("ConnectionManager: Failed to unpair device via FFI: \(deviceId), error: \(error)")
+        }
+
         // Remove from Keychain
         removePairedDeviceFromKeychain(deviceId)
 
@@ -746,9 +978,6 @@ final class ConnectionManager: ObservableObject {
         // Update local list
         pairedDevices.removeAll { $0.id == deviceId }
         connectedDevices.removeAll { $0.id == deviceId }
-
-        // Update FFI if available
-        nearClipManager?.removePairedDevice(deviceId: deviceId)
 
         updateStatus()
     }
@@ -783,11 +1012,138 @@ final class NearClipCallbackHandler: FfiNearClipCallback {
         manager?.handleDeviceDisconnected(deviceId)
     }
 
+    func onDeviceUnpaired(deviceId: String) {
+        manager?.handleDeviceUnpaired(deviceId)
+    }
+
+    func onPairingRejected(deviceId: String, reason: String) {
+        manager?.handlePairingRejected(deviceId, reason: reason)
+    }
+
     func onClipboardReceived(content: Data, fromDevice: String) {
         manager?.handleClipboardReceived(content, from: fromDevice)
     }
 
     func onSyncError(errorMessage: String) {
         manager?.handleSyncError(errorMessage)
+    }
+}
+
+// MARK: - BleManagerDelegate
+
+extension ConnectionManager: BleManagerDelegate {
+
+    func bleManager(_ manager: BleManager, didDiscoverDevice device: BleDevice) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            print("BLE: Discovered device: \(device.id)")
+
+            // Check if this is a paired device and not already connected via BLE
+            if self.pairedDevices.contains(where: { $0.id == device.id }) {
+                // Only connect if not already connected via BLE
+                if self.bleConnectedDevices[device.id] == nil {
+                    print("BLE: Auto-connecting to paired device: \(device.id)")
+                    manager.connect(deviceId: device.id)
+                }
+            }
+        }
+    }
+
+    func bleManager(_ manager: BleManager, didLoseDevice deviceId: String) {
+        DispatchQueue.main.async { [weak self] in
+            self?.bleConnectedDevices.removeValue(forKey: deviceId)
+            print("BLE: Lost device: \(deviceId)")
+        }
+    }
+
+    func bleManager(_ manager: BleManager, didConnectDevice deviceId: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            NSLog("ConnectionManager: BLE didConnectDevice called for: \(deviceId)")
+
+            if let device = manager.connectedDevices[deviceId] {
+                self.bleConnectedDevices[deviceId] = device
+                NSLog("ConnectionManager: Added to bleConnectedDevices: \(deviceId)")
+            } else {
+                NSLog("ConnectionManager: Warning - device not found in manager.connectedDevices: \(deviceId)")
+            }
+
+            print("BLE: Connected to device: \(deviceId)")
+
+            // If WiFi connection is not available, use BLE
+            if !self.connectedDevices.contains(where: { $0.id == deviceId }) {
+                // Get device info from paired devices if available
+                let pairedDevice = self.pairedDevices.first { $0.id == deviceId }
+                let deviceName = pairedDevice?.name ?? "BLE Device"
+                let platform = pairedDevice?.platform ?? "Unknown"
+
+                // Create a DeviceDisplay for the BLE-connected device
+                let display = DeviceDisplay(
+                    id: deviceId,
+                    name: deviceName,
+                    platform: platform,
+                    isConnected: true,
+                    lastSeen: Date(),
+                    connectionType: .ble
+                )
+
+                // Add to connected devices if not already present via WiFi
+                self.connectedDevices.append(display)
+                self.updateStatus()
+                NSLog("ConnectionManager: Added BLE device to connectedDevices: \(deviceName) (\(deviceId)), total: \(self.connectedDevices.count)")
+                print("BLE: Added device to connected list: \(deviceName) (\(deviceId))")
+            } else {
+                // Device already connected via WiFi, update to .both
+                if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
+                    self.connectedDevices[index].connectionType = .both
+                    NSLog("ConnectionManager: Updated device to .both: \(deviceId)")
+                    print("BLE: Device already connected via WiFi, updated to .both: \(deviceId)")
+                }
+            }
+        }
+    }
+
+    func bleManager(_ manager: BleManager, didDisconnectDevice deviceId: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.bleConnectedDevices.removeValue(forKey: deviceId)
+            print("BLE: Disconnected from device: \(deviceId)")
+
+            // Update connection type if device was connected via both
+            if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
+                if self.connectedDevices[index].connectionType == .both {
+                    self.connectedDevices[index].connectionType = .wifi
+                } else if self.connectedDevices[index].connectionType == .ble {
+                    // BLE-only device disconnected, remove from list
+                    self.connectedDevices.remove(at: index)
+                    self.updateStatus()
+                }
+            }
+        }
+    }
+
+    func bleManager(_ manager: BleManager, didReceiveData data: Data, fromDevice deviceId: String) {
+        print("BLE: Received \(data.count) bytes from \(deviceId)")
+
+        // Handle received clipboard data
+        handleClipboardReceived(data, from: deviceId)
+    }
+
+    func bleManager(_ manager: BleManager, didFailWithError error: Error, forDevice deviceId: String?) {
+        print("BLE: Error for device \(deviceId ?? "unknown"): \(error.localizedDescription)")
+        lastError = "BLE: \(error.localizedDescription)"
+    }
+
+    // MARK: - BLE Public API
+
+    /// Send clipboard data via BLE to a specific device
+    func syncClipboardViaBle(_ content: Data, to deviceId: String) {
+        bleManager?.sendData(content, to: deviceId)
+    }
+
+    /// Check if a device is connected via BLE
+    func isDeviceConnectedViaBle(_ deviceId: String) -> Bool {
+        return bleConnectedDevices[deviceId] != nil
     }
 }

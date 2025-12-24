@@ -5,6 +5,8 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,6 +22,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.nearclip.ConnectionManager
 import com.nearclip.LocalNearClipService
+import com.nearclip.data.SyncDirection
+import com.nearclip.data.SyncRecord
 import com.nearclip.ffi.DeviceStatus
 import com.nearclip.service.NearClipService
 import java.text.SimpleDateFormat
@@ -35,11 +39,33 @@ fun HomeScreen(
     val context = LocalContext.current
     val service = LocalNearClipService.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val isRunning by connectionManager.isRunning.collectAsState()
     val pairedDevices by connectionManager.pairedDevices.collectAsState()
     val connectedDevices by connectionManager.connectedDevices.collectAsState()
     val lastReceivedClipboard by connectionManager.lastReceivedClipboard.collectAsState()
     val lastError by connectionManager.lastError.collectAsState()
+
+    // Service running state - assume running if service not yet bound (auto-start)
+    var serviceRunning by remember { mutableStateOf(true) }
+
+    // Collect sync history from service
+    val syncHistory by remember(service) {
+        service?.getSyncHistoryRepository()?.syncHistory
+            ?: kotlinx.coroutines.flow.flowOf(emptyList())
+    }.collectAsState(initial = emptyList())
+
+    // Refresh devices when service becomes available or screen becomes visible
+    LaunchedEffect(service) {
+        if (service != null) {
+            serviceRunning = service.isRunning()
+            connectionManager.refreshFromService(service)
+            // Periodically refresh to keep UI in sync with service state
+            while (true) {
+                kotlinx.coroutines.delay(2000)
+                serviceRunning = service.isRunning()
+                connectionManager.refreshFromService(service)
+            }
+        }
+    }
 
     // Refresh devices when screen becomes visible (e.g., returning from PairingScreen)
     DisposableEffect(lifecycleOwner) {
@@ -81,18 +107,19 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
             // Status Card
             StatusCard(
-                isRunning = isRunning,
+                isRunning = serviceRunning,
                 connectedCount = connectedDevices.size,
                 onToggle = {
-                    if (isRunning) {
+                    if (serviceRunning) {
                         NearClipService.stopService(context)
-                        connectionManager.stop()
+                        serviceRunning = false
                     } else {
                         NearClipService.startService(context)
-                        connectionManager.start()
+                        serviceRunning = true
                     }
                 },
                 onSyncNow = {
@@ -101,21 +128,6 @@ fun HomeScreen(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
-
-            // Last received clipboard
-            AnimatedVisibility(
-                visible = lastReceivedClipboard != null,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                lastReceivedClipboard?.let { (content, fromDevice) ->
-                    LastSyncCard(
-                        content = content.toString(Charsets.UTF_8),
-                        fromDevice = fromDevice
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-            }
 
             // Error message
             AnimatedVisibility(
@@ -131,7 +143,7 @@ fun HomeScreen(
 
             // Devices Section
             Text(
-                text = "Paired Devices",
+                text = "已配对设备",
                 style = MaterialTheme.typography.titleMedium
             )
 
@@ -140,32 +152,74 @@ fun HomeScreen(
             if (pairedDevices.isEmpty()) {
                 EmptyDevicesCard(onAddDevice = onNavigateToPairing)
             } else {
-                LazyColumn {
-                    items(pairedDevices) { device ->
-                        DeviceCard(
-                            name = device.name,
-                            platform = device.platform.name,
-                            status = device.status,
-                            onConnect = {
-                                // Use service's manager for connection to ensure sync uses same manager
-                                service?.connectDevice(device.id)
-                                // Delay refresh since connect is async
-                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                    connectionManager.refreshFromService(service)
-                                }, 500)
-                            },
-                            onDisconnect = {
-                                service?.disconnectDevice(device.id)
-                                // Delay refresh since disconnect is async
-                                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
-                                    connectionManager.refreshFromService(service)
-                                }, 500)
-                            }
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                    }
+                pairedDevices.forEach { device ->
+                    DeviceCard(
+                        name = device.name,
+                        platform = device.platform.name,
+                        status = device.status,
+                        onConnect = {
+                            // Use service's manager for connection to ensure sync uses same manager
+                            service?.connectDevice(device.id)
+                            // Delay refresh since connect is async
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                connectionManager.refreshFromService(service)
+                            }, 500)
+                        },
+                        onDisconnect = {
+                            service?.disconnectDevice(device.id)
+                            // Delay refresh since disconnect is async
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                connectionManager.refreshFromService(service)
+                            }, 500)
+                        }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Sync History Section
+            Text(
+                text = "同步记录",
+                style = MaterialTheme.typography.titleMedium
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (syncHistory.isEmpty()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(32.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "暂无同步记录",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                syncHistory.take(10).forEach { record ->
+                    SyncHistoryItem(record = record)
+                    Spacer(modifier = Modifier.height(6.dp))
+                }
+            }
+
+            // Bottom padding for FAB
+            Spacer(modifier = Modifier.height(80.dp))
         }
     }
 }
@@ -410,11 +464,11 @@ fun EmptyDevicesCard(onAddDevice: () -> Unit) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
-                text = "No paired devices",
+                text = "暂无配对设备",
                 style = MaterialTheme.typography.bodyLarge
             )
             Text(
-                text = "Add a device to start syncing clipboards",
+                text = "添加设备以开始同步剪贴板",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -422,8 +476,90 @@ fun EmptyDevicesCard(onAddDevice: () -> Unit) {
             Button(onClick = onAddDevice) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Add Device")
+                Text("添加设备")
             }
+        }
+    }
+}
+
+@Composable
+fun SyncHistoryItem(record: SyncRecord) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = if (record.success)
+                MaterialTheme.colorScheme.surface
+            else
+                MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Direction icon
+            Icon(
+                imageVector = when {
+                    !record.success -> Icons.Default.Error
+                    record.direction == SyncDirection.SENT -> Icons.Default.Upload
+                    else -> Icons.Default.Download
+                },
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = when {
+                    !record.success -> MaterialTheme.colorScheme.error
+                    record.direction == SyncDirection.SENT -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.secondary
+                }
+            )
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                // Device name and direction
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (record.direction == SyncDirection.SENT) "发送到" else "接收自",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = record.deviceName,
+                        style = MaterialTheme.typography.labelMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Content preview
+                if (record.contentPreview.isNotEmpty()) {
+                    Text(
+                        text = record.contentPreview,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (!record.success && record.errorMessage != null) {
+                    Text(
+                        text = record.errorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+
+            // Timestamp
+            Text(
+                text = record.getRelativeTime(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }

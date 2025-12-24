@@ -6,6 +6,7 @@ members = [
     "crates/nearclip-ble",
     "crates/nearclip-crypto",
     "crates/nearclip-sync",
+    "crates/nearclip-transport",
     "crates/nearclip-ffi",
 ]
 
@@ -65,4 +66,8 @@ nearclip-net = { path = "crates/nearclip-net" }
 nearclip-ble = { path = "crates/nearclip-ble" }
 nearclip-crypto = { path = "crates/nearclip-crypto" }
 nearclip-sync = { path = "crates/nearclip-sync" }
+nearclip-transport = { path = "crates/nearclip-transport" }
 nearclip-ffi = { path = "crates/nearclip-ffi" }
+
+# Async trait
+async-trait = "0.1"

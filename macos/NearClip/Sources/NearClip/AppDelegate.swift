@@ -104,10 +104,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             print("AppDelegate: Wait for device requested from notification")
             self?.connectionManager?.executeWaitForDeviceStrategy()
         }
+
+        // Listen for add device request from settings
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAddDeviceRequest),
+            name: .requestAddDevice,
+            object: nil
+        )
+    }
+
+    @objc private func handleAddDeviceRequest() {
+        addDevice()
     }
 
     private func setupNetworkMonitor() {
         networkMonitor = NetworkMonitor.shared
+
+        // Handle network loss - switch to BLE for paired devices
+        networkMonitor?.onNetworkLost = { [weak self] in
+            print("AppDelegate: Network lost, attempting BLE fallback")
+            self?.connectionManager?.handleNetworkLost()
+        }
 
         // Handle network recovery - restart service to reconnect
         networkMonitor?.onNetworkRestored = { [weak self] in

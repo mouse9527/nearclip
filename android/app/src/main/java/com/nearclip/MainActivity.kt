@@ -1,14 +1,19 @@
 package com.nearclip
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -32,6 +37,19 @@ class MainActivity : ComponentActivity() {
     private val serviceState = mutableStateOf<NearClipService?>(null)
     private var isBound = false
 
+    // BLE permission launcher
+    private val blePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.all { it.value }
+        if (allGranted) {
+            android.util.Log.i("MainActivity", "BLE permissions granted, starting BLE")
+            nearClipService?.startBle()
+        } else {
+            android.util.Log.w("MainActivity", "BLE permissions denied")
+        }
+    }
+
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as NearClipService.LocalBinder
@@ -49,6 +67,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Auto-start sync service on app launch
+        NearClipService.startService(this)
+        android.util.Log.i("MainActivity", "Auto-started NearClipService on app launch")
+
+        // Request BLE permissions
+        requestBlePermissions()
 
         // Check if launched from clipboard sync notification
         handleSyncIntent(intent)
@@ -111,6 +136,25 @@ class MainActivity : ComponentActivity() {
         if (isBound) {
             unbindService(serviceConnection)
             isBound = false
+        }
+    }
+
+    private fun requestBlePermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val permissions = arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_ADVERTISE,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+            val notGranted = permissions.filter {
+                ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+            }
+            if (notGranted.isNotEmpty()) {
+                blePermissionLauncher.launch(notGranted.toTypedArray())
+            } else {
+                // Already granted, start BLE
+                nearClipService?.startBle()
+            }
         }
     }
 }

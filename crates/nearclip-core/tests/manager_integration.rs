@@ -65,6 +65,22 @@ impl NearClipCallback for TestCallback {
             .push(device_id.to_string());
     }
 
+    fn on_device_unpaired(&self, device_id: &str) {
+        // Treat unpair as disconnect for test purposes
+        self.disconnected
+            .lock()
+            .unwrap()
+            .push(device_id.to_string());
+    }
+
+    fn on_pairing_rejected(&self, device_id: &str, _reason: &str) {
+        // Treat rejection as a form of disconnect for test purposes
+        self.disconnected
+            .lock()
+            .unwrap()
+            .push(device_id.to_string());
+    }
+
     fn on_clipboard_received(&self, content: &[u8], from_device: &str) {
         self.clipboard_received
             .lock()

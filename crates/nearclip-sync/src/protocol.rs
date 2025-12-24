@@ -125,6 +125,12 @@ pub enum MessageType {
     /// payload 包含对方公钥和确认信息
     PairingResponse,
 
+    /// 配对拒绝
+    ///
+    /// 当收到来自未配对设备的连接请求时发送
+    /// 表示对方需要先移除本设备再重新配对
+    PairingRejection,
+
     /// 心跳保活
     ///
     /// payload 通常为空，用于维持连接
@@ -135,6 +141,11 @@ pub enum MessageType {
     ///
     /// payload 可包含被确认消息的标识
     Ack,
+
+    /// 取消配对通知
+    ///
+    /// 通知对方设备删除配对关系
+    Unpair,
 }
 
 impl MessageType {
@@ -144,8 +155,10 @@ impl MessageType {
             MessageType::ClipboardSync => "clipboard_sync",
             MessageType::PairingRequest => "pairing_request",
             MessageType::PairingResponse => "pairing_response",
+            MessageType::PairingRejection => "pairing_rejection",
             MessageType::Heartbeat => "heartbeat",
             MessageType::Ack => "ack",
+            MessageType::Unpair => "unpair",
         }
     }
 
@@ -303,6 +316,46 @@ impl Message {
         Self::new(MessageType::Ack, payload, device_id)
     }
 
+    /// 创建取消配对消息
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - 发送方设备 ID
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nearclip_sync::Message;
+    ///
+    /// let msg = Message::unpair("device-123".to_string());
+    /// assert!(msg.payload.is_empty());
+    /// ```
+    pub fn unpair(device_id: String) -> Self {
+        Self::new(MessageType::Unpair, Vec::new(), device_id)
+    }
+
+    /// 创建配对拒绝消息
+    ///
+    /// 当收到来自未配对设备的连接请求时使用，
+    /// 通知对方需要先移除本设备再重新配对。
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - 发送方设备 ID
+    /// * `reason` - 拒绝原因（可选）
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use nearclip_sync::Message;
+    ///
+    /// let msg = Message::pairing_rejection("device-123".to_string(), Some("Device not in paired list"));
+    /// ```
+    pub fn pairing_rejection(device_id: String, reason: Option<&str>) -> Self {
+        let payload = reason.map(|r| r.as_bytes().to_vec()).unwrap_or_default();
+        Self::new(MessageType::PairingRejection, payload, device_id)
+    }
+
     /// 序列化为 MessagePack 字节
     ///
     /// # Returns
@@ -381,6 +434,7 @@ mod tests {
         assert_eq!(MessageType::PairingResponse.as_str(), "pairing_response");
         assert_eq!(MessageType::Heartbeat.as_str(), "heartbeat");
         assert_eq!(MessageType::Ack.as_str(), "ack");
+        assert_eq!(MessageType::Unpair.as_str(), "unpair");
     }
 
     #[test]
@@ -408,12 +462,21 @@ mod tests {
             MessageType::PairingResponse,
             MessageType::Heartbeat,
             MessageType::Ack,
+            MessageType::Unpair,
         ];
         for msg_type in types {
             let serialized = rmp_serde::to_vec(&msg_type).unwrap();
             let deserialized: MessageType = rmp_serde::from_slice(&serialized).unwrap();
             assert_eq!(msg_type, deserialized);
         }
+    }
+
+    #[test]
+    fn test_unpair_convenience() {
+        let msg = Message::unpair("device-unpair".to_string());
+        assert_eq!(msg.msg_type, MessageType::Unpair);
+        assert!(msg.payload.is_empty());
+        assert_eq!(msg.device_id, "device-unpair");
     }
 
     #[test]
