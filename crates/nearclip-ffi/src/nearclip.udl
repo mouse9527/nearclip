@@ -78,6 +78,14 @@ dictionary FfiSyncHistoryEntry {
     string? error_message;
 };
 
+// Discovered device info for BLE scanning
+dictionary FfiDiscoveredDevice {
+    string peripheral_uuid;
+    string? device_name;
+    i16 rssi;
+    string? public_key_hash;
+};
+
 // Callback interface for receiving events
 callback interface FfiNearClipCallback {
     void on_device_connected(FfiDeviceInfo device);
@@ -86,6 +94,10 @@ callback interface FfiNearClipCallback {
     void on_pairing_rejected(string device_id, string reason);
     void on_clipboard_received(bytes content, string from_device);
     void on_sync_error(string error_message);
+
+    // BLE discovery callbacks (for BleController integration)
+    void on_device_discovered(FfiDiscoveredDevice device);
+    void on_device_lost(string peripheral_uuid);
 };
 
 // BLE sender callback interface - platform implements this to provide BLE send capability
@@ -99,6 +111,33 @@ callback interface FfiBleSender {
 
     // Get the negotiated MTU for a device (return 0 for default)
     u32 get_mtu(string device_id);
+};
+
+// BLE hardware callback interface - platform implements this to provide BLE hardware access
+// This is the new interface that replaces FfiBleSender for full BLE control
+callback interface FfiBleHardware {
+    // Scanning
+    void start_scan();
+    void stop_scan();
+
+    // Connection management
+    void connect(string peripheral_uuid);
+    void disconnect(string peripheral_uuid);
+
+    // Data transfer
+    // Returns empty string on success, error message on failure
+    string write_data(string peripheral_uuid, bytes data);
+
+    // Connection info
+    u32 get_mtu(string peripheral_uuid);
+    boolean is_connected(string peripheral_uuid);
+
+    // Advertising (for peripheral mode)
+    void start_advertising();
+    void stop_advertising();
+
+    // Configuration
+    void configure(string device_id, string public_key_hash);
 };
 
 // Main manager interface
@@ -150,7 +189,16 @@ interface FfiNearClipManager {
     void on_ble_connection_changed(string device_id, boolean connected);
 
     // Set BLE sender (optional, for platforms that support BLE)
+    // Deprecated: Use set_ble_hardware instead
     void set_ble_sender(FfiBleSender sender);
+
+    // Set BLE hardware interface (new, replaces set_ble_sender)
+    // Platform clients call this to provide full BLE hardware access
+    void set_ble_hardware(FfiBleHardware hardware);
+
+    // BLE discovery control (requires set_ble_hardware)
+    void start_discovery();
+    void stop_discovery();
 
     // History management
     [Throws=NearClipError]

@@ -34,7 +34,7 @@ use tokio::task::JoinHandle;
 
 mod ble_hardware_bridge;
 mod ble_recv_task;
-use ble_hardware_bridge::{BleHardwareBridge, FfiBleHardware};
+use ble_hardware_bridge::BleHardwareBridge;
 use ble_recv_task::spawn_ble_recv_task;
 
 // ============================================================
@@ -45,10 +45,9 @@ use ble_recv_task::spawn_ble_recv_task;
 #[derive(Debug, Clone)]
 pub struct FfiDiscoveredDevice {
     pub peripheral_uuid: String,
-    pub device_id: String,
-    pub public_key_hash: String,
-    pub rssi: i32,
-    pub last_seen_ms: i64,
+    pub device_name: Option<String>,
+    pub rssi: i16,
+    pub public_key_hash: Option<String>,
 }
 
 /// BLE Controller configuration
@@ -105,10 +104,9 @@ impl BleControllerCallback for BleControllerCallbackBridge {
     fn on_device_discovered(&self, device: ControllerDiscoveredDevice) {
         let ffi_device = FfiDiscoveredDevice {
             peripheral_uuid: device.peripheral_uuid.clone(),
-            device_id: device.device_id.clone(),
-            public_key_hash: device.public_key_hash.clone(),
-            rssi: device.rssi,
-            last_seen_ms: device.last_seen_ms,
+            device_name: Some(device.device_id.clone()), // Use device_id as name for now
+            rssi: device.rssi as i16,
+            public_key_hash: Some(device.public_key_hash.clone()),
         };
 
         // Store in discovered devices
@@ -120,9 +118,8 @@ impl BleControllerCallback for BleControllerCallbackBridge {
             devices.insert(peripheral_uuid, ffi_device_clone);
         });
 
-        // Note: FfiNearClipCallback doesn't have on_device_discovered yet
-        // Will be added when platform code is updated
-        // self.ffi_callback.on_device_discovered(ffi_device);
+        // Notify platform via callback
+        self.ffi_callback.on_device_discovered(ffi_device);
     }
 
     fn on_device_lost(&self, peripheral_uuid: String) {
@@ -133,9 +130,8 @@ impl BleControllerCallback for BleControllerCallbackBridge {
             devices.remove(&peripheral_uuid_clone);
         });
 
-        // Note: FfiNearClipCallback doesn't have on_device_lost yet
-        // Will be added when platform code is updated
-        // self.ffi_callback.on_device_lost(peripheral_uuid);
+        // Notify platform via callback
+        self.ffi_callback.on_device_lost(peripheral_uuid);
     }
 
     fn on_device_connected(&self, device_id: String) {
@@ -311,6 +307,12 @@ pub trait FfiNearClipCallback: Send + Sync {
 
     /// Called when a sync error occurs
     fn on_sync_error(&self, error_message: String);
+
+    /// Called when a BLE device is discovered during scanning
+    fn on_device_discovered(&self, device: FfiDiscoveredDevice);
+
+    /// Called when a previously discovered BLE device is lost
+    fn on_device_lost(&self, peripheral_uuid: String);
 }
 
 // ============================================================
@@ -340,6 +342,48 @@ pub trait FfiBleSender: Send + Sync {
     ///
     /// Return 0 to use the default MTU.
     fn get_mtu(&self, device_id: String) -> u32;
+}
+
+// ============================================================
+// FFI BLE Hardware Trait
+// ============================================================
+
+/// BLE hardware callback interface
+///
+/// Platform clients implement this trait to provide full BLE hardware access.
+/// This is the new interface that replaces FfiBleSender for full BLE control.
+pub trait FfiBleHardware: Send + Sync {
+    /// Start BLE scanning for nearby devices
+    fn start_scan(&self);
+
+    /// Stop BLE scanning
+    fn stop_scan(&self);
+
+    /// Connect to a BLE peripheral
+    fn connect(&self, peripheral_uuid: String);
+
+    /// Disconnect from a BLE peripheral
+    fn disconnect(&self, peripheral_uuid: String);
+
+    /// Write data to a BLE peripheral
+    ///
+    /// Returns empty string on success, error message on failure
+    fn write_data(&self, peripheral_uuid: String, data: Vec<u8>) -> String;
+
+    /// Get the negotiated MTU for a peripheral
+    fn get_mtu(&self, peripheral_uuid: String) -> u32;
+
+    /// Check if connected to a peripheral
+    fn is_connected(&self, peripheral_uuid: String) -> bool;
+
+    /// Start BLE advertising (peripheral mode)
+    fn start_advertising(&self);
+
+    /// Stop BLE advertising
+    fn stop_advertising(&self);
+
+    /// Configure the BLE hardware with device info
+    fn configure(&self, device_id: String, public_key_hash: String);
 }
 
 /// Bridge that adapts FfiBleSender to the transport layer's BleSender trait
@@ -689,6 +733,33 @@ impl FfiNearClipManager {
         tracing::info!("BLE hardware interface set and controller initialized");
     }
 
+    /// Start BLE device discovery
+    ///
+    /// Requires set_ble_hardware to be called first.
+    /// Discovered devices will be reported via on_device_discovered callback.
+    pub fn start_discovery(&self) {
+        self.runtime.block_on(async {
+            let controller = self.ble_controller.read().await;
+            if let Some(ref controller) = *controller {
+                let _ = controller.start_scan().await;
+                tracing::info!("BLE discovery started");
+            } else {
+                tracing::warn!("Cannot start discovery: BLE hardware not set");
+            }
+        });
+    }
+
+    /// Stop BLE device discovery
+    pub fn stop_discovery(&self) {
+        self.runtime.block_on(async {
+            let controller = self.ble_controller.read().await;
+            if let Some(ref controller) = *controller {
+                controller.stop_scan().await;
+                tracing::info!("BLE discovery stopped");
+            }
+        });
+    }
+
     /// Called by platform when BLE data is received
     ///
     /// Platform clients call this when they receive BLE data from a device.
@@ -1036,6 +1107,14 @@ mod tests {
         fn on_pairing_rejected(&self, device_id: String, _reason: String) {
             // Treat rejection as a form of disconnect for test purposes
             self.disconnected.lock().unwrap().push(device_id);
+        }
+
+        fn on_device_discovered(&self, _device: FfiDiscoveredDevice) {
+            // Not tracked in tests
+        }
+
+        fn on_device_lost(&self, _peripheral_uuid: String) {
+            // Not tracked in tests
         }
     }
 
