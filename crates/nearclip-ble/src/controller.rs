@@ -84,6 +84,7 @@ pub struct DiscoveredDevice {
 
 /// Connected BLE device
 #[derive(Debug, Clone)]
+#[allow(dead_code)] // Fields reserved for connection management and health check
 struct ConnectedDevice {
     peripheral_uuid: String,
     device_id: String,

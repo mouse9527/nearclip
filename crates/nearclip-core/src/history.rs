@@ -97,7 +97,7 @@ impl HistoryManager {
     /// # Arguments
     ///
     /// * `limit` - Maximum number of entries to return
-    pub fn get_recent(&self, limit: usize) -> Result<Vec<SyncHistoryEntry>> {
+    pub fn get_recent(&self, _limit: usize) -> Result<Vec<SyncHistoryEntry>> {
         // TODO: Implement SQLite query
         // SELECT * FROM sync_history ORDER BY timestamp_ms DESC LIMIT ?
 
@@ -105,7 +105,7 @@ impl HistoryManager {
     }
 
     /// Get history entries for a specific device
-    pub fn get_by_device(&self, device_id: &str, limit: usize) -> Result<Vec<SyncHistoryEntry>> {
+    pub fn get_by_device(&self, _device_id: &str, _limit: usize) -> Result<Vec<SyncHistoryEntry>> {
         // TODO: Implement SQLite query
         // SELECT * FROM sync_history WHERE device_id = ? ORDER BY timestamp_ms DESC LIMIT ?
 
@@ -123,7 +123,7 @@ impl HistoryManager {
 
     /// Clear history older than specified days
     pub fn clear_older_than(&self, days: u32) -> Result<usize> {
-        let cutoff_ms = SystemTime::now()
+        let _cutoff_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|e| NearClipError::Io(e.to_string()))?
             .as_millis() as i64
