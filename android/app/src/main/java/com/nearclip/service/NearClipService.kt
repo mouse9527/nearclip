@@ -417,7 +417,7 @@ class NearClipService : Service(), FfiNearClipCallback {
                 // Check if device was discovered via BLE
                 if (bleManager?.isDeviceDiscovered(device.id) == true) {
                     android.util.Log.i("NearClipService", "Attempting BLE connection to: ${device.name} (${device.id})")
-                    bleManager?.connect(device.id)
+                    bleManager?.connectByDeviceId(device.id)
                 } else {
                     android.util.Log.i("NearClipService", "Device ${device.name} not discovered via BLE yet, scanning...")
                 }
@@ -533,60 +533,62 @@ class NearClipService : Service(), FfiNearClipCallback {
                 .let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
 
             bleManager?.configure(deviceId, publicKeyHash)
-            bleManager?.startConnectionHealthMonitoring()
             android.util.Log.i("NearClipService", "BLE manager initialized with deviceId=$deviceId")
 
-            // Register BLE sender bridge with FFI manager
-            val bleSenderBridge = BleSenderBridge(bleManager, this)
-            manager?.setBleSender(bleSenderBridge)
-            android.util.Log.i("NearClipService", "BLE sender bridge registered with FFI manager")
+            // Register BLE hardware bridge with FFI manager (new interface)
+            val bleHardwareBridge = BleHardwareBridge(bleManager)
+            manager?.setBleHardware(bleHardwareBridge)
+            android.util.Log.i("NearClipService", "BLE hardware bridge registered with FFI manager")
         } catch (e: Exception) {
             android.util.Log.e("NearClipService", "Failed to initialize BLE manager: ${e.message}", e)
         }
     }
 
     private val bleCallback = object : BleManager.Callback {
-        override fun onDeviceDiscovered(deviceId: String, publicKeyHash: String?, rssi: Int) {
-            android.util.Log.i("NearClipService", "BLE device discovered: $deviceId, RSSI: $rssi")
+        override fun onDeviceDiscovered(peripheralAddress: String, deviceId: String?, publicKeyHash: String?, rssi: Int) {
+            android.util.Log.i("NearClipService", "BLE device discovered: peripheral=$peripheralAddress, deviceId=$deviceId, RSSI: $rssi")
 
-            // Auto-connect to paired devices
+            // If we have a device ID, check if it's a paired device
+            val effectiveDeviceId = deviceId ?: peripheralAddress
             val pairedDevices = manager?.getPairedDevices() ?: emptyList()
-            if (pairedDevices.any { it.id == deviceId }) {
+            if (pairedDevices.any { it.id == effectiveDeviceId }) {
                 // Check if not already connected via BLE
-                if (!isDeviceConnectedViaBle(deviceId)) {
-                    android.util.Log.i("NearClipService", "Auto-connecting to paired device via BLE: $deviceId")
-                    bleManager?.connect(deviceId)
+                if (!isDeviceConnectedViaBle(effectiveDeviceId)) {
+                    android.util.Log.i("NearClipService", "Auto-connecting to paired device via BLE: $effectiveDeviceId")
+                    bleManager?.connect(peripheralAddress)
                 }
             }
         }
 
-        override fun onDeviceLost(deviceId: String) {
-            android.util.Log.i("NearClipService", "BLE device lost: $deviceId")
+        override fun onDeviceLost(peripheralAddress: String) {
+            android.util.Log.i("NearClipService", "BLE device lost: $peripheralAddress")
         }
 
-        override fun onDeviceConnected(deviceId: String) {
-            android.util.Log.i("NearClipService", "BLE device connected: $deviceId")
-            // Notify FFI layer about BLE connection state change
+        override fun onDeviceConnected(peripheralAddress: String, deviceId: String) {
+            android.util.Log.i("NearClipService", "BLE device connected: peripheral=$peripheralAddress, deviceId=$deviceId")
+            // Notify FFI layer about BLE connection state change using device ID
             manager?.onBleConnectionChanged(deviceId, true)
             android.util.Log.i("NearClipService", "Notified FFI layer of BLE connection: $deviceId")
         }
 
-        override fun onDeviceDisconnected(deviceId: String) {
-            android.util.Log.i("NearClipService", "BLE device disconnected: $deviceId")
+        override fun onDeviceDisconnected(peripheralAddress: String, deviceId: String?) {
+            android.util.Log.i("NearClipService", "BLE device disconnected: peripheral=$peripheralAddress, deviceId=$deviceId")
             // Notify FFI layer about BLE connection state change
-            manager?.onBleConnectionChanged(deviceId, false)
-            android.util.Log.i("NearClipService", "Notified FFI layer of BLE disconnection: $deviceId")
+            val effectiveDeviceId = deviceId ?: peripheralAddress
+            manager?.onBleConnectionChanged(effectiveDeviceId, false)
+            android.util.Log.i("NearClipService", "Notified FFI layer of BLE disconnection: $effectiveDeviceId")
         }
 
-        override fun onDataReceived(deviceId: String, data: ByteArray) {
-            android.util.Log.i("NearClipService", "BLE data received from $deviceId: ${data.size} bytes")
+        override fun onDataReceived(peripheralAddress: String, data: ByteArray) {
+            android.util.Log.i("NearClipService", "BLE data received from $peripheralAddress: ${data.size} bytes")
             // Forward BLE data to FFI layer for processing
-            manager?.onBleDataReceived(deviceId, data)
-            android.util.Log.i("NearClipService", "Forwarded BLE data to FFI layer: ${data.size} bytes from $deviceId")
+            // Use peripheral address as device ID since that's what the FFI layer expects
+            manager?.onBleDataReceived(peripheralAddress, data)
+            android.util.Log.i("NearClipService", "Forwarded BLE data to FFI layer: ${data.size} bytes from $peripheralAddress")
         }
 
-        override fun onError(deviceId: String?, error: String) {
-            android.util.Log.e("NearClipService", "BLE error for $deviceId: $error")
+        override fun onError(peripheralAddress: String?, error: String) {
+            android.util.Log.e("NearClipService", "BLE error for $peripheralAddress: $error")
         }
     }
 
@@ -665,7 +667,7 @@ class NearClipService : Service(), FfiNearClipCallback {
                 // Check if device is already discovered via BLE
                 if (bleManager?.isDeviceDiscovered(deviceId) == true) {
                     android.util.Log.i("NearClipService", "Device $deviceId found via BLE, connecting...")
-                    bleManager?.connect(deviceId)
+                    bleManager?.connectByDeviceId(deviceId)
                 } else if (bleManager?.isDeviceConnected(deviceId) == true) {
                     android.util.Log.i("NearClipService", "Device $deviceId already connected via BLE")
                 } else {
@@ -674,7 +676,7 @@ class NearClipService : Service(), FfiNearClipCallback {
                     Thread.sleep(3000)
                     if (bleManager?.isDeviceDiscovered(deviceId) == true) {
                         android.util.Log.i("NearClipService", "Device $deviceId found via BLE after waiting, connecting...")
-                        bleManager?.connect(deviceId)
+                        bleManager?.connectByDeviceId(deviceId)
                     } else {
                         android.util.Log.w("NearClipService", "Device $deviceId not found via BLE")
                         android.os.Handler(android.os.Looper.getMainLooper()).post {
@@ -984,39 +986,75 @@ class NearClipService : Service(), FfiNearClipCallback {
         notificationHelper?.showSyncFailureNotification(reason = errorMessage)
         listeners.forEach { it.onSyncError(errorMessage) }
     }
+
+    override fun onDeviceDiscovered(device: FfiDiscoveredDevice) {
+        android.util.Log.i("NearClipService", "FFI device discovered: ${device.peripheralUuid}, name=${device.deviceName}")
+        // This callback is from the Rust BleController when it discovers a device
+        // We can use this to auto-connect to paired devices
+        val pairedDevices = manager?.getPairedDevices() ?: emptyList()
+        val deviceId = device.deviceName ?: device.peripheralUuid
+        if (pairedDevices.any { it.id == deviceId }) {
+            if (bleManager?.isDeviceConnected(deviceId) != true) {
+                android.util.Log.i("NearClipService", "Auto-connecting to discovered paired device: $deviceId")
+                bleManager?.connect(device.peripheralUuid)
+            }
+        }
+    }
+
+    override fun onDeviceLost(peripheralUuid: String) {
+        android.util.Log.i("NearClipService", "FFI device lost: $peripheralUuid")
+        // Device is no longer visible via BLE scanning
+    }
 }
 
 /**
- * Bridge class that implements FfiBleSender interface and delegates to BleManager.
- * This allows the Rust FFI layer to send BLE data through the platform's BLE implementation.
+ * Bridge class that implements FfiBleHardware interface and delegates to BleManager.
+ * This allows the Rust FFI layer to control BLE hardware through the platform's BLE implementation.
  */
-class BleSenderBridge(
-    private val bleManager: BleManager?,
-    private val service: NearClipService
-) : FfiBleSender {
+class BleHardwareBridge(
+    private val bleManager: BleManager?
+) : FfiBleHardware {
 
-    override fun sendBleData(deviceId: String, data: ByteArray): String {
+    override fun startScan() {
+        bleManager?.startScanning()
+    }
+
+    override fun stopScan() {
+        bleManager?.stopScanning()
+    }
+
+    override fun connect(peripheralUuid: String) {
+        bleManager?.connect(peripheralUuid)
+    }
+
+    override fun disconnect(peripheralUuid: String) {
+        bleManager?.disconnect(peripheralUuid)
+    }
+
+    override fun writeData(peripheralUuid: String, data: ByteArray): String {
         if (bleManager == null) {
             return "BLE manager not available"
         }
-
-        // Check if device is connected
-        if (!bleManager.isDeviceConnected(deviceId)) {
-            return "Device not connected via BLE: $deviceId"
-        }
-
-        // Send data through BleManager
-        bleManager.sendData(deviceId, data)
-        return "" // Empty string means success
+        return bleManager.writeData(peripheralUuid, data)
     }
 
-    override fun isBleConnected(deviceId: String): Boolean {
-        return bleManager?.isDeviceConnected(deviceId) ?: false
+    override fun getMtu(peripheralUuid: String): UInt {
+        return bleManager?.getMtu(peripheralUuid)?.toUInt() ?: 20u
     }
 
-    override fun getMtu(deviceId: String): UInt {
-        // Return 0 to use default MTU
-        // BleManager handles MTU internally
-        return 0u
+    override fun isConnected(peripheralUuid: String): Boolean {
+        return bleManager?.isConnected(peripheralUuid) ?: false
+    }
+
+    override fun startAdvertising() {
+        bleManager?.startAdvertising()
+    }
+
+    override fun stopAdvertising() {
+        bleManager?.stopAdvertising()
+    }
+
+    override fun configure(deviceId: String, publicKeyHash: String) {
+        bleManager?.configure(deviceId, publicKeyHash)
     }
 }

@@ -520,6 +520,61 @@ class BleManager(private val context: Context) {
         return "" // Success
     }
 
+    // ==================== Helper Methods ====================
+
+    /**
+     * Check if a device is discovered (found via scanning).
+     * @param deviceId The device ID to check (will be matched against peripheralDeviceIds)
+     */
+    fun isDeviceDiscovered(deviceId: String): Boolean {
+        // Check if any peripheral has this device ID
+        return peripheralDeviceIds.containsValue(deviceId) ||
+               // Also check if the deviceId is a peripheral address directly
+               peripherals.containsKey(deviceId)
+    }
+
+    /**
+     * Check if a device is connected.
+     * @param deviceId The device ID to check
+     */
+    fun isDeviceConnected(deviceId: String): Boolean {
+        // Check by device ID in peripheralDeviceIds
+        val peripheralAddress = peripheralDeviceIds.entries.find { it.value == deviceId }?.key
+        if (peripheralAddress != null) {
+            return connectedGatts.containsKey(peripheralAddress) || connectedCentrals.containsKey(peripheralAddress)
+        }
+        // Also check if deviceId is a peripheral address directly
+        return connectedGatts.containsKey(deviceId) || connectedCentrals.containsKey(deviceId)
+    }
+
+    /**
+     * Check if there are any connected devices.
+     */
+    fun hasConnectedDevices(): Boolean {
+        return connectedGatts.isNotEmpty() || connectedCentrals.isNotEmpty()
+    }
+
+    /**
+     * Send data to a device.
+     * @param deviceId The device ID to send to
+     * @param data The data to send
+     */
+    fun sendData(deviceId: String, data: ByteArray) {
+        // Find peripheral address by device ID
+        val peripheralAddress = peripheralDeviceIds.entries.find { it.value == deviceId }?.key ?: deviceId
+        writeData(peripheralAddress, data)
+    }
+
+    /**
+     * Connect to a device by device ID.
+     * @param deviceId The device ID to connect to
+     */
+    fun connectByDeviceId(deviceId: String) {
+        // Find peripheral address by device ID, or use deviceId as address
+        val peripheralAddress = peripheralDeviceIds.entries.find { it.value == deviceId }?.key ?: deviceId
+        connect(peripheralAddress)
+    }
+
     // ==================== Cleanup ====================
 
     fun destroy() {

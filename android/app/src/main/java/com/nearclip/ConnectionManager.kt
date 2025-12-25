@@ -570,6 +570,17 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
         _lastError.value = errorMessage
     }
 
+    override fun onDeviceDiscovered(device: FfiDiscoveredDevice) {
+        Log.d(TAG, "Device discovered: ${device.peripheralUuid}, name=${device.deviceName}")
+        // This is called by the Rust BleController when a device is discovered via BLE
+        // We could auto-connect to paired devices here if needed
+    }
+
+    override fun onDeviceLost(peripheralUuid: String) {
+        Log.d(TAG, "Device lost: $peripheralUuid")
+        // Device is no longer visible via BLE scanning
+    }
+
     override fun onCleared() {
         super.onCleared()
         manager?.stop()
