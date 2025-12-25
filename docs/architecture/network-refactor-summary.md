@@ -56,7 +56,7 @@
 ### ✅ 第二阶段：统一历史存储 (100%)
 
 #### 步骤 2.1：实现 HistoryManager ✅
-- **文件**: `crates/nearclip-core/src/history.rs` (新建，280行)
+- **文件**: `crates/nearclip-core/src/history.rs` (新建，475行)
 - **功能**:
   - ✅ 基础框架和接口定义
   - ✅ CRUD 操作方法签名
@@ -191,7 +191,7 @@
   - `crates/nearclip-ble/src/controller.rs` (700行)
   - `crates/nearclip-ffi/src/ble_hardware_bridge.rs` (75行)
   - `crates/nearclip-ffi/src/ble_recv_task.rs` (80行，新增)
-  - `crates/nearclip-core/src/history.rs` (280行)
+  - `crates/nearclip-core/src/history.rs` (475行)
   - `docs/architecture/network-layer-refactor.md`
   - `docs/architecture/network-refactor-progress.md`
   - `docs/architecture/device-storage-architecture.md`
@@ -206,7 +206,7 @@
   - `crates/nearclip-core/src/error.rs` (+4行)
   - `crates/nearclip-core/Cargo.toml`
 
-- **总新增代码**: ~1200行
+- **总新增代码**: ~1400行
 - **测试覆盖**: 35个单元测试（28 BLE + 7 History）
 
 ### 架构改进
@@ -221,6 +221,7 @@
 
 ### Git 提交
 ```
+4c3de1e feat(history): implement SQLite storage for HistoryManager
 21bc7ae chore: fix compiler warnings in nearclip-ble and nearclip-core
 7457a04 docs: update network refactor summary with Phase 4 progress
 ca0eb44 refactor(ffi): extract BLE receive task and cleanup unused code
