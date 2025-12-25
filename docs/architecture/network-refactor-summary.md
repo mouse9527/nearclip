@@ -3,7 +3,7 @@
 ## 执行时间
 开始：2025-12-25
 完成：2025-12-25（持续中）
-总耗时：约 6 小时
+总耗时：约 7 小时
 
 ## 已完成工作
 
@@ -148,20 +148,50 @@
   - 验证现有实现符合指南
   - 补充单元测试（如需要）
 
-### ⏳ 第四阶段：清理和优化 (0%)
-- **状态**: 未开始
+### ✅ 第四阶段：清理和优化 (部分完成)
+
+#### 步骤 4.1：分析废弃代码 ✅
+- **分析范围**: 全部 Rust crates
+- **发现**:
+  - FFI 层重复的 BLE 接收任务代码（~100行）
+  - 未使用的导入和字段
+  - 旧的 BLE 接口与新接口并存
+
+#### 步骤 4.2：提取重复代码 ✅
+- **文件**: `crates/nearclip-ffi/src/ble_recv_task.rs` (新建，80行)
+- **内容**:
+  - `spawn_ble_recv_task()` 辅助函数
+  - 统一的 BLE 消息接收和分发逻辑
+  - 支持 ClipboardSync 和 Unpair 消息类型
+- **效果**: 消除 `on_ble_data_received` 和 `on_ble_connection_changed` 中的重复代码
+
+#### 步骤 4.3：清理未使用代码 ✅
+- **文件**: `crates/nearclip-ffi/src/lib.rs`
+- **清理内容**:
+  - 移除未使用的 `Transport` 导入
+  - 移除未使用的 `MessageType` 导入
+  - 为预留字段添加 `#[allow(dead_code)]` 注释
+- **效果**: nearclip-ffi crate 无编译警告
+
+#### 步骤 4.4：剩余清理工作 ⏳
+- **状态**: 未开始（低优先级）
+- **内容**:
+  - 统一 BLE 接口（废弃旧的 `set_ble_sender`）
+  - 清理其他 crate 的警告
+  - 性能优化
 
 ## 关键成果
 
 ### 代码统计
-- **新增文件**: 7个
+- **新增文件**: 8个
   - `crates/nearclip-ble/src/controller.rs` (700行)
   - `crates/nearclip-ffi/src/ble_hardware_bridge.rs` (75行)
+  - `crates/nearclip-ffi/src/ble_recv_task.rs` (80行，新增)
   - `crates/nearclip-core/src/history.rs` (280行)
   - `docs/architecture/network-layer-refactor.md`
   - `docs/architecture/network-refactor-progress.md`
-  - `docs/architecture/device-storage-architecture.md` (新增)
-  - `docs/architecture/platform-implementation-guide.md` (新增)
+  - `docs/architecture/device-storage-architecture.md`
+  - `docs/architecture/platform-implementation-guide.md`
 
 - **修改文件**: 7个
   - `crates/nearclip-ble/src/lib.rs`
@@ -187,6 +217,8 @@
 
 ### Git 提交
 ```
+ca0eb44 refactor(ffi): extract BLE receive task and cleanup unused code
+8bce793 docs(device-storage): complete Phase 3 with architecture documentation
 52bccb8 feat(history): integrate HistoryManager to FFI layer with SQLite support
 6cfabcb feat(history): add HistoryManager skeleton for sync history storage
 d1ab176 feat(ble): implement BLE controller and integrate to FFI layer
@@ -214,13 +246,14 @@ d1ab176 feat(ble): implement BLE controller and integrate to FFI layer
    - ~~测试~~ (提供测试指南)
 
 ### 低优先级（优化阶段）
-4. **清理和优化** (6-8小时)
-   - 移除废弃代码
-   - 性能优化
-   - 文档更新
-   - 集成测试
+4. **清理和优化** (部分完成)
+   - ✅ 提取重复代码（ble_recv_task.rs）
+   - ✅ 清理 FFI 层未使用导入和警告
+   - ⏳ 统一 BLE 接口（废弃旧接口）
+   - ⏳ 清理其他 crate 警告
+   - ⏳ 性能优化
 
-**总剩余时间**: 16-21小时（减少 4-6 小时，因第三阶段采用文档方案）
+**总剩余时间**: 14-18小时（减少 2-3 小时，因第四阶段部分完成）
 
 ## 技术亮点
 
@@ -298,12 +331,14 @@ d1ab176 feat(ble): implement BLE controller and integrate to FFI layer
 
 **第三阶段（统一设备存储）已 100% 完成（文档方案）**，创建了完整的架构文档和平台实现指南，采用分层架构利用平台安全存储。
 
+**第四阶段（清理和优化）部分完成**，提取了重复代码，清理了 FFI 层警告，剩余低优先级优化工作。
+
 剩余工作主要是平台层代码简化和安全存储实现，需要平台开发者配合。Rust 层的核心功能已经全部实现并测试通过。
 
-**整体进度：约 75% 完成**
+**整体进度：约 80% 完成**
 
 ---
 
-**最后更新**: 2025-12-25 16:00
+**最后更新**: 2025-12-25 17:00
 **执行者**: Claude Code Agent
-**状态**: 第一、二、三阶段完成，等待平台层配合
+**状态**: 第一、二、三阶段完成，第四阶段部分完成，等待平台层配合
