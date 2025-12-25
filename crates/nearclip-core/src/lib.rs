@@ -42,6 +42,7 @@
 pub mod config;
 pub mod device;
 pub mod error;
+pub mod history;
 pub mod logging;
 pub mod manager;
 
@@ -62,6 +63,9 @@ pub use config::{
 
 // Re-export manager types
 pub use manager::{NearClipCallback, NearClipManager, NoOpCallback};
+
+// Re-export history types
+pub use history::{HistoryManager, SyncHistoryEntry};
 
 // Re-export tracing macros for convenience
 // 包含 instrument 宏用于函数级追踪
