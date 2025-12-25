@@ -316,42 +316,14 @@ pub trait FfiNearClipCallback: Send + Sync {
 }
 
 // ============================================================
-// FFI BLE Sender Trait
-// ============================================================
-
-/// BLE sender callback interface
-///
-/// Platform clients implement this trait to provide BLE send capability.
-/// This allows the Rust transport layer to send data over BLE through
-/// platform-native BLE APIs.
-pub trait FfiBleSender: Send + Sync {
-    /// Send raw data over BLE to a device
-    ///
-    /// # Arguments
-    /// * `device_id` - The target device ID
-    /// * `data` - Raw bytes to send
-    ///
-    /// # Returns
-    /// Empty string on success, error message on failure
-    fn send_ble_data(&self, device_id: String, data: Vec<u8>) -> String;
-
-    /// Check if BLE is connected to a device
-    fn is_ble_connected(&self, device_id: String) -> bool;
-
-    /// Get the negotiated MTU for a device
-    ///
-    /// Return 0 to use the default MTU.
-    fn get_mtu(&self, device_id: String) -> u32;
-}
-
-// ============================================================
 // FFI BLE Hardware Trait
 // ============================================================
 
 /// BLE hardware callback interface
 ///
 /// Platform clients implement this trait to provide full BLE hardware access.
-/// This is the new interface that replaces FfiBleSender for full BLE control.
+/// This interface provides complete BLE control including scanning, connecting,
+/// data transfer, and advertising.
 pub trait FfiBleHardware: Send + Sync {
     /// Start BLE scanning for nearby devices
     fn start_scan(&self);
@@ -386,21 +358,22 @@ pub trait FfiBleHardware: Send + Sync {
     fn configure(&self, device_id: String, public_key_hash: String);
 }
 
-/// Bridge that adapts FfiBleSender to the transport layer's BleSender trait
-struct BleSenderBridge {
-    ffi_sender: Box<dyn FfiBleSender>,
+/// Bridge that adapts FfiBleHardware to the transport layer's BleSender trait
+///
+/// This allows BleTransport to use FfiBleHardware for data transmission.
+struct BleHardwareSenderBridge {
+    hardware: Arc<dyn FfiBleHardware>,
 }
 
-impl BleSenderBridge {
-    fn new(ffi_sender: Box<dyn FfiBleSender>) -> Self {
-        Self { ffi_sender }
+impl BleHardwareSenderBridge {
+    fn new(hardware: Arc<dyn FfiBleHardware>) -> Self {
+        Self { hardware }
     }
 }
 
-impl BleSender for BleSenderBridge {
+impl BleSender for BleHardwareSenderBridge {
     fn send_ble_data(&self, device_id: &str, data: &[u8]) -> Result<(), String> {
-        let result = self.ffi_sender
-            .send_ble_data(device_id.to_string(), data.to_vec());
+        let result = self.hardware.write_data(device_id.to_string(), data.to_vec());
         if result.is_empty() {
             Ok(())
         } else {
@@ -409,11 +382,11 @@ impl BleSender for BleSenderBridge {
     }
 
     fn is_ble_connected(&self, device_id: &str) -> bool {
-        self.ffi_sender.is_ble_connected(device_id.to_string())
+        self.hardware.is_connected(device_id.to_string())
     }
 
     fn get_mtu(&self, device_id: &str) -> usize {
-        self.ffi_sender.get_mtu(device_id.to_string()) as usize
+        self.hardware.get_mtu(device_id.to_string()) as usize
     }
 }
 
@@ -464,10 +437,10 @@ impl NearClipCallback for CallbackBridge {
 pub struct FfiNearClipManager {
     inner: NearClipManager,
     runtime: tokio::runtime::Runtime,
-    /// BLE sender bridge (set by platform)
-    ble_sender: RwLock<Option<Arc<BleSenderBridge>>>,
-    /// BLE hardware interface (set by platform) - new
+    /// BLE hardware interface (set by platform)
     ble_hardware: RwLock<Option<Arc<dyn FfiBleHardware>>>,
+    /// BLE hardware sender bridge for BleTransport
+    ble_hardware_sender: RwLock<Option<Arc<BleHardwareSenderBridge>>>,
     /// BLE controller (manages BLE logic)
     ble_controller: RwLock<Option<Arc<BleController>>>,
     /// BLE transports per device
@@ -522,8 +495,8 @@ impl FfiNearClipManager {
         Ok(Self {
             inner,
             runtime,
-            ble_sender: RwLock::new(None),
             ble_hardware: RwLock::new(None),
+            ble_hardware_sender: RwLock::new(None),
             ble_controller: RwLock::new(None),
             ble_transports: RwLock::new(HashMap::new()),
             ble_recv_tasks: RwLock::new(HashMap::new()),
@@ -672,27 +645,10 @@ impl FfiNearClipManager {
     // BLE Methods
     // ============================================================
 
-    /// Set the BLE sender
-    ///
-    /// Platform clients call this to provide BLE send capability.
-    /// This must be called before BLE communication can work.
-    ///
-    /// # Arguments
-    ///
-    /// * `sender` - Platform implementation of FfiBleSender
-    pub fn set_ble_sender(&self, sender: Box<dyn FfiBleSender>) {
-        let bridge = Arc::new(BleSenderBridge::new(sender));
-        self.runtime.block_on(async {
-            let mut ble_sender = self.ble_sender.write().await;
-            *ble_sender = Some(bridge);
-        });
-        tracing::info!("BLE sender set");
-    }
-
     /// Set the BLE hardware interface
     ///
     /// Platform clients call this to provide BLE hardware access.
-    /// This is the new interface that replaces set_ble_sender.
+    /// This enables both BLE control (scanning, connecting) and data transfer.
     pub fn set_ble_hardware(&self, hardware: Box<dyn FfiBleHardware>) {
         let hardware: Arc<dyn FfiBleHardware> = hardware.into();
         self.runtime.block_on(async {
@@ -701,8 +657,14 @@ impl FfiNearClipManager {
             *ble_hardware = Some(hardware.clone());
             drop(ble_hardware);
 
+            // Create sender bridge for BleTransport
+            let sender_bridge = Arc::new(BleHardwareSenderBridge::new(hardware.clone()));
+            let mut ble_hardware_sender = self.ble_hardware_sender.write().await;
+            *ble_hardware_sender = Some(sender_bridge);
+            drop(ble_hardware_sender);
+
             // Create BLE controller
-            let bridge = Arc::new(BleHardwareBridge::new(hardware));
+            let controller_bridge = Arc::new(BleHardwareBridge::new(hardware));
             let config = FfiBleControllerConfig::default();
             let callback = Arc::new(BleControllerCallbackBridge {
                 ffi_callback: self.callback.clone(),
@@ -710,7 +672,7 @@ impl FfiNearClipManager {
             });
 
             let controller = Arc::new(BleController::new(
-                bridge,
+                controller_bridge,
                 BleControllerConfig {
                     scan_timeout_ms: config.scan_timeout_ms,
                     device_lost_timeout_ms: config.device_lost_timeout_ms,
@@ -775,8 +737,8 @@ impl FfiNearClipManager {
             if let Some(transport) = transports.get(&device_id) {
                 transport.on_data_received(&data).await;
             } else {
-                // Create a new transport if we have a sender
-                let sender = self.ble_sender.read().await;
+                // Create a new transport if we have BLE hardware
+                let sender = self.ble_hardware_sender.read().await;
                 if let Some(ref sender) = *sender {
                     drop(transports);
                     let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
@@ -797,7 +759,7 @@ impl FfiNearClipManager {
                 } else {
                     tracing::warn!(
                         device_id = %device_id,
-                        "Received BLE data but no BLE sender is set"
+                        "Received BLE data but no BLE hardware is set"
                     );
                 }
             }
@@ -816,8 +778,8 @@ impl FfiNearClipManager {
         tracing::info!(device_id = %device_id, connected = connected, "on_ble_connection_changed");
         self.runtime.block_on(async {
             if connected {
-                // Create BLE transport if we have a sender
-                let sender = self.ble_sender.read().await;
+                // Create BLE transport if we have BLE hardware
+                let sender = self.ble_hardware_sender.read().await;
                 if let Some(ref sender) = *sender {
                     let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
                     transport.on_connection_state_changed(true);
@@ -858,7 +820,7 @@ impl FfiNearClipManager {
                 } else {
                     tracing::warn!(
                         device_id = %device_id,
-                        "BLE connection changed but no BLE sender is set"
+                        "BLE connection changed but no BLE hardware is set"
                     );
                 }
             } else {

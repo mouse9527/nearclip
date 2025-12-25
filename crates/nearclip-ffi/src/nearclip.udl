@@ -100,21 +100,9 @@ callback interface FfiNearClipCallback {
     void on_device_lost(string peripheral_uuid);
 };
 
-// BLE sender callback interface - platform implements this to provide BLE send capability
-callback interface FfiBleSender {
-    // Send raw data over BLE to a device
-    // Returns empty string on success, error message on failure
-    string send_ble_data(string device_id, bytes data);
-
-    // Check if BLE is connected to a device
-    boolean is_ble_connected(string device_id);
-
-    // Get the negotiated MTU for a device (return 0 for default)
-    u32 get_mtu(string device_id);
-};
-
 // BLE hardware callback interface - platform implements this to provide BLE hardware access
-// This is the new interface that replaces FfiBleSender for full BLE control
+// This interface provides complete BLE control including scanning, connecting,
+// data transfer, and advertising.
 callback interface FfiBleHardware {
     // Scanning
     void start_scan();
@@ -188,11 +176,7 @@ interface FfiNearClipManager {
     // BLE connection state - called by platform when BLE connection state changes
     void on_ble_connection_changed(string device_id, boolean connected);
 
-    // Set BLE sender (optional, for platforms that support BLE)
-    // Deprecated: Use set_ble_hardware instead
-    void set_ble_sender(FfiBleSender sender);
-
-    // Set BLE hardware interface (new, replaces set_ble_sender)
+    // Set BLE hardware interface
     // Platform clients call this to provide full BLE hardware access
     void set_ble_hardware(FfiBleHardware hardware);
 
