@@ -18,6 +18,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use nearclip_core::{
@@ -26,8 +27,122 @@ use nearclip_core::{
 };
 use nearclip_sync::MessageType;
 use nearclip_transport::{BleTransport, BleSender, Transport};
+use nearclip_ble::{BleController, BleControllerCallback, BleControllerConfig, ControllerDiscoveredDevice};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
+
+mod ble_hardware_bridge;
+use ble_hardware_bridge::{BleHardwareBridge, FfiBleHardware};
+
+// ============================================================
+// FFI Types (must be defined before uniffi scaffolding)
+// ============================================================
+
+/// Discovered BLE device information (before pairing)
+#[derive(Debug, Clone)]
+pub struct FfiDiscoveredDevice {
+    pub peripheral_uuid: String,
+    pub device_id: String,
+    pub public_key_hash: String,
+    pub rssi: i32,
+    pub last_seen_ms: i64,
+}
+
+/// BLE Controller configuration
+#[derive(Debug, Clone)]
+pub struct FfiBleControllerConfig {
+    pub scan_timeout_ms: u64,
+    pub device_lost_timeout_ms: u64,
+    pub auto_reconnect: bool,
+    pub max_reconnect_attempts: u32,
+    pub reconnect_base_delay_ms: u64,
+    pub health_check_interval_ms: u64,
+    pub connection_timeout_ms: u64,
+}
+
+impl Default for FfiBleControllerConfig {
+    fn default() -> Self {
+        Self {
+            scan_timeout_ms: 0,
+            device_lost_timeout_ms: 30000,
+            auto_reconnect: true,
+            max_reconnect_attempts: 5,
+            reconnect_base_delay_ms: 1000,
+            health_check_interval_ms: 30000,
+            connection_timeout_ms: 10000,
+        }
+    }
+}
+
+// ============================================================
+// BLE Controller Callback Bridge
+// ============================================================
+
+/// Bridge that adapts BleControllerCallback to FFI callback
+struct BleControllerCallbackBridge {
+    ffi_callback: Arc<dyn FfiNearClipCallback>,
+    discovered_devices: Arc<RwLock<HashMap<String, FfiDiscoveredDevice>>>,
+}
+
+impl BleControllerCallback for BleControllerCallbackBridge {
+    fn on_device_discovered(&self, device: ControllerDiscoveredDevice) {
+        let ffi_device = FfiDiscoveredDevice {
+            peripheral_uuid: device.peripheral_uuid.clone(),
+            device_id: device.device_id.clone(),
+            public_key_hash: device.public_key_hash.clone(),
+            rssi: device.rssi,
+            last_seen_ms: device.last_seen_ms,
+        };
+
+        // Store in discovered devices
+        let discovered = Arc::clone(&self.discovered_devices);
+        let ffi_device_clone = ffi_device.clone();
+        let peripheral_uuid = device.peripheral_uuid.clone();
+        tokio::spawn(async move {
+            let mut devices = discovered.write().await;
+            devices.insert(peripheral_uuid, ffi_device_clone);
+        });
+
+        // Note: FfiNearClipCallback doesn't have on_device_discovered yet
+        // Will be added when platform code is updated
+        // self.ffi_callback.on_device_discovered(ffi_device);
+    }
+
+    fn on_device_lost(&self, peripheral_uuid: String) {
+        let discovered = Arc::clone(&self.discovered_devices);
+        let peripheral_uuid_clone = peripheral_uuid.clone();
+        tokio::spawn(async move {
+            let mut devices = discovered.write().await;
+            devices.remove(&peripheral_uuid_clone);
+        });
+
+        // Note: FfiNearClipCallback doesn't have on_device_lost yet
+        // Will be added when platform code is updated
+        // self.ffi_callback.on_device_lost(peripheral_uuid);
+    }
+
+    fn on_device_connected(&self, device_id: String) {
+        let device_info = FfiDeviceInfo {
+            id: device_id.clone(),
+            name: format!("BLE Device {}", &device_id[..8.min(device_id.len())]),
+            platform: DevicePlatform::Unknown,
+            status: DeviceStatus::Connected,
+        };
+        self.ffi_callback.on_device_connected(device_info);
+    }
+
+    fn on_device_disconnected(&self, device_id: String, _reason: String) {
+        self.ffi_callback.on_device_disconnected(device_id);
+    }
+
+    fn on_data_received(&self, device_id: String, data: Vec<u8>) {
+        self.ffi_callback.on_clipboard_received(data, device_id);
+    }
+
+    fn on_error(&self, _device_id: Option<String>, error: String) {
+        self.ffi_callback.on_sync_error(error);
+    }
+}
 
 // Include the uniffi generated scaffolding
 uniffi::include_scaffolding!("nearclip");
@@ -290,12 +405,24 @@ pub struct FfiNearClipManager {
     runtime: tokio::runtime::Runtime,
     /// BLE sender bridge (set by platform)
     ble_sender: RwLock<Option<Arc<BleSenderBridge>>>,
+    /// BLE hardware interface (set by platform) - new
+    ble_hardware: RwLock<Option<Arc<dyn FfiBleHardware>>>,
+    /// BLE controller (manages BLE logic)
+    ble_controller: RwLock<Option<Arc<BleController>>>,
     /// BLE transports per device
     ble_transports: RwLock<HashMap<String, Arc<BleTransport>>>,
     /// BLE receive tasks per device
     ble_recv_tasks: RwLock<HashMap<String, JoinHandle<()>>>,
+    /// Discovered BLE devices (keyed by peripheral_uuid)
+    discovered_devices: Arc<RwLock<HashMap<String, FfiDiscoveredDevice>>>,
+    /// Mapping: peripheral_uuid -> device_id
+    peripheral_to_device: RwLock<HashMap<String, String>>,
+    /// Mapping: device_id -> peripheral_uuid
+    device_to_peripheral: RwLock<HashMap<String, String>>,
     /// Callback for BLE message handling
     callback: Arc<dyn FfiNearClipCallback>,
+    /// Discovery active flag
+    discovery_active: AtomicBool,
 }
 
 impl FfiNearClipManager {
@@ -330,9 +457,15 @@ impl FfiNearClipManager {
             inner,
             runtime,
             ble_sender: RwLock::new(None),
+            ble_hardware: RwLock::new(None),
+            ble_controller: RwLock::new(None),
             ble_transports: RwLock::new(HashMap::new()),
             ble_recv_tasks: RwLock::new(HashMap::new()),
+            discovered_devices: Arc::new(RwLock::new(HashMap::new())),
+            peripheral_to_device: RwLock::new(HashMap::new()),
+            device_to_peripheral: RwLock::new(HashMap::new()),
             callback,
+            discovery_active: AtomicBool::new(false),
         })
     }
 
@@ -487,6 +620,50 @@ impl FfiNearClipManager {
             *ble_sender = Some(bridge);
         });
         tracing::info!("BLE sender set");
+    }
+
+    /// Set the BLE hardware interface
+    ///
+    /// Platform clients call this to provide BLE hardware access.
+    /// This is the new interface that replaces set_ble_sender.
+    pub fn set_ble_hardware(&self, hardware: Box<dyn FfiBleHardware>) {
+        let hardware: Arc<dyn FfiBleHardware> = hardware.into();
+        self.runtime.block_on(async {
+            // Store hardware interface
+            let mut ble_hardware = self.ble_hardware.write().await;
+            *ble_hardware = Some(hardware.clone());
+            drop(ble_hardware);
+
+            // Create BLE controller
+            let bridge = Arc::new(BleHardwareBridge::new(hardware));
+            let config = FfiBleControllerConfig::default();
+            let callback = Arc::new(BleControllerCallbackBridge {
+                ffi_callback: self.callback.clone(),
+                discovered_devices: Arc::clone(&self.discovered_devices),
+            });
+
+            let controller = Arc::new(BleController::new(
+                bridge,
+                BleControllerConfig {
+                    scan_timeout_ms: config.scan_timeout_ms,
+                    device_lost_timeout_ms: config.device_lost_timeout_ms,
+                    auto_reconnect: config.auto_reconnect,
+                    max_reconnect_attempts: config.max_reconnect_attempts,
+                    reconnect_base_delay_ms: config.reconnect_base_delay_ms,
+                    health_check_interval_ms: config.health_check_interval_ms,
+                    connection_timeout_ms: config.connection_timeout_ms,
+                },
+                callback,
+            ));
+
+            // Start health check
+            controller.start_health_check();
+
+            // Store controller
+            let mut ble_controller = self.ble_controller.write().await;
+            *ble_controller = Some(controller);
+        });
+        tracing::info!("BLE hardware interface set and controller initialized");
     }
 
     /// Called by platform when BLE data is received

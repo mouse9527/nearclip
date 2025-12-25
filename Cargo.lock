@@ -881,6 +881,7 @@ dependencies = [
 name = "nearclip-ffi"
 version = "0.1.6"
 dependencies = [
+ "nearclip-ble",
  "nearclip-core",
  "nearclip-sync",
  "nearclip-transport",

@@ -67,6 +67,7 @@
 pub mod central;
 pub mod central_data;
 pub mod chunk;
+pub mod controller;
 pub mod error;
 pub mod gatt;
 pub mod peripheral;
@@ -94,4 +95,8 @@ pub use peripheral_data::{
 pub use central_data::{
     CentralDataConfig, CentralDataSender, DataSenderCallback, SendState,
     DEFAULT_ACK_TIMEOUT_MS, DEFAULT_MTU, DEFAULT_RETRY_COUNT, DEFAULT_SEND_TIMEOUT_SECS,
+};
+pub use controller::{
+    BleController, BleControllerCallback, BleControllerConfig, BleHardware,
+    DiscoveredDevice as ControllerDiscoveredDevice,
 };
