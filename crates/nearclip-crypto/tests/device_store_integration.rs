@@ -10,12 +10,14 @@ use std::fs;
 
 /// 创建临时测试存储
 fn temp_store() -> FileDeviceStore {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let unique_id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = std::env::temp_dir().join(format!(
-        "nearclip_integration_test_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        "nearclip_integration_test_{}_{}",
+        std::process::id(),
+        unique_id
     ));
     let config = FileDeviceStoreConfig::new()
         .with_directory(&temp_dir)
@@ -140,12 +142,14 @@ fn test_delete_then_load_returns_none() {
 
 #[test]
 fn test_data_consistency_across_reloads() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let unique_id = COUNTER.fetch_add(1, Ordering::SeqCst);
     let temp_dir = std::env::temp_dir().join(format!(
-        "nearclip_consistency_test_{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos()
+        "nearclip_consistency_test_{}_{}",
+        std::process::id(),
+        unique_id
     ));
 
     let config = FileDeviceStoreConfig::new()

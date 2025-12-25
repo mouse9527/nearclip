@@ -257,6 +257,7 @@ d1ab176 feat(ble): implement BLE controller and integrate to FFI layer
    - ✅ 提取重复代码（ble_recv_task.rs）
    - ✅ 清理 FFI 层未使用导入和警告
    - ✅ 清理 nearclip-ble 和 nearclip-core 警告
+   - ✅ 修复 device_store 集成测试竞态条件（使用原子计数器确保唯一临时目录）
    - ⏳ 统一 BLE 接口（废弃旧接口）- 低优先级
    - ⏳ 性能优化 - 低优先级
 
