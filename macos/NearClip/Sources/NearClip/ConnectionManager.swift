@@ -159,7 +159,6 @@ final class ConnectionManager: ObservableObject {
 
     /// BLE connection status
     @Published private(set) var bleEnabled = false
-    @Published private(set) var bleConnectedDevices: [String: BleDevice] = [:]
 
     private(set) var nearClipManager: FfiNearClipManager?
     private var isRunning = false
@@ -226,7 +225,6 @@ final class ConnectionManager: ObservableObject {
         NSLog("ConnectionManager: Initializing BleManager")
         bleManager = BleManager()
         bleManager?.delegate = self
-        bleManager?.startConnectionHealthMonitoring()
         NSLog("ConnectionManager: BleManager initialized, delegate set")
     }
 
@@ -267,6 +265,22 @@ final class ConnectionManager: ObservableObject {
             nearClipManager = try FfiNearClipManager(config: config, callback: callback)
             try nearClipManager?.start()
 
+            // Initialize history storage
+            if let manager = nearClipManager {
+                let dbPath = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                    .appendingPathComponent("NearClip")
+                    .appendingPathComponent("history.db")
+                    .path
+                // Ensure directory exists
+                try? FileManager.default.createDirectory(
+                    atPath: (dbPath as NSString).deletingLastPathComponent,
+                    withIntermediateDirectories: true
+                )
+                try manager.initHistory(dbPath: dbPath)
+                SyncHistoryManager.shared.setManager(manager)
+                print("History storage initialized at: \(dbPath)")
+            }
+
             // Save generated device ID if it was newly created
             if let manager = nearClipManager {
                 let generatedId = manager.getDeviceId()
@@ -288,7 +302,12 @@ final class ConnectionManager: ObservableObject {
                 bleEnabled = true
                 NSLog("ConnectionManager: BLE enabled")
 
-                // Register BLE sender bridge with FFI manager
+                // Register BLE hardware bridge with FFI manager (new interface)
+                let bleHardwareBridge = BleHardwareBridge(bleManager: bleManager)
+                manager.setBleHardware(hardware: bleHardwareBridge)
+                NSLog("ConnectionManager: BLE hardware bridge registered with FFI manager")
+
+                // Register BLE sender bridge with FFI manager (legacy interface)
                 let bleSenderBridge = BleSenderBridge(bleManager: bleManager, connectionManager: self)
                 manager.setBleSender(sender: bleSenderBridge)
                 NSLog("ConnectionManager: BLE sender bridge registered with FFI manager")
@@ -347,9 +366,7 @@ final class ConnectionManager: ObservableObject {
         // Stop BLE
         bleManager?.stopScanning()
         bleManager?.stopAdvertising()
-        bleManager?.stopConnectionHealthMonitoring()
         bleEnabled = false
-        bleConnectedDevices.removeAll()
 
         nearClipManager?.stop()
         nearClipManager = nil
@@ -379,7 +396,7 @@ final class ConnectionManager: ObservableObject {
         for i in connectedDevices.indices {
             if connectedDevices[i].connectionType == .wifi {
                 // Check if device is also connected via BLE
-                if bleConnectedDevices[connectedDevices[i].id] != nil {
+                if bleManager?.isConnected(peripheralUuid: connectedDevices[i].id) == true {
                     connectedDevices[i].connectionType = .ble
                     print("ConnectionManager: Device \(connectedDevices[i].name) switched to BLE")
                 }
@@ -391,30 +408,12 @@ final class ConnectionManager: ObservableObject {
 
         // Remove devices that were WiFi-only and not connected via BLE
         let wifiOnlyDevices = connectedDevices.filter {
-            $0.connectionType == .wifi && bleConnectedDevices[$0.id] == nil
+            $0.connectionType == .wifi && bleManager?.isConnected(peripheralUuid: $0.id) != true
         }
         for device in wifiOnlyDevices {
             print("ConnectionManager: Device \(device.name) lost (WiFi-only, no BLE)")
         }
-        connectedDevices.removeAll { $0.connectionType == .wifi && bleConnectedDevices[$0.id] == nil }
-
-        // Try to connect to paired devices via BLE if not already connected
-        for device in pairedDevices {
-            if bleConnectedDevices[device.id] == nil {
-                // Check if device was discovered via BLE
-                if bleManager?.discoveredDevices[device.id] != nil {
-                    print("ConnectionManager: Attempting BLE connection to \(device.name)")
-                    bleManager?.connect(deviceId: device.id)
-                } else {
-                    print("ConnectionManager: Device \(device.name) not discovered via BLE, scanning...")
-                }
-            }
-        }
-
-        // Ensure BLE scanning is active to discover devices
-        if bleManager?.isScanning == false {
-            bleManager?.startScanning()
-        }
+        connectedDevices.removeAll { $0.connectionType == .wifi && bleManager?.isConnected(peripheralUuid: $0.id) != true }
 
         updateStatus()
     }
@@ -595,7 +594,7 @@ final class ConnectionManager: ObservableObject {
             guard let self = self else { return }
 
             // Check if already connected via BLE
-            let isBleConnected = self.bleConnectedDevices[device.id] != nil
+            let isBleConnected = self.bleManager?.isConnected(peripheralUuid: device.id) ?? false
             let connectionType: DeviceDisplay.ConnectionType = isBleConnected ? .both : .wifi
 
             let display = DeviceDisplay(
@@ -648,7 +647,7 @@ final class ConnectionManager: ObservableObject {
             guard let self = self else { return }
 
             // Check if still connected via BLE
-            let isBleConnected = self.bleConnectedDevices[deviceId] != nil
+            let isBleConnected = self.bleManager?.isConnected(peripheralUuid: deviceId) ?? false
 
             if isBleConnected {
                 // WiFi disconnected but BLE still connected, update connection type
@@ -1032,47 +1031,37 @@ final class NearClipCallbackHandler: FfiNearClipCallback {
     func onSyncError(errorMessage: String) {
         manager?.handleSyncError(errorMessage)
     }
+
+    func onDeviceDiscovered(device: FfiDiscoveredDevice) {
+        manager?.handleBleDeviceDiscovered(device)
+    }
+
+    func onDeviceLost(peripheralUuid: String) {
+        manager?.handleBleDeviceLost(peripheralUuid)
+    }
 }
 
 // MARK: - BleManagerDelegate
 
 extension ConnectionManager: BleManagerDelegate {
 
-    func bleManager(_ manager: BleManager, didDiscoverDevice device: BleDevice) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            print("BLE: Discovered device: \(device.id)")
+    func bleManager(_ manager: BleManager, didDiscoverDevice peripheralUuid: String, deviceId: String?, publicKeyHash: String?, rssi: Int) {
+        // Forward to FFI layer - Rust BleController will handle the logic
+        print("BLE: Discovered peripheral: \(peripheralUuid), deviceId: \(deviceId ?? "nil"), rssi: \(rssi)")
+    }
 
-            // Check if this is a paired device and not already connected via BLE
-            if self.pairedDevices.contains(where: { $0.id == device.id }) {
-                // Only connect if not already connected via BLE
-                if self.bleConnectedDevices[device.id] == nil {
-                    print("BLE: Auto-connecting to paired device: \(device.id)")
-                    manager.connect(deviceId: device.id)
-                }
-            }
+    func bleManager(_ manager: BleManager, didLoseDevice peripheralUuid: String) {
+        DispatchQueue.main.async { [weak self] in
+            print("BLE: Lost peripheral: \(peripheralUuid)")
+            // Rust layer will handle device lost logic
         }
     }
 
-    func bleManager(_ manager: BleManager, didLoseDevice deviceId: String) {
-        DispatchQueue.main.async { [weak self] in
-            self?.bleConnectedDevices.removeValue(forKey: deviceId)
-            print("BLE: Lost device: \(deviceId)")
-        }
-    }
-
-    func bleManager(_ manager: BleManager, didConnectDevice deviceId: String) {
+    func bleManager(_ manager: BleManager, didConnectDevice peripheralUuid: String, deviceId: String) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
-            NSLog("ConnectionManager: BLE didConnectDevice called for: \(deviceId)")
-
-            if let device = manager.connectedDevices[deviceId] {
-                self.bleConnectedDevices[deviceId] = device
-                NSLog("ConnectionManager: Added to bleConnectedDevices: \(deviceId)")
-            } else {
-                NSLog("ConnectionManager: Warning - device not found in manager.connectedDevices: \(deviceId)")
-            }
+            NSLog("ConnectionManager: BLE didConnectDevice - peripheralUuid: \(peripheralUuid), deviceId: \(deviceId)")
 
             // Notify FFI layer about BLE connection state change
             self.nearClipManager?.onBleConnectionChanged(deviceId: deviceId, connected: true)
@@ -1100,24 +1089,23 @@ extension ConnectionManager: BleManagerDelegate {
                 // Add to connected devices if not already present via WiFi
                 self.connectedDevices.append(display)
                 self.updateStatus()
-                NSLog("ConnectionManager: Added BLE device to connectedDevices: \(deviceName) (\(deviceId)), total: \(self.connectedDevices.count)")
-                print("BLE: Added device to connected list: \(deviceName) (\(deviceId))")
+                NSLog("ConnectionManager: Added BLE device to connectedDevices: \(deviceName) (\(deviceId))")
             } else {
                 // Device already connected via WiFi, update to .both
                 if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
                     self.connectedDevices[index].connectionType = .both
                     NSLog("ConnectionManager: Updated device to .both: \(deviceId)")
-                    print("BLE: Device already connected via WiFi, updated to .both: \(deviceId)")
                 }
             }
         }
     }
 
-    func bleManager(_ manager: BleManager, didDisconnectDevice deviceId: String) {
+    func bleManager(_ manager: BleManager, didDisconnectDevice peripheralUuid: String, deviceId: String?) {
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
-            self.bleConnectedDevices.removeValue(forKey: deviceId)
-            print("BLE: Disconnected from device: \(deviceId)")
+            print("BLE: Disconnected from peripheral: \(peripheralUuid), deviceId: \(deviceId ?? "nil")")
+
+            guard let deviceId = deviceId else { return }
 
             // Notify FFI layer about BLE connection state change
             self.nearClipManager?.onBleConnectionChanged(deviceId: deviceId, connected: false)
@@ -1136,33 +1124,115 @@ extension ConnectionManager: BleManagerDelegate {
         }
     }
 
-    func bleManager(_ manager: BleManager, didReceiveData data: Data, fromDevice deviceId: String) {
-        print("BLE: Received \(data.count) bytes from \(deviceId)")
+    func bleManager(_ manager: BleManager, didReceiveData data: Data, fromPeripheral peripheralUuid: String) {
+        print("BLE: Received \(data.count) bytes from peripheral: \(peripheralUuid)")
 
         // Forward BLE data to FFI layer for processing
-        nearClipManager?.onBleDataReceived(deviceId: deviceId, data: data)
-        NSLog("ConnectionManager: Forwarded BLE data to FFI layer: \(data.count) bytes from \(deviceId)")
+        // Note: We need to map peripheralUuid to deviceId
+        nearClipManager?.onBleDataReceived(deviceId: peripheralUuid, data: data)
+        NSLog("ConnectionManager: Forwarded BLE data to FFI layer: \(data.count) bytes")
     }
 
-    func bleManager(_ manager: BleManager, didFailWithError error: Error, forDevice deviceId: String?) {
-        print("BLE: Error for device \(deviceId ?? "unknown"): \(error.localizedDescription)")
+    func bleManager(_ manager: BleManager, didFailWithError error: Error, forPeripheral peripheralUuid: String?) {
+        print("BLE: Error for peripheral \(peripheralUuid ?? "unknown"): \(error.localizedDescription)")
         lastError = "BLE: \(error.localizedDescription)"
+    }
+
+    // MARK: - BLE Discovery Handlers (from FFI callbacks)
+
+    func handleBleDeviceDiscovered(_ device: FfiDiscoveredDevice) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            print("BLE: FFI discovered device - peripheralUuid: \(device.peripheralUuid), name: \(device.deviceName ?? "nil")")
+
+            // Check if this is a paired device and auto-connect
+            if let publicKeyHash = device.publicKeyHash {
+                // TODO: Match by public key hash with paired devices
+            }
+        }
+    }
+
+    func handleBleDeviceLost(_ peripheralUuid: String) {
+        DispatchQueue.main.async { [weak self] in
+            print("BLE: FFI device lost - peripheralUuid: \(peripheralUuid)")
+        }
     }
 
     // MARK: - BLE Public API
 
-    /// Send clipboard data via BLE to a specific device
+    /// Sync clipboard content to a specific device via BLE
     func syncClipboardViaBle(_ content: Data, to deviceId: String) {
-        bleManager?.sendData(content, to: deviceId)
+        guard let bleManager = bleManager else {
+            print("BLE sync failed: BLE manager not available")
+            return
+        }
+
+        let result = bleManager.writeData(peripheralUuid: deviceId, data: content)
+        if result.isEmpty {
+            print("BLE sync to \(deviceId): \(content.count) bytes sent")
+        } else {
+            print("BLE sync to \(deviceId) failed: \(result)")
+        }
     }
 
     /// Check if a device is connected via BLE
     func isDeviceConnectedViaBle(_ deviceId: String) -> Bool {
-        return bleConnectedDevices[deviceId] != nil
+        return bleManager?.isConnected(peripheralUuid: deviceId) ?? false
     }
 }
 
-// MARK: - FfiBleSender Bridge
+// MARK: - FfiBleHardware Bridge
+
+/// Bridge class that implements FfiBleHardware protocol and delegates to BleManager
+final class BleHardwareBridge: FfiBleHardware {
+    private weak var bleManager: BleManager?
+
+    init(bleManager: BleManager?) {
+        self.bleManager = bleManager
+    }
+
+    func startScan() {
+        bleManager?.startScanning()
+    }
+
+    func stopScan() {
+        bleManager?.stopScanning()
+    }
+
+    func connect(peripheralUuid: String) {
+        bleManager?.connect(peripheralUuid: peripheralUuid)
+    }
+
+    func disconnect(peripheralUuid: String) {
+        bleManager?.disconnect(peripheralUuid: peripheralUuid)
+    }
+
+    func writeData(peripheralUuid: String, data: Data) -> String {
+        return bleManager?.writeData(peripheralUuid: peripheralUuid, data: data) ?? "BLE manager not available"
+    }
+
+    func getMtu(peripheralUuid: String) -> UInt32 {
+        return bleManager?.getMtu(peripheralUuid: peripheralUuid) ?? 20
+    }
+
+    func isConnected(peripheralUuid: String) -> Bool {
+        return bleManager?.isConnected(peripheralUuid: peripheralUuid) ?? false
+    }
+
+    func startAdvertising() {
+        bleManager?.startAdvertising()
+    }
+
+    func stopAdvertising() {
+        bleManager?.stopAdvertising()
+    }
+
+    func configure(deviceId: String, publicKeyHash: String) {
+        bleManager?.configure(deviceId: deviceId, publicKeyHash: publicKeyHash)
+    }
+}
+
+// MARK: - FfiBleSender Bridge (Legacy - kept for backward compatibility)
 
 /// Bridge class that implements FfiBleSender protocol and delegates to BleManager
 final class BleSenderBridge: FfiBleSender {
@@ -1185,8 +1255,7 @@ final class BleSenderBridge: FfiBleSender {
         }
 
         // Send data through BleManager
-        bleManager.sendData(data, to: deviceId)
-        return "" // Empty string means success
+        return bleManager.writeData(peripheralUuid: deviceId, data: data)
     }
 
     func isBleConnected(deviceId: String) -> Bool {
@@ -1194,8 +1263,6 @@ final class BleSenderBridge: FfiBleSender {
     }
 
     func getMtu(deviceId: String) -> UInt32 {
-        // Return 0 to use default MTU
-        // BleManager handles MTU internally
-        return 0
+        return bleManager?.getMtu(peripheralUuid: deviceId) ?? 20
     }
 }

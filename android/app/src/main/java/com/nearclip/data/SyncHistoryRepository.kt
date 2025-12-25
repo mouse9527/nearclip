@@ -1,61 +1,39 @@
 package com.nearclip.data
 
-import android.content.Context
-import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.Preferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
+import com.nearclip.ffi.FfiNearClipManager
+import com.nearclip.ffi.FfiSyncHistoryEntry
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.text.SimpleDateFormat
 import java.util.*
 
-private val Context.syncHistoryDataStore: DataStore<Preferences> by preferencesDataStore(name = "sync_history")
-
 /**
  * Represents a single sync event in history.
+ * View model wrapper for FfiSyncHistoryEntry.
  */
 data class SyncRecord(
-    val id: String = UUID.randomUUID().toString(),
-    val timestamp: Long = System.currentTimeMillis(),
+    val id: Long,
+    val timestamp: Long,
     val direction: SyncDirection,
     val deviceId: String,
     val deviceName: String,
     val contentPreview: String,
-    val contentSize: Int,
+    val contentSize: ULong,
     val success: Boolean,
     val errorMessage: String? = null
 ) {
-    fun toJson(): JSONObject = JSONObject().apply {
-        put("id", id)
-        put("timestamp", timestamp)
-        put("direction", direction.name)
-        put("deviceId", deviceId)
-        put("deviceName", deviceName)
-        put("contentPreview", contentPreview)
-        put("contentSize", contentSize)
-        put("success", success)
-        put("errorMessage", errorMessage ?: JSONObject.NULL)
-    }
-
     companion object {
-        fun fromJson(json: JSONObject): SyncRecord = SyncRecord(
-            id = json.optString("id", UUID.randomUUID().toString()),
-            timestamp = json.optLong("timestamp", System.currentTimeMillis()),
-            direction = try {
-                SyncDirection.valueOf(json.optString("direction", "RECEIVED"))
-            } catch (e: Exception) {
-                SyncDirection.RECEIVED
-            },
-            deviceId = json.optString("deviceId", ""),
-            deviceName = json.optString("deviceName", "Unknown"),
-            contentPreview = json.optString("contentPreview", ""),
-            contentSize = json.optInt("contentSize", 0),
-            success = json.optBoolean("success", true),
-            errorMessage = if (json.isNull("errorMessage")) null else json.optString("errorMessage")
+        fun fromFfi(entry: FfiSyncHistoryEntry): SyncRecord = SyncRecord(
+            id = entry.id,
+            timestamp = entry.timestampMs,
+            direction = if (entry.direction == "sent") SyncDirection.SENT else SyncDirection.RECEIVED,
+            deviceId = entry.deviceId,
+            deviceName = entry.deviceName,
+            contentPreview = entry.contentPreview,
+            contentSize = entry.contentSize,
+            success = entry.success,
+            errorMessage = entry.errorMessage
         )
     }
 
@@ -85,56 +63,84 @@ enum class SyncDirection {
 }
 
 /**
- * Repository for managing sync history.
+ * Repository for managing sync history - delegates to FFI layer.
  */
-class SyncHistoryRepository(private val context: Context) {
+class SyncHistoryRepository {
 
-    companion object {
-        private val SYNC_HISTORY_KEY = stringPreferencesKey("sync_history_json")
-        private const val MAX_HISTORY_SIZE = 50  // Keep last 50 records
-    }
+    private var manager: FfiNearClipManager? = null
+    private val _syncHistory = MutableStateFlow<List<SyncRecord>>(emptyList())
 
     /**
      * Flow of all sync records, sorted by timestamp (newest first).
      */
-    val syncHistory: Flow<List<SyncRecord>> = context.syncHistoryDataStore.data.map { prefs ->
-        val json = prefs[SYNC_HISTORY_KEY] ?: "[]"
-        parseHistory(json)
+    val syncHistory: Flow<List<SyncRecord>> = _syncHistory.asStateFlow()
+
+    /**
+     * Set the FFI manager reference.
+     */
+    fun setManager(manager: FfiNearClipManager) {
+        this.manager = manager
+        loadHistory()
+    }
+
+    /**
+     * Reload history from FFI layer.
+     */
+    fun loadHistory() {
+        val mgr = manager ?: return
+        try {
+            val entries = mgr.getRecentHistory(50u)
+            val records = entries.map { SyncRecord.fromFfi(it) }
+            _syncHistory.value = records
+            android.util.Log.d("SyncHistoryRepository", "Loaded ${records.size} records from FFI")
+        } catch (e: Exception) {
+            android.util.Log.e("SyncHistoryRepository", "Failed to load history: ${e.message}")
+        }
     }
 
     /**
      * Add a new sync record to history.
      */
-    suspend fun addRecord(record: SyncRecord) {
-        context.syncHistoryDataStore.edit { prefs ->
-            val currentJson = prefs[SYNC_HISTORY_KEY] ?: "[]"
-            val records = parseHistory(currentJson).toMutableList()
+    private fun addEntry(entry: FfiSyncHistoryEntry) {
+        val mgr = manager
+        if (mgr == null) {
+            android.util.Log.w("SyncHistoryRepository", "No manager set, cannot add entry")
+            return
+        }
 
-            // Add new record at the beginning
-            records.add(0, record)
-
-            // Trim to max size
-            while (records.size > MAX_HISTORY_SIZE) {
-                records.removeAt(records.size - 1)
-            }
-
-            prefs[SYNC_HISTORY_KEY] = serializeHistory(records)
+        try {
+            mgr.addHistoryEntry(entry)
+            // Reload to get the updated list with proper IDs
+            loadHistory()
+            android.util.Log.d("SyncHistoryRepository", "Added record - ${entry.direction} ${if (entry.success) "success" else "failed"}")
+        } catch (e: Exception) {
+            android.util.Log.e("SyncHistoryRepository", "Failed to add entry: ${e.message}")
         }
     }
 
     /**
      * Clear all sync history.
      */
-    suspend fun clearHistory() {
-        context.syncHistoryDataStore.edit { prefs ->
-            prefs[SYNC_HISTORY_KEY] = "[]"
+    fun clearHistory() {
+        val mgr = manager
+        if (mgr == null) {
+            android.util.Log.w("SyncHistoryRepository", "No manager set, cannot clear history")
+            return
+        }
+
+        try {
+            mgr.clearAllHistory()
+            _syncHistory.value = emptyList()
+            android.util.Log.d("SyncHistoryRepository", "Cleared all history")
+        } catch (e: Exception) {
+            android.util.Log.e("SyncHistoryRepository", "Failed to clear history: ${e.message}")
         }
     }
 
     /**
      * Record a successful send operation.
      */
-    suspend fun recordSent(
+    fun recordSent(
         deviceId: String,
         deviceName: String,
         content: ByteArray
@@ -145,22 +151,25 @@ class SyncHistoryRepository(private val context: Context) {
             "[Binary data]"
         }
 
-        addRecord(
-            SyncRecord(
-                direction = SyncDirection.SENT,
-                deviceId = deviceId,
-                deviceName = deviceName,
-                contentPreview = preview,
-                contentSize = content.size,
-                success = true
-            )
+        val entry = FfiSyncHistoryEntry(
+            id = 0,  // Will be assigned by FFI
+            deviceId = deviceId,
+            deviceName = deviceName,
+            contentPreview = preview,
+            contentSize = content.size.toULong(),
+            direction = "sent",
+            timestampMs = System.currentTimeMillis(),
+            success = true,
+            errorMessage = null
         )
+
+        addEntry(entry)
     }
 
     /**
      * Record a successful receive operation.
      */
-    suspend fun recordReceived(
+    fun recordReceived(
         deviceId: String,
         deviceName: String,
         content: ByteArray
@@ -171,57 +180,42 @@ class SyncHistoryRepository(private val context: Context) {
             "[Binary data]"
         }
 
-        addRecord(
-            SyncRecord(
-                direction = SyncDirection.RECEIVED,
-                deviceId = deviceId,
-                deviceName = deviceName,
-                contentPreview = preview,
-                contentSize = content.size,
-                success = true
-            )
+        val entry = FfiSyncHistoryEntry(
+            id = 0,
+            deviceId = deviceId,
+            deviceName = deviceName,
+            contentPreview = preview,
+            contentSize = content.size.toULong(),
+            direction = "received",
+            timestampMs = System.currentTimeMillis(),
+            success = true,
+            errorMessage = null
         )
+
+        addEntry(entry)
     }
 
     /**
      * Record a failed sync operation.
      */
-    suspend fun recordError(
+    fun recordError(
         direction: SyncDirection,
         deviceId: String,
         deviceName: String,
         errorMessage: String
     ) {
-        addRecord(
-            SyncRecord(
-                direction = direction,
-                deviceId = deviceId,
-                deviceName = deviceName,
-                contentPreview = "",
-                contentSize = 0,
-                success = false,
-                errorMessage = errorMessage
-            )
+        val entry = FfiSyncHistoryEntry(
+            id = 0,
+            deviceId = deviceId,
+            deviceName = deviceName,
+            contentPreview = "",
+            contentSize = 0u,
+            direction = if (direction == SyncDirection.SENT) "sent" else "received",
+            timestampMs = System.currentTimeMillis(),
+            success = false,
+            errorMessage = errorMessage
         )
-    }
 
-    private fun parseHistory(json: String): List<SyncRecord> {
-        return try {
-            val array = JSONArray(json)
-            (0 until array.length()).map { i ->
-                SyncRecord.fromJson(array.getJSONObject(i))
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("SyncHistoryRepository", "Failed to parse history: ${e.message}")
-            emptyList()
-        }
-    }
-
-    private fun serializeHistory(records: List<SyncRecord>): String {
-        val array = JSONArray()
-        records.forEach { record ->
-            array.put(record.toJson())
-        }
-        return array.toString()
+        addEntry(entry)
     }
 }

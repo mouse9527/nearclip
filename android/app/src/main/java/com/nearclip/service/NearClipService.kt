@@ -255,8 +255,16 @@ class NearClipService : Service(), FfiNearClipCallback {
             secureStorage = SecureStorage(this)
             loadPairedDevicesFromStorage()
 
-            // Initialize sync history repository
-            syncHistoryRepository = SyncHistoryRepository(this)
+            // Initialize sync history repository with FFI manager
+            syncHistoryRepository = SyncHistoryRepository()
+            manager?.let { mgr ->
+                // Initialize history database
+                val dbPath = getDatabasePath("history.db").absolutePath
+                getDatabasePath("history.db").parentFile?.mkdirs()
+                mgr.initHistory(dbPath)
+                syncHistoryRepository?.setManager(mgr)
+                android.util.Log.i("NearClipService", "History storage initialized at: $dbPath")
+            }
 
             // Initialize clipboard monitor
             clipboardMonitor = ClipboardMonitor(this) { content ->
@@ -770,16 +778,12 @@ class NearClipService : Service(), FfiNearClipCallback {
 
                 // Record sync history for synced devices
                 if (syncedDevices.isNotEmpty()) {
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        serviceScope.launch {
-                            for (device in syncedDevices) {
-                                syncHistoryRepository?.recordSent(
-                                    deviceId = device.id,
-                                    deviceName = device.name,
-                                    content = content
-                                )
-                            }
-                        }
+                    for (device in syncedDevices) {
+                        syncHistoryRepository?.recordSent(
+                            deviceId = device.id,
+                            deviceName = device.name,
+                            content = content
+                        )
                     }
                 } else {
                     android.util.Log.w("NearClipService", "No devices available for sync")
@@ -966,13 +970,11 @@ class NearClipService : Service(), FfiNearClipCallback {
         notificationHelper?.showSyncSuccessNotification(deviceName, contentPreview)
 
         // Record sync history
-        serviceScope.launch {
-            syncHistoryRepository?.recordReceived(
-                deviceId = fromDevice,
-                deviceName = deviceName,
-                content = content
-            )
-        }
+        syncHistoryRepository?.recordReceived(
+            deviceId = fromDevice,
+            deviceName = deviceName,
+            content = content
+        )
 
         listeners.forEach { it.onClipboardReceived(content, fromDevice) }
     }

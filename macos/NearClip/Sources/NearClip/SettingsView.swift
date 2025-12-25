@@ -551,11 +551,6 @@ struct DebugSettingsTab: View {
                         Text(connectionManager.bleEnabled ? "已启用" : "未启用")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        if !connectionManager.bleConnectedDevices.isEmpty {
-                            Text("(\(connectionManager.bleConnectedDevices.count) BLE连接)")
-                                .font(.caption)
-                                .foregroundColor(.blue)
-                        }
                     }
                 }
 

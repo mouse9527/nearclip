@@ -251,6 +251,76 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureStr
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD0
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod0)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD1
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod1)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD2
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod2)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD3
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD3
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod3)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD4
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD4
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod4)(uint64_t, RustBuffer, RustBuffer, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD5
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD5
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod5)(uint64_t, RustBuffer, uint32_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD6
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD6
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod6)(uint64_t, RustBuffer, int8_t* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD7
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD7
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod7)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD8
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD8
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod8)(uint64_t, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD9
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_HARDWARE_METHOD9
+typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod9)(uint64_t, RustBuffer, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_BLE_SENDER_METHOD0
 typedef void (*UniffiCallbackInterfaceFfiBleSenderMethod0)(uint64_t, RustBuffer, RustBuffer, RustBuffer* _Nonnull, 
@@ -314,6 +384,37 @@ typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod5)(uint64_t, Rust
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD6
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD6
+typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod6)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD7
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD7
+typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod7)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_BLE_HARDWARE
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_BLE_HARDWARE
+typedef struct UniffiVTableCallbackInterfaceFfiBleHardware {
+    UniffiCallbackInterfaceFfiBleHardwareMethod0 _Nonnull startScan;
+    UniffiCallbackInterfaceFfiBleHardwareMethod1 _Nonnull stopScan;
+    UniffiCallbackInterfaceFfiBleHardwareMethod2 _Nonnull connect;
+    UniffiCallbackInterfaceFfiBleHardwareMethod3 _Nonnull disconnect;
+    UniffiCallbackInterfaceFfiBleHardwareMethod4 _Nonnull writeData;
+    UniffiCallbackInterfaceFfiBleHardwareMethod5 _Nonnull getMtu;
+    UniffiCallbackInterfaceFfiBleHardwareMethod6 _Nonnull isConnected;
+    UniffiCallbackInterfaceFfiBleHardwareMethod7 _Nonnull startAdvertising;
+    UniffiCallbackInterfaceFfiBleHardwareMethod8 _Nonnull stopAdvertising;
+    UniffiCallbackInterfaceFfiBleHardwareMethod9 _Nonnull configure;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceFfiBleHardware;
+
+#endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_BLE_SENDER
 #define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_BLE_SENDER
 typedef struct UniffiVTableCallbackInterfaceFfiBleSender {
@@ -333,6 +434,8 @@ typedef struct UniffiVTableCallbackInterfaceFfiNearClipCallback {
     UniffiCallbackInterfaceFfiNearClipCallbackMethod3 _Nonnull onPairingRejected;
     UniffiCallbackInterfaceFfiNearClipCallbackMethod4 _Nonnull onClipboardReceived;
     UniffiCallbackInterfaceFfiNearClipCallbackMethod5 _Nonnull onSyncError;
+    UniffiCallbackInterfaceFfiNearClipCallbackMethod6 _Nonnull onDeviceDiscovered;
+    UniffiCallbackInterfaceFfiNearClipCallbackMethod7 _Nonnull onDeviceLost;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceFfiNearClipCallback;
 
@@ -352,9 +455,24 @@ void uniffi_nearclip_ffi_fn_free_ffinearclipmanager(void*_Nonnull ptr, RustCallS
 void*_Nonnull uniffi_nearclip_ffi_fn_constructor_ffinearclipmanager_new(RustBuffer config, uint64_t callback, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ADD_HISTORY_ENTRY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ADD_HISTORY_ENTRY
+int64_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_history_entry(void*_Nonnull ptr, RustBuffer entry, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ADD_PAIRED_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_ADD_PAIRED_DEVICE
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_paired_device(void*_Nonnull ptr, RustBuffer device, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_CLEAR_ALL_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_CLEAR_ALL_HISTORY
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_clear_all_history(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_CLEAR_OLD_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_CLEAR_OLD_HISTORY
+uint64_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_clear_old_history(void*_Nonnull ptr, uint32_t days, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_CONNECT_DEVICE
@@ -372,6 +490,11 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_disconnect_device(void*_No
 RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_connected_devices(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_HISTORY
+RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_history(void*_Nonnull ptr, RustBuffer device_id, uint64_t limit, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_ID
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_ID
 RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_id(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
@@ -382,9 +505,24 @@ RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_id(void*_
 RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_status(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_HISTORY_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_HISTORY_COUNT
+uint64_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_history_count(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_PAIRED_DEVICES
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_PAIRED_DEVICES
 RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_RECENT_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_GET_RECENT_HISTORY
+RustBuffer uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_recent_history(void*_Nonnull ptr, uint64_t limit, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_INIT_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_INIT_HISTORY
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_init_history(void*_Nonnull ptr, RustBuffer db_path, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_IS_RUNNING
@@ -407,6 +545,11 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_data_received(void*
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_hardware(void*_Nonnull ptr, uint64_t hardware, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_sender(void*_Nonnull ptr, uint64_t sender, RustCallStatus *_Nonnull out_status
@@ -417,9 +560,19 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_sender(void*_Nonnu
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_START_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_START_DISCOVERY
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start_discovery(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_STOP
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_STOP
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_STOP_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_STOP_DISCOVERY
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop_discovery(void*_Nonnull ptr, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SYNC_CLIPBOARD
@@ -435,6 +588,11 @@ uint32_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_try_connect_paired_dev
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_UNPAIR_DEVICE
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLEHARDWARE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLEHARDWARE
+void uniffi_nearclip_ffi_fn_init_callback_vtable_ffiblehardware(UniffiVTableCallbackInterfaceFfiBleHardware* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLESENDER
@@ -750,9 +908,27 @@ uint16_t uniffi_nearclip_ffi_checksum_func_init_logging(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ADD_HISTORY_ENTRY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ADD_HISTORY_ENTRY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_add_history_entry(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ADD_PAIRED_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_ADD_PAIRED_DEVICE
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_add_paired_device(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_CLEAR_ALL_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_CLEAR_ALL_HISTORY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_clear_all_history(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_CLEAR_OLD_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_CLEAR_OLD_HISTORY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_clear_old_history(void
     
 );
 #endif
@@ -774,6 +950,12 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_de
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_HISTORY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_history(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_ID
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_DEVICE_ID
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_id(void
@@ -786,9 +968,27 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_statu
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_HISTORY_COUNT
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_HISTORY_COUNT
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_history_count(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_PAIRED_DEVICES
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_PAIRED_DEVICES
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_paired_devices(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_RECENT_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_GET_RECENT_HISTORY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_recent_history(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_INIT_HISTORY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_INIT_HISTORY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_init_history(void
     
 );
 #endif
@@ -816,6 +1016,12 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_de
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_hardware(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_SENDER
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_sender(void
@@ -828,9 +1034,21 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_START_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_START_DISCOVERY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start_discovery(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_STOP
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_STOP
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_STOP_DISCOVERY
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_STOP_DISCOVERY
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop_discovery(void
     
 );
 #endif
@@ -855,6 +1073,66 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_unpair_device(vo
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_CONSTRUCTOR_FFINEARCLIPMANAGER_NEW
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_CONSTRUCTOR_FFINEARCLIPMANAGER_NEW
 uint16_t uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_START_SCAN
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_START_SCAN
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_scan(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_STOP_SCAN
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_STOP_SCAN
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_scan(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_CONNECT
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_CONNECT
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_connect(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_DISCONNECT
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_DISCONNECT
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_disconnect(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_WRITE_DATA
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_WRITE_DATA
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_data(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_GET_MTU
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_GET_MTU
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_IS_CONNECTED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_IS_CONNECTED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_START_ADVERTISING
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_START_ADVERTISING
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_STOP_ADVERTISING
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_STOP_ADVERTISING
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_advertising(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_CONFIGURE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_CONFIGURE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure(void
     
 );
 #endif
@@ -909,6 +1187,18 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_clipboard_re
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_SYNC_ERROR
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_SYNC_ERROR
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_sync_error(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_DISCOVERED
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_DISCOVERED
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_discovered(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_LOST
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPCALLBACK_ON_DEVICE_LOST
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_lost(void
     
 );
 #endif

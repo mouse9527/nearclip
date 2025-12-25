@@ -2,43 +2,33 @@ import Foundation
 import Combine
 
 /// Represents the direction of a sync operation
-enum SyncDirection: String, Codable {
+enum SyncDirection: String {
     case sent       // Sent to other device
     case received   // Received from other device
 }
 
-/// Represents a single sync event in history
-struct SyncRecord: Identifiable, Codable, Equatable {
-    let id: String
+/// View model wrapper for FfiSyncHistoryEntry
+struct SyncRecord: Identifiable, Equatable {
+    let id: Int64
     let timestamp: Date
     let direction: SyncDirection
     let deviceId: String
     let deviceName: String
     let contentPreview: String
-    let contentSize: Int
+    let contentSize: UInt64
     let success: Bool
     let errorMessage: String?
 
-    init(
-        id: String = UUID().uuidString,
-        timestamp: Date = Date(),
-        direction: SyncDirection,
-        deviceId: String,
-        deviceName: String,
-        contentPreview: String,
-        contentSize: Int,
-        success: Bool,
-        errorMessage: String? = nil
-    ) {
-        self.id = id
-        self.timestamp = timestamp
-        self.direction = direction
-        self.deviceId = deviceId
-        self.deviceName = deviceName
-        self.contentPreview = contentPreview
-        self.contentSize = contentSize
-        self.success = success
-        self.errorMessage = errorMessage
+    init(from ffiEntry: FfiSyncHistoryEntry) {
+        self.id = ffiEntry.id
+        self.timestamp = Date(timeIntervalSince1970: Double(ffiEntry.timestampMs) / 1000.0)
+        self.direction = ffiEntry.direction == "sent" ? .sent : .received
+        self.deviceId = ffiEntry.deviceId
+        self.deviceName = ffiEntry.deviceName
+        self.contentPreview = ffiEntry.contentPreview
+        self.contentSize = ffiEntry.contentSize
+        self.success = ffiEntry.success
+        self.errorMessage = ffiEntry.errorMessage
     }
 
     /// Format timestamp as relative time string
@@ -65,16 +55,21 @@ struct SyncRecord: Identifiable, Codable, Equatable {
     }
 }
 
-/// Manager for sync history storage and retrieval
+/// Manager for sync history - delegates to FFI layer
 final class SyncHistoryManager: ObservableObject {
     static let shared = SyncHistoryManager()
 
-    private static let historyKey = "syncHistory"
-    private static let maxHistorySize = 50
-
     @Published private(set) var syncHistory: [SyncRecord] = []
 
-    private init() {
+    private weak var nearClipManager: FfiNearClipManager?
+
+    private init() {}
+
+    // MARK: - Setup
+
+    /// Set the FFI manager reference
+    func setManager(_ manager: FfiNearClipManager) {
+        self.nearClipManager = manager
         loadHistory()
     }
 
@@ -84,97 +79,108 @@ final class SyncHistoryManager: ObservableObject {
     func recordSent(deviceId: String, deviceName: String, content: Data) {
         let preview = String(data: content, encoding: .utf8)?.prefix(100).description ?? "[Binary data]"
 
-        let record = SyncRecord(
-            direction: .sent,
+        let entry = FfiSyncHistoryEntry(
+            id: 0,  // Will be assigned by FFI
             deviceId: deviceId,
             deviceName: deviceName,
             contentPreview: preview,
-            contentSize: content.count,
-            success: true
+            contentSize: UInt64(content.count),
+            direction: "sent",
+            timestampMs: Int64(Date().timeIntervalSince1970 * 1000),
+            success: true,
+            errorMessage: nil
         )
 
-        addRecord(record)
+        addEntry(entry)
     }
 
     /// Record a successful receive operation
     func recordReceived(deviceId: String, deviceName: String, content: Data) {
         let preview = String(data: content, encoding: .utf8)?.prefix(100).description ?? "[Binary data]"
 
-        let record = SyncRecord(
-            direction: .received,
+        let entry = FfiSyncHistoryEntry(
+            id: 0,
             deviceId: deviceId,
             deviceName: deviceName,
             contentPreview: preview,
-            contentSize: content.count,
-            success: true
+            contentSize: UInt64(content.count),
+            direction: "received",
+            timestampMs: Int64(Date().timeIntervalSince1970 * 1000),
+            success: true,
+            errorMessage: nil
         )
 
-        addRecord(record)
+        addEntry(entry)
     }
 
     /// Record a failed sync operation
     func recordError(direction: SyncDirection, deviceId: String, deviceName: String, errorMessage: String) {
-        let record = SyncRecord(
-            direction: direction,
+        let entry = FfiSyncHistoryEntry(
+            id: 0,
             deviceId: deviceId,
             deviceName: deviceName,
             contentPreview: "",
             contentSize: 0,
+            direction: direction == .sent ? "sent" : "received",
+            timestampMs: Int64(Date().timeIntervalSince1970 * 1000),
             success: false,
             errorMessage: errorMessage
         )
 
-        addRecord(record)
+        addEntry(entry)
     }
 
     /// Clear all sync history
     func clearHistory() {
-        syncHistory = []
-        saveHistory()
-        print("SyncHistoryManager: Cleared all history")
-    }
-
-    // MARK: - Private
-
-    private func addRecord(_ record: SyncRecord) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-
-            // Add new record at the beginning
-            self.syncHistory.insert(record, at: 0)
-
-            // Trim to max size
-            while self.syncHistory.count > Self.maxHistorySize {
-                self.syncHistory.removeLast()
-            }
-
-            self.saveHistory()
-            print("SyncHistoryManager: Added record - \(record.direction) \(record.success ? "success" : "failed")")
-        }
-    }
-
-    private func loadHistory() {
-        guard let data = UserDefaults.standard.data(forKey: Self.historyKey) else {
-            syncHistory = []
+        guard let manager = nearClipManager else {
+            print("SyncHistoryManager: No manager set, cannot clear history")
             return
         }
 
         do {
-            let records = try JSONDecoder().decode([SyncRecord].self, from: data)
-            syncHistory = records
-            print("SyncHistoryManager: Loaded \(records.count) records from storage")
+            try manager.clearAllHistory()
+            DispatchQueue.main.async {
+                self.syncHistory = []
+            }
+            print("SyncHistoryManager: Cleared all history")
         } catch {
-            print("SyncHistoryManager: Failed to load history: \(error)")
-            syncHistory = []
+            print("SyncHistoryManager: Failed to clear history: \(error)")
         }
     }
 
-    private func saveHistory() {
+    /// Reload history from FFI layer
+    func loadHistory() {
+        guard let manager = nearClipManager else {
+            return
+        }
+
         do {
-            let data = try JSONEncoder().encode(syncHistory)
-            UserDefaults.standard.set(data, forKey: Self.historyKey)
+            let entries = try manager.getRecentHistory(limit: 50)
+            let records = entries.map { SyncRecord(from: $0) }
+            DispatchQueue.main.async {
+                self.syncHistory = records
+            }
+            print("SyncHistoryManager: Loaded \(records.count) records from FFI")
         } catch {
-            print("SyncHistoryManager: Failed to save history: \(error)")
+            print("SyncHistoryManager: Failed to load history: \(error)")
+        }
+    }
+
+    // MARK: - Private
+
+    private func addEntry(_ entry: FfiSyncHistoryEntry) {
+        guard let manager = nearClipManager else {
+            print("SyncHistoryManager: No manager set, cannot add entry")
+            return
+        }
+
+        do {
+            _ = try manager.addHistoryEntry(entry: entry)
+            // Reload to get the updated list with proper IDs
+            loadHistory()
+            print("SyncHistoryManager: Added record - \(entry.direction) \(entry.success ? "success" : "failed")")
+        } catch {
+            print("SyncHistoryManager: Failed to add entry: \(error)")
         }
     }
 }

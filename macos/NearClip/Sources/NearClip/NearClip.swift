@@ -399,6 +399,22 @@ fileprivate class UniffiHandleMap<T> {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt16: FfiConverterPrimitive {
+    typealias FfiType = Int16
+    typealias SwiftType = Int16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int16, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -424,6 +440,22 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     }
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
     }
 }
@@ -516,7 +548,13 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 public protocol FfiNearClipManagerProtocol : AnyObject {
     
+    func addHistoryEntry(entry: FfiSyncHistoryEntry) throws  -> Int64
+    
     func addPairedDevice(device: FfiDeviceInfo) 
+    
+    func clearAllHistory() throws 
+    
+    func clearOldHistory(days: UInt32) throws  -> UInt64
     
     func connectDevice(deviceId: String) throws 
     
@@ -524,11 +562,19 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func getConnectedDevices()  -> [FfiDeviceInfo]
     
+    func getDeviceHistory(deviceId: String, limit: UInt64) throws  -> [FfiSyncHistoryEntry]
+    
     func getDeviceId()  -> String
     
     func getDeviceStatus(deviceId: String)  -> DeviceStatus?
     
+    func getHistoryCount() throws  -> UInt64
+    
     func getPairedDevices()  -> [FfiDeviceInfo]
+    
+    func getRecentHistory(limit: UInt64) throws  -> [FfiSyncHistoryEntry]
+    
+    func initHistory(dbPath: String) throws 
     
     func isRunning()  -> Bool
     
@@ -538,11 +584,17 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func removePairedDevice(deviceId: String) 
     
+    func setBleHardware(hardware: FfiBleHardware) 
+    
     func setBleSender(sender: FfiBleSender) 
     
     func start() throws 
     
+    func startDiscovery() 
+    
     func stop() 
+    
+    func stopDiscovery() 
     
     func syncClipboard(content: Data) throws 
     
@@ -611,11 +663,33 @@ public convenience init(config: FfiNearClipConfig, callback: FfiNearClipCallback
     
 
     
+open func addHistoryEntry(entry: FfiSyncHistoryEntry)throws  -> Int64 {
+    return try  FfiConverterInt64.lift(try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_history_entry(self.uniffiClonePointer(),
+        FfiConverterTypeFfiSyncHistoryEntry.lower(entry),$0
+    )
+})
+}
+    
 open func addPairedDevice(device: FfiDeviceInfo) {try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_add_paired_device(self.uniffiClonePointer(),
         FfiConverterTypeFfiDeviceInfo.lower(device),$0
     )
 }
+}
+    
+open func clearAllHistory()throws  {try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_clear_all_history(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func clearOldHistory(days: UInt32)throws  -> UInt64 {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_clear_old_history(self.uniffiClonePointer(),
+        FfiConverterUInt32.lower(days),$0
+    )
+})
 }
     
 open func connectDevice(deviceId: String)throws  {try rustCallWithError(FfiConverterTypeNearClipError.lift) {
@@ -639,6 +713,15 @@ open func getConnectedDevices() -> [FfiDeviceInfo] {
 })
 }
     
+open func getDeviceHistory(deviceId: String, limit: UInt64)throws  -> [FfiSyncHistoryEntry] {
+    return try  FfiConverterSequenceTypeFfiSyncHistoryEntry.lift(try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_history(self.uniffiClonePointer(),
+        FfiConverterString.lower(deviceId),
+        FfiConverterUInt64.lower(limit),$0
+    )
+})
+}
+    
 open func getDeviceId() -> String {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_device_id(self.uniffiClonePointer(),$0
@@ -654,11 +737,33 @@ open func getDeviceStatus(deviceId: String) -> DeviceStatus? {
 })
 }
     
+open func getHistoryCount()throws  -> UInt64 {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_history_count(self.uniffiClonePointer(),$0
+    )
+})
+}
+    
 open func getPairedDevices() -> [FfiDeviceInfo] {
     return try!  FfiConverterSequenceTypeFfiDeviceInfo.lift(try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_paired_devices(self.uniffiClonePointer(),$0
     )
 })
+}
+    
+open func getRecentHistory(limit: UInt64)throws  -> [FfiSyncHistoryEntry] {
+    return try  FfiConverterSequenceTypeFfiSyncHistoryEntry.lift(try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_recent_history(self.uniffiClonePointer(),
+        FfiConverterUInt64.lower(limit),$0
+    )
+})
+}
+    
+open func initHistory(dbPath: String)throws  {try rustCallWithError(FfiConverterTypeNearClipError.lift) {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_init_history(self.uniffiClonePointer(),
+        FfiConverterString.lower(dbPath),$0
+    )
+}
 }
     
 open func isRunning() -> Bool {
@@ -691,6 +796,13 @@ open func removePairedDevice(deviceId: String) {try! rustCall() {
 }
 }
     
+open func setBleHardware(hardware: FfiBleHardware) {try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_hardware(self.uniffiClonePointer(),
+        FfiConverterCallbackInterfaceFfiBleHardware.lower(hardware),$0
+    )
+}
+}
+    
 open func setBleSender(sender: FfiBleSender) {try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_sender(self.uniffiClonePointer(),
         FfiConverterCallbackInterfaceFfiBleSender.lower(sender),$0
@@ -704,8 +816,20 @@ open func start()throws  {try rustCallWithError(FfiConverterTypeNearClipError.li
 }
 }
     
+open func startDiscovery() {try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_start_discovery(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
 open func stop() {try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop(self.uniffiClonePointer(),$0
+    )
+}
+}
+    
+open func stopDiscovery() {try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_stop_discovery(self.uniffiClonePointer(),$0
     )
 }
 }
@@ -868,6 +992,88 @@ public func FfiConverterTypeFfiDeviceInfo_lower(_ value: FfiDeviceInfo) -> RustB
 }
 
 
+public struct FfiDiscoveredDevice {
+    public var peripheralUuid: String
+    public var deviceName: String?
+    public var rssi: Int16
+    public var publicKeyHash: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(peripheralUuid: String, deviceName: String?, rssi: Int16, publicKeyHash: String?) {
+        self.peripheralUuid = peripheralUuid
+        self.deviceName = deviceName
+        self.rssi = rssi
+        self.publicKeyHash = publicKeyHash
+    }
+}
+
+
+
+extension FfiDiscoveredDevice: Equatable, Hashable {
+    public static func ==(lhs: FfiDiscoveredDevice, rhs: FfiDiscoveredDevice) -> Bool {
+        if lhs.peripheralUuid != rhs.peripheralUuid {
+            return false
+        }
+        if lhs.deviceName != rhs.deviceName {
+            return false
+        }
+        if lhs.rssi != rhs.rssi {
+            return false
+        }
+        if lhs.publicKeyHash != rhs.publicKeyHash {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(peripheralUuid)
+        hasher.combine(deviceName)
+        hasher.combine(rssi)
+        hasher.combine(publicKeyHash)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiDiscoveredDevice: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiDiscoveredDevice {
+        return
+            try FfiDiscoveredDevice(
+                peripheralUuid: FfiConverterString.read(from: &buf), 
+                deviceName: FfiConverterOptionString.read(from: &buf), 
+                rssi: FfiConverterInt16.read(from: &buf), 
+                publicKeyHash: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiDiscoveredDevice, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.peripheralUuid, into: &buf)
+        FfiConverterOptionString.write(value.deviceName, into: &buf)
+        FfiConverterInt16.write(value.rssi, into: &buf)
+        FfiConverterOptionString.write(value.publicKeyHash, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDiscoveredDevice_lift(_ buf: RustBuffer) throws -> FfiDiscoveredDevice {
+    return try FfiConverterTypeFfiDiscoveredDevice.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiDiscoveredDevice_lower(_ value: FfiDiscoveredDevice) -> RustBuffer {
+    return FfiConverterTypeFfiDiscoveredDevice.lower(value)
+}
+
+
 public struct FfiNearClipConfig {
     public var deviceName: String
     public var deviceId: String
@@ -979,6 +1185,128 @@ public func FfiConverterTypeFfiNearClipConfig_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeFfiNearClipConfig_lower(_ value: FfiNearClipConfig) -> RustBuffer {
     return FfiConverterTypeFfiNearClipConfig.lower(value)
+}
+
+
+public struct FfiSyncHistoryEntry {
+    public var id: Int64
+    public var deviceId: String
+    public var deviceName: String
+    public var contentPreview: String
+    public var contentSize: UInt64
+    public var direction: String
+    public var timestampMs: Int64
+    public var success: Bool
+    public var errorMessage: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(id: Int64, deviceId: String, deviceName: String, contentPreview: String, contentSize: UInt64, direction: String, timestampMs: Int64, success: Bool, errorMessage: String?) {
+        self.id = id
+        self.deviceId = deviceId
+        self.deviceName = deviceName
+        self.contentPreview = contentPreview
+        self.contentSize = contentSize
+        self.direction = direction
+        self.timestampMs = timestampMs
+        self.success = success
+        self.errorMessage = errorMessage
+    }
+}
+
+
+
+extension FfiSyncHistoryEntry: Equatable, Hashable {
+    public static func ==(lhs: FfiSyncHistoryEntry, rhs: FfiSyncHistoryEntry) -> Bool {
+        if lhs.id != rhs.id {
+            return false
+        }
+        if lhs.deviceId != rhs.deviceId {
+            return false
+        }
+        if lhs.deviceName != rhs.deviceName {
+            return false
+        }
+        if lhs.contentPreview != rhs.contentPreview {
+            return false
+        }
+        if lhs.contentSize != rhs.contentSize {
+            return false
+        }
+        if lhs.direction != rhs.direction {
+            return false
+        }
+        if lhs.timestampMs != rhs.timestampMs {
+            return false
+        }
+        if lhs.success != rhs.success {
+            return false
+        }
+        if lhs.errorMessage != rhs.errorMessage {
+            return false
+        }
+        return true
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(deviceId)
+        hasher.combine(deviceName)
+        hasher.combine(contentPreview)
+        hasher.combine(contentSize)
+        hasher.combine(direction)
+        hasher.combine(timestampMs)
+        hasher.combine(success)
+        hasher.combine(errorMessage)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSyncHistoryEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSyncHistoryEntry {
+        return
+            try FfiSyncHistoryEntry(
+                id: FfiConverterInt64.read(from: &buf), 
+                deviceId: FfiConverterString.read(from: &buf), 
+                deviceName: FfiConverterString.read(from: &buf), 
+                contentPreview: FfiConverterString.read(from: &buf), 
+                contentSize: FfiConverterUInt64.read(from: &buf), 
+                direction: FfiConverterString.read(from: &buf), 
+                timestampMs: FfiConverterInt64.read(from: &buf), 
+                success: FfiConverterBool.read(from: &buf), 
+                errorMessage: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSyncHistoryEntry, into buf: inout [UInt8]) {
+        FfiConverterInt64.write(value.id, into: &buf)
+        FfiConverterString.write(value.deviceId, into: &buf)
+        FfiConverterString.write(value.deviceName, into: &buf)
+        FfiConverterString.write(value.contentPreview, into: &buf)
+        FfiConverterUInt64.write(value.contentSize, into: &buf)
+        FfiConverterString.write(value.direction, into: &buf)
+        FfiConverterInt64.write(value.timestampMs, into: &buf)
+        FfiConverterBool.write(value.success, into: &buf)
+        FfiConverterOptionString.write(value.errorMessage, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSyncHistoryEntry_lift(_ buf: RustBuffer) throws -> FfiSyncHistoryEntry {
+    return try FfiConverterTypeFfiSyncHistoryEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSyncHistoryEntry_lower(_ value: FfiSyncHistoryEntry) -> RustBuffer {
+    return FfiConverterTypeFfiSyncHistoryEntry.lower(value)
 }
 
 // Note that we don't yet support `indirect` for enums.
@@ -1234,6 +1562,8 @@ public enum NearClipError {
     
     case Io(message: String)
     
+    case NotInitialized(message: String)
+    
 }
 
 
@@ -1278,6 +1608,10 @@ public struct FfiConverterTypeNearClipError: FfiConverterRustBuffer {
             message: try FfiConverterString.read(from: &buf)
         )
         
+        case 8: return .NotInitialized(
+            message: try FfiConverterString.read(from: &buf)
+        )
+        
 
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -1303,6 +1637,8 @@ public struct FfiConverterTypeNearClipError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(6))
         case .Io(_ /* message is ignored*/):
             writeInt(&buf, Int32(7))
+        case .NotInitialized(_ /* message is ignored*/):
+            writeInt(&buf, Int32(8))
 
         
         }
@@ -1321,13 +1657,27 @@ extension NearClipError: Foundation.LocalizedError {
 
 
 
-public protocol FfiBleSender : AnyObject {
+public protocol FfiBleHardware : AnyObject {
     
-    func sendBleData(deviceId: String, data: Data)  -> String
+    func startScan() 
     
-    func isBleConnected(deviceId: String)  -> Bool
+    func stopScan() 
     
-    func getMtu(deviceId: String)  -> UInt32
+    func connect(peripheralUuid: String) 
+    
+    func disconnect(peripheralUuid: String) 
+    
+    func writeData(peripheralUuid: String, data: Data)  -> String
+    
+    func getMtu(peripheralUuid: String)  -> UInt32
+    
+    func isConnected(peripheralUuid: String)  -> Bool
+    
+    func startAdvertising() 
+    
+    func stopAdvertising() 
+    
+    func configure(deviceId: String, publicKeyHash: String) 
     
 }
 
@@ -1338,6 +1688,321 @@ private let IDX_CALLBACK_FREE: Int32 = 0
 private let UNIFFI_CALLBACK_SUCCESS: Int32 = 0
 private let UNIFFI_CALLBACK_ERROR: Int32 = 1
 private let UNIFFI_CALLBACK_UNEXPECTED_ERROR: Int32 = 2
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    static var vtable: UniffiVTableCallbackInterfaceFfiBleHardware = UniffiVTableCallbackInterfaceFfiBleHardware(
+        startScan: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.startScan(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        stopScan: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.stopScan(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        connect: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.connect(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        disconnect: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.disconnect(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        writeData: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            data: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.writeData(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid),
+                     data: try FfiConverterData.lift(data)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        getMtu: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<UInt32>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> UInt32 in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.getMtu(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt32.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        isConnected: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Bool in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.isConnected(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        startAdvertising: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.startAdvertising(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        stopAdvertising: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.stopAdvertising(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        configure: { (
+            uniffiHandle: UInt64,
+            deviceId: RustBuffer,
+            publicKeyHash: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.configure(
+                     deviceId: try FfiConverterString.lift(deviceId),
+                     publicKeyHash: try FfiConverterString.lift(publicKeyHash)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            let result = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.remove(handle: uniffiHandle)
+            if result == nil {
+                print("Uniffi callback interface FfiBleHardware: handle missing in uniffiFree")
+            }
+        }
+    )
+}
+
+private func uniffiCallbackInitFfiBleHardware() {
+    uniffi_nearclip_ffi_fn_init_callback_vtable_ffiblehardware(&UniffiCallbackInterfaceFfiBleHardware.vtable)
+}
+
+// FfiConverter protocol for callback interfaces
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterCallbackInterfaceFfiBleHardware {
+    fileprivate static var handleMap = UniffiHandleMap<FfiBleHardware>()
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+extension FfiConverterCallbackInterfaceFfiBleHardware : FfiConverter {
+    typealias SwiftType = FfiBleHardware
+    typealias FfiType = UInt64
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lift(_ handle: UInt64) throws -> SwiftType {
+        try handleMap.get(handle: handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func lower(_ v: SwiftType) -> UInt64 {
+        return handleMap.insert(obj: v)
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(v))
+    }
+}
+
+
+
+
+public protocol FfiBleSender : AnyObject {
+    
+    func sendBleData(deviceId: String, data: Data)  -> String
+    
+    func isBleConnected(deviceId: String)  -> Bool
+    
+    func getMtu(deviceId: String)  -> UInt32
+    
+}
+
+
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
 fileprivate struct UniffiCallbackInterfaceFfiBleSender {
@@ -1493,6 +2158,10 @@ public protocol FfiNearClipCallback : AnyObject {
     func onClipboardReceived(content: Data, fromDevice: String) 
     
     func onSyncError(errorMessage: String) 
+    
+    func onDeviceDiscovered(device: FfiDiscoveredDevice) 
+    
+    func onDeviceLost(peripheralUuid: String) 
     
 }
 
@@ -1652,6 +2321,54 @@ fileprivate struct UniffiCallbackInterfaceFfiNearClipCallback {
                 writeReturn: writeReturn
             )
         },
+        onDeviceDiscovered: { (
+            uniffiHandle: UInt64,
+            device: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiNearClipCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onDeviceDiscovered(
+                     device: try FfiConverterTypeFfiDiscoveredDevice.lift(device)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onDeviceLost: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiNearClipCallback.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onDeviceLost(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             let result = try? FfiConverterCallbackInterfaceFfiNearClipCallback.handleMap.remove(handle: uniffiHandle)
             if result == nil {
@@ -1713,6 +2430,30 @@ extension FfiConverterCallbackInterfaceFfiNearClipCallback : FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeDeviceStatus: FfiConverterRustBuffer {
     typealias SwiftType = DeviceStatus?
 
@@ -1758,6 +2499,31 @@ fileprivate struct FfiConverterSequenceTypeFfiDeviceInfo: FfiConverterRustBuffer
         return seq
     }
 }
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiSyncHistoryEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSyncHistoryEntry]
+
+    public static func write(_ value: [FfiSyncHistoryEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSyncHistoryEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSyncHistoryEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSyncHistoryEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSyncHistoryEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
 public func flushLogs() {try! rustCall() {
     uniffi_nearclip_ffi_fn_func_flush_logs($0
     )
@@ -1791,7 +2557,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_func_init_logging() != 1565) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_add_history_entry() != 4174) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_add_paired_device() != 60193) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_clear_all_history() != 17682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_clear_old_history() != 22006) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_connect_device() != 8194) {
@@ -1803,13 +2578,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices() != 29571) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_history() != 32499) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_id() != 57304) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_status() != 59586) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_history_count() != 5747) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_paired_devices() != 18870) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_recent_history() != 41751) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_init_history() != 15508) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running() != 27473) {
@@ -1824,13 +2611,22 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device() != 5261) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_hardware() != 20925) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_sender() != 6154) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start() != 22762) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start_discovery() != 64753) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop() != 39976) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_stop_discovery() != 58572) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_sync_clipboard() != 17869) {
@@ -1843,6 +2639,36 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_constructor_ffinearclipmanager_new() != 16624) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_scan() != 49057) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_scan() != 40413) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_connect() != 53678) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_disconnect() != 19327) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_data() != 2275) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu() != 8130) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected() != 50619) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising() != 53725) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_advertising() != 51147) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure() != 59760) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffiblesender_send_ble_data() != 44995) {
@@ -1872,7 +2698,14 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_sync_error() != 15126) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_discovered() != 20976) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_lost() != 14553) {
+        return InitializationResult.apiChecksumMismatch
+    }
 
+    uniffiCallbackInitFfiBleHardware()
     uniffiCallbackInitFfiBleSender()
     uniffiCallbackInitFfiNearClipCallback()
     return InitializationResult.ok
