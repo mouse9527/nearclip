@@ -18,6 +18,7 @@ nearclip-net.workspace = true
 nearclip-ble.workspace = true
 nearclip-sync.workspace = true
 nearclip-transport.workspace = true
+rusqlite.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 tracing-android.workspace = true

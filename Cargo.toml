@@ -71,3 +71,6 @@ nearclip-ffi = { path = "crates/nearclip-ffi" }
 
 # Async trait
 async-trait = "0.1"
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
