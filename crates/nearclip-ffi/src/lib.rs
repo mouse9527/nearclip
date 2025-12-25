@@ -17,13 +17,15 @@
 //! - `FfiNearClipManager` -> `NearClipManager`
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::RwLock as StdRwLock;
 use std::time::Duration;
 
 use nearclip_core::{
-    DeviceInfo, DevicePlatform, DeviceStatus, NearClipCallback, NearClipConfig, NearClipError,
-    NearClipManager,
+    DeviceInfo, DevicePlatform, DeviceStatus, HistoryManager, NearClipCallback, NearClipConfig,
+    NearClipError, NearClipManager, SyncHistoryEntry,
 };
 use nearclip_sync::MessageType;
 use nearclip_transport::{BleTransport, BleSender, Transport};
@@ -72,6 +74,20 @@ impl Default for FfiBleControllerConfig {
             connection_timeout_ms: 10000,
         }
     }
+}
+
+/// Sync history entry for FFI
+#[derive(Debug, Clone)]
+pub struct FfiSyncHistoryEntry {
+    pub id: i64,
+    pub device_id: String,
+    pub device_name: String,
+    pub content_preview: String,
+    pub content_size: u64,
+    pub direction: String,
+    pub timestamp_ms: i64,
+    pub success: bool,
+    pub error_message: Option<String>,
 }
 
 // ============================================================
@@ -423,6 +439,8 @@ pub struct FfiNearClipManager {
     callback: Arc<dyn FfiNearClipCallback>,
     /// Discovery active flag
     discovery_active: AtomicBool,
+    /// History manager for sync history
+    history_manager: StdRwLock<Option<Arc<HistoryManager>>>,
 }
 
 impl FfiNearClipManager {
@@ -466,6 +484,7 @@ impl FfiNearClipManager {
             device_to_peripheral: RwLock::new(HashMap::new()),
             callback,
             discovery_active: AtomicBool::new(false),
+            history_manager: StdRwLock::new(None),
         })
     }
 
@@ -894,6 +913,169 @@ impl FfiNearClipManager {
                 self.callback.on_device_disconnected(device_id);
             }
         });
+    }
+
+    // ============================================================
+    // History Management Methods
+    // ============================================================
+
+    /// Initialize history manager with database path
+    ///
+    /// # Arguments
+    ///
+    /// * `db_path` - Path to SQLite database file
+    ///
+    /// # Errors
+    ///
+    /// Returns error if database initialization fails
+    pub fn init_history(&self, db_path: String) -> Result<(), NearClipError> {
+        let path = PathBuf::from(db_path);
+        let manager = HistoryManager::new(path)?;
+
+        let mut history = self.history_manager.write().unwrap();
+        *history = Some(Arc::new(manager));
+
+        tracing::info!("History manager initialized");
+        Ok(())
+    }
+
+    /// Add a sync history entry
+    ///
+    /// # Arguments
+    ///
+    /// * `entry` - History entry to add
+    ///
+    /// # Returns
+    ///
+    /// The ID of the inserted entry
+    ///
+    /// # Errors
+    ///
+    /// Returns error if history manager is not initialized or database operation fails
+    pub fn add_history_entry(&self, entry: FfiSyncHistoryEntry) -> Result<i64, NearClipError> {
+        let history = self.history_manager.read().unwrap();
+        let manager = history.as_ref()
+            .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
+
+        let core_entry = SyncHistoryEntry {
+            id: entry.id,
+            device_id: entry.device_id,
+            device_name: entry.device_name,
+            content_preview: entry.content_preview,
+            content_size: entry.content_size as usize,
+            direction: entry.direction,
+            timestamp_ms: entry.timestamp_ms,
+            success: entry.success,
+            error_message: entry.error_message,
+        };
+
+        manager.add_entry(core_entry)
+    }
+
+    /// Get recent history entries
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Maximum number of entries to return
+    ///
+    /// # Errors
+    ///
+    /// Returns error if history manager is not initialized or database operation fails
+    pub fn get_recent_history(&self, limit: u64) -> Result<Vec<FfiSyncHistoryEntry>, NearClipError> {
+        let history = self.history_manager.read().unwrap();
+        let manager = history.as_ref()
+            .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
+
+        let entries = manager.get_recent(limit as usize)?;
+        Ok(entries.into_iter().map(|e| FfiSyncHistoryEntry {
+            id: e.id,
+            device_id: e.device_id,
+            device_name: e.device_name,
+            content_preview: e.content_preview,
+            content_size: e.content_size as u64,
+            direction: e.direction,
+            timestamp_ms: e.timestamp_ms,
+            success: e.success,
+            error_message: e.error_message,
+        }).collect())
+    }
+
+    /// Get history entries for a specific device
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - Device ID to filter by
+    /// * `limit` - Maximum number of entries to return
+    ///
+    /// # Errors
+    ///
+    /// Returns error if history manager is not initialized or database operation fails
+    pub fn get_device_history(&self, device_id: String, limit: u64) -> Result<Vec<FfiSyncHistoryEntry>, NearClipError> {
+        let history = self.history_manager.read().unwrap();
+        let manager = history.as_ref()
+            .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
+
+        let entries = manager.get_by_device(&device_id, limit as usize)?;
+        Ok(entries.into_iter().map(|e| FfiSyncHistoryEntry {
+            id: e.id,
+            device_id: e.device_id,
+            device_name: e.device_name,
+            content_preview: e.content_preview,
+            content_size: e.content_size as u64,
+            direction: e.direction,
+            timestamp_ms: e.timestamp_ms,
+            success: e.success,
+            error_message: e.error_message,
+        }).collect())
+    }
+
+    /// Clear all history
+    ///
+    /// # Errors
+    ///
+    /// Returns error if history manager is not initialized or database operation fails
+    pub fn clear_all_history(&self) -> Result<(), NearClipError> {
+        let history = self.history_manager.read().unwrap();
+        let manager = history.as_ref()
+            .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
+
+        manager.clear_all()
+    }
+
+    /// Clear history older than specified days
+    ///
+    /// # Arguments
+    ///
+    /// * `days` - Number of days to keep
+    ///
+    /// # Returns
+    ///
+    /// Number of entries deleted
+    ///
+    /// # Errors
+    ///
+    /// Returns error if history manager is not initialized or database operation fails
+    pub fn clear_old_history(&self, days: u32) -> Result<u64, NearClipError> {
+        let history = self.history_manager.read().unwrap();
+        let manager = history.as_ref()
+            .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
+
+        let deleted = manager.clear_older_than(days)?;
+        Ok(deleted as u64)
+    }
+
+    /// Get total history entry count
+    ///
+    /// # Errors
+    ///
+    /// Returns error if history manager is not initialized or database operation fails
+    pub fn get_history_count(&self) -> Result<u64, NearClipError> {
+        let history = self.history_manager.read().unwrap();
+        let manager = history.as_ref()
+            .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
+
+        let count = manager.get_count()?;
+        Ok(count as u64)
     }
 }
 

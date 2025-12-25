@@ -18,6 +18,7 @@ enum NearClipError {
     "Sync",
     "Config",
     "Io",
+    "NotInitialized",
 };
 
 // Log level enum
@@ -62,6 +63,19 @@ dictionary FfiNearClipConfig {
     u64 connection_timeout_secs;
     u64 heartbeat_interval_secs;
     u32 max_retries;
+};
+
+// Sync history entry
+dictionary FfiSyncHistoryEntry {
+    i64 id;
+    string device_id;
+    string device_name;
+    string content_preview;
+    u64 content_size;
+    string direction;
+    i64 timestamp_ms;
+    boolean success;
+    string? error_message;
 };
 
 // Callback interface for receiving events
@@ -137,4 +151,26 @@ interface FfiNearClipManager {
 
     // Set BLE sender (optional, for platforms that support BLE)
     void set_ble_sender(FfiBleSender sender);
+
+    // History management
+    [Throws=NearClipError]
+    void init_history(string db_path);
+
+    [Throws=NearClipError]
+    i64 add_history_entry(FfiSyncHistoryEntry entry);
+
+    [Throws=NearClipError]
+    sequence<FfiSyncHistoryEntry> get_recent_history(u64 limit);
+
+    [Throws=NearClipError]
+    sequence<FfiSyncHistoryEntry> get_device_history(string device_id, u64 limit);
+
+    [Throws=NearClipError]
+    void clear_all_history();
+
+    [Throws=NearClipError]
+    u64 clear_old_history(u32 days);
+
+    [Throws=NearClipError]
+    u64 get_history_count();
 };

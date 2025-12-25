@@ -34,6 +34,10 @@ pub enum NearClipError {
     /// IO 错误
     #[error("IO error: {0}")]
     Io(String),
+
+    /// 未初始化错误
+    #[error("Not initialized: {0}")]
+    NotInitialized(String),
 }
 
 /// NearClip Result 类型别名
