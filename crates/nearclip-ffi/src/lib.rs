@@ -27,14 +27,15 @@ use nearclip_core::{
     DeviceInfo, DevicePlatform, DeviceStatus, HistoryManager, NearClipCallback, NearClipConfig,
     NearClipError, NearClipManager, SyncHistoryEntry,
 };
-use nearclip_sync::MessageType;
-use nearclip_transport::{BleTransport, BleSender, Transport};
+use nearclip_transport::{BleTransport, BleSender};
 use nearclip_ble::{BleController, BleControllerCallback, BleControllerConfig, ControllerDiscoveredDevice};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 mod ble_hardware_bridge;
+mod ble_recv_task;
 use ble_hardware_bridge::{BleHardwareBridge, FfiBleHardware};
+use ble_recv_task::spawn_ble_recv_task;
 
 // ============================================================
 // FFI Types (must be defined before uniffi scaffolding)
@@ -431,13 +432,16 @@ pub struct FfiNearClipManager {
     ble_recv_tasks: RwLock<HashMap<String, JoinHandle<()>>>,
     /// Discovered BLE devices (keyed by peripheral_uuid)
     discovered_devices: Arc<RwLock<HashMap<String, FfiDiscoveredDevice>>>,
-    /// Mapping: peripheral_uuid -> device_id
+    /// Mapping: peripheral_uuid -> device_id (reserved for BleController integration)
+    #[allow(dead_code)]
     peripheral_to_device: RwLock<HashMap<String, String>>,
-    /// Mapping: device_id -> peripheral_uuid
+    /// Mapping: device_id -> peripheral_uuid (reserved for BleController integration)
+    #[allow(dead_code)]
     device_to_peripheral: RwLock<HashMap<String, String>>,
     /// Callback for BLE message handling
     callback: Arc<dyn FfiNearClipCallback>,
-    /// Discovery active flag
+    /// Discovery active flag (reserved for BleController integration)
+    #[allow(dead_code)]
     discovery_active: AtomicBool,
     /// History manager for sync history
     history_manager: StdRwLock<Option<Arc<HistoryManager>>>,
@@ -708,61 +712,11 @@ impl FfiNearClipManager {
                     transport.on_data_received(&data).await;
 
                     // Start a receive task for this transport
-                    let transport_for_task = transport.clone();
-                    let callback = self.callback.clone();
-                    let device_id_for_task = device_id.clone();
-
-                    let recv_task = tokio::spawn(async move {
-                        tracing::info!(device_id = %device_id_for_task, "BLE receive task started");
-                        loop {
-                            match transport_for_task.recv().await {
-                                Ok(message) => {
-                                    tracing::debug!(
-                                        device_id = %device_id_for_task,
-                                        msg_type = ?message.msg_type,
-                                        "BLE message received"
-                                    );
-
-                                    match message.msg_type {
-                                        MessageType::ClipboardSync => {
-                                            tracing::info!(
-                                                from = %message.device_id,
-                                                size = message.payload.len(),
-                                                "BLE clipboard received"
-                                            );
-                                            callback.on_clipboard_received(
-                                                message.payload.clone(),
-                                                message.device_id.clone(),
-                                            );
-                                        }
-                                        MessageType::Unpair => {
-                                            tracing::info!(
-                                                from = %message.device_id,
-                                                "BLE unpair notification received"
-                                            );
-                                            callback.on_device_unpaired(message.device_id.clone());
-                                            break;
-                                        }
-                                        _ => {
-                                            tracing::debug!(
-                                                msg_type = ?message.msg_type,
-                                                "Unhandled BLE message type"
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        device_id = %device_id_for_task,
-                                        error = %e,
-                                        "BLE receive error, stopping task"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                        tracing::info!(device_id = %device_id_for_task, "BLE receive task ended");
-                    });
+                    let recv_task = spawn_ble_recv_task(
+                        transport.clone(),
+                        self.callback.clone(),
+                        device_id.clone(),
+                    );
 
                     let mut transports = self.ble_transports.write().await;
                     transports.insert(device_id.clone(), transport);
@@ -798,61 +752,11 @@ impl FfiNearClipManager {
                     transport.on_connection_state_changed(true);
 
                     // Start a receive task for this transport
-                    let transport_for_task = transport.clone();
-                    let callback = self.callback.clone();
-                    let device_id_for_task = device_id.clone();
-
-                    let recv_task = tokio::spawn(async move {
-                        tracing::info!(device_id = %device_id_for_task, "BLE receive task started");
-                        loop {
-                            match transport_for_task.recv().await {
-                                Ok(message) => {
-                                    tracing::debug!(
-                                        device_id = %device_id_for_task,
-                                        msg_type = ?message.msg_type,
-                                        "BLE message received"
-                                    );
-
-                                    match message.msg_type {
-                                        MessageType::ClipboardSync => {
-                                            tracing::info!(
-                                                from = %message.device_id,
-                                                size = message.payload.len(),
-                                                "BLE clipboard received"
-                                            );
-                                            callback.on_clipboard_received(
-                                                message.payload.clone(),
-                                                message.device_id.clone(),
-                                            );
-                                        }
-                                        MessageType::Unpair => {
-                                            tracing::info!(
-                                                from = %message.device_id,
-                                                "BLE unpair notification received"
-                                            );
-                                            callback.on_device_unpaired(message.device_id.clone());
-                                            break;
-                                        }
-                                        _ => {
-                                            tracing::debug!(
-                                                msg_type = ?message.msg_type,
-                                                "Unhandled BLE message type"
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!(
-                                        device_id = %device_id_for_task,
-                                        error = %e,
-                                        "BLE receive error, stopping task"
-                                    );
-                                    break;
-                                }
-                            }
-                        }
-                        tracing::info!(device_id = %device_id_for_task, "BLE receive task ended");
-                    });
+                    let recv_task = spawn_ble_recv_task(
+                        transport.clone(),
+                        self.callback.clone(),
+                        device_id.clone(),
+                    );
 
                     let mut transports = self.ble_transports.write().await;
                     transports.insert(device_id.clone(), transport.clone());
