@@ -106,3 +106,33 @@ Sources/NearClip/
 - [x] Device added to paired list
 - [x] Build passes (swift build)
 - [x] Story file updated to 'done'
+
+## 后续优化 (2025-12-26)
+
+### 配对流程改进
+
+**问题**: 原流程在扫码/输入配对码后立即创建 Device 并保存到 Keychain，即使网络不可用也会保存，导致无意义的设备记录。
+
+**优化后流程**:
+
+```
+扫码/输入配对码 → 解析 → 添加到 FFI（内存）→ 尝试连接(15s超时) → 成功 → 保存到 Keychain → 完成
+                                                              ↓
+                                                            失败 → 从 FFI 移除 → 弹框 [重试] [取消]
+```
+
+**关键变更**:
+
+1. **先连接后保存**: 只有连接成功才保存 Device 到 Keychain
+2. **临时 FFI 状态**: 连接前先添加到 FFI paired_devices（内存），连接失败则移除
+3. **并行连接**: WiFi + BLE 同时尝试，任一成功即可
+4. **超时机制**: 15 秒连接超时
+5. **失败重试**: 连接失败弹框提示，用户可选择重试或取消
+
+**修改的文件**:
+
+- `ConnectionManager.swift`:
+  - 添加 `connectDeviceWithTimeout()` 方法
+  - 添加 `addPendingDevice()` 方法（只添加到 FFI，不保存 Keychain）
+  - 添加 `removePendingDevice()` 方法（连接失败时从 FFI 移除）
+- `PairingView.swift`: 修改 `pairWithCode()` 流程，添加重试弹框

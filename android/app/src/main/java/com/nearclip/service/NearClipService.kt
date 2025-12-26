@@ -14,6 +14,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.nearclip.MainActivity
 import com.nearclip.R
+import com.nearclip.data.DeviceStorageImpl
 import com.nearclip.data.SecureStorage
 import com.nearclip.data.SyncDirection
 import com.nearclip.data.SyncHistoryRepository
@@ -251,9 +252,14 @@ class NearClipService : Service(), FfiNearClipCallback {
                 }
             }
 
-            // Initialize secure storage and load paired devices
+            // Initialize secure storage
             secureStorage = SecureStorage(this)
-            loadPairedDevicesFromStorage()
+
+            // Register device storage with FFI manager
+            // This will load paired devices from storage automatically
+            val deviceStorage = DeviceStorageImpl(secureStorage!!)
+            manager?.setDeviceStorage(deviceStorage)
+            android.util.Log.i("NearClipService", "Device storage registered with FFI manager")
 
             // Initialize sync history repository with FFI manager
             syncHistoryRepository = SyncHistoryRepository()
@@ -312,29 +318,6 @@ class NearClipService : Service(), FfiNearClipCallback {
         }
     }
 
-    private fun loadPairedDevicesFromStorage() {
-        val storage = secureStorage ?: return
-        val result = storage.loadPairedDevicesResult()
-        when (result) {
-            is SecureStorage.StorageResult.Success -> {
-                for (device in result.data) {
-                    try {
-                        manager?.addPairedDevice(device)
-                        android.util.Log.i("NearClipService", "Loaded paired device: ${device.name} (${device.id})")
-                    } catch (e: NearClipException) {
-                        // Device already exists in manager - this is expected
-                        android.util.Log.d("NearClipService", "Device ${device.id} already exists in manager")
-                    } catch (e: Exception) {
-                        android.util.Log.e("NearClipService", "Failed to add device ${device.id} to manager", e)
-                    }
-                }
-            }
-            is SecureStorage.StorageResult.Error -> {
-                android.util.Log.e("NearClipService", "Failed to load paired devices from storage: ${result.message}")
-            }
-        }
-    }
-
     private fun restartSync() {
         stopSync()
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -374,10 +357,16 @@ class NearClipService : Service(), FfiNearClipCallback {
                     maxRetries = 3u
                 )
                 manager = FfiNearClipManager(config, this)
-                manager?.start()
 
-                // Re-add paired devices
-                loadPairedDevicesFromStorage()
+                // Re-register device storage with new manager
+                // This will load paired devices from storage automatically
+                secureStorage?.let { storage ->
+                    val deviceStorage = DeviceStorageImpl(storage)
+                    manager?.setDeviceStorage(deviceStorage)
+                    android.util.Log.i("NearClipService", "Device storage re-registered after WiFi restart")
+                }
+
+                manager?.start()
 
                 // Try to connect to paired devices after a delay
                 android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
@@ -708,19 +697,16 @@ class NearClipService : Service(), FfiNearClipCallback {
 
     /**
      * Unpair and remove a device.
-     * This notifies the remote device and removes from local storage.
+     * This notifies the remote device and removes from local storage via FfiDeviceStorage.
      */
     fun unpairDevice(deviceId: String) {
         android.util.Log.i("NearClipService", "unpairDevice called for $deviceId")
         // Run on background thread to avoid ANR
         Thread {
             try {
+                // Rust layer handles both disconnection and storage removal via FfiDeviceStorage
                 manager?.unpairDevice(deviceId)
-                android.util.Log.i("NearClipService", "unpairDevice from manager completed for $deviceId")
-
-                // Also remove from secure storage
-                secureStorage?.removePairedDevice(deviceId)
-                android.util.Log.i("NearClipService", "Removed device from secure storage: $deviceId")
+                android.util.Log.i("NearClipService", "unpairDevice completed for $deviceId")
 
                 updateNotification()
             } catch (e: NearClipException) {
@@ -858,30 +844,20 @@ class NearClipService : Service(), FfiNearClipCallback {
 
         // Run FFI calls on IO dispatcher
         return withContext(Dispatchers.IO) {
-            // Add to manager first - this is the source of truth
+            // Use Rust's pairDevice which handles:
+            // 1. Adding to memory
+            // 2. Attempting connection (WiFi + BLE, 15s timeout)
+            // 3. Saving to storage via FfiDeviceStorage on success
             try {
-                mgr.addPairedDevice(device)
-                android.util.Log.i("NearClipService", "Added paired device to manager: ${device.name} (${device.id})")
+                val success = mgr.pairDevice(device)
+                if (success) {
+                    android.util.Log.i("NearClipService", "Device paired successfully: ${device.name} (${device.id})")
+                } else {
+                    android.util.Log.w("NearClipService", "Device pairing failed (connection timeout): ${device.name}")
+                    throw IllegalStateException("Failed to connect to device. Make sure both devices are on the same network or within Bluetooth range.")
+                }
             } catch (e: NearClipException) {
-                throw IllegalStateException("Failed to add device to manager: ${e.message}")
-            }
-
-            // Persist to secure storage (best effort - manager is already updated)
-            try {
-                secureStorage?.addPairedDevice(device)
-                android.util.Log.i("NearClipService", "Persisted device to secure storage: ${device.id}")
-            } catch (e: Exception) {
-                android.util.Log.e("NearClipService", "Failed to persist device to storage (device added to manager)", e)
-            }
-
-            // Try to connect to the newly added device after a delay for mDNS discovery
-            kotlinx.coroutines.delay(2000)
-            try {
-                android.util.Log.i("NearClipService", "Auto-connecting to newly paired device: ${device.id}")
-                mgr.connectDevice(device.id)
-                android.util.Log.i("NearClipService", "Auto-connect successful for: ${device.id}")
-            } catch (e: Exception) {
-                android.util.Log.w("NearClipService", "Auto-connect failed (device may not be discovered yet): ${e.message}")
+                throw IllegalStateException("Failed to pair device: ${e.message}")
             }
 
             name
@@ -892,18 +868,8 @@ class NearClipService : Service(), FfiNearClipCallback {
     override fun onDeviceConnected(device: FfiDeviceInfo) {
         updateNotification()
 
-        // Auto-add to paired devices if not already present (bidirectional pairing)
-        val pairedDevices = manager?.getPairedDevices() ?: emptyList()
-        if (!pairedDevices.any { it.id == device.id }) {
-            android.util.Log.i("NearClipService", "Auto-adding connected device to paired list: ${device.name}")
-            try {
-                manager?.addPairedDevice(device)
-                secureStorage?.addPairedDevice(device)
-            } catch (e: Exception) {
-                android.util.Log.e("NearClipService", "Failed to auto-add device: ${e.message}")
-            }
-        }
-
+        // Note: Storage is handled by Rust layer via FfiDeviceStorage
+        // We only need to notify listeners here
         listeners.forEach { it.onDeviceConnected(device) }
 
         // Send pending content if using "wait for device" strategy
@@ -929,8 +895,7 @@ class NearClipService : Service(), FfiNearClipCallback {
     }
 
     override fun onDeviceUnpaired(deviceId: String) {
-        // Remove from local storage
-        SecureStorage(this).removePairedDevice(deviceId)
+        // Note: Storage removal is handled by Rust layer via FfiDeviceStorage
         // Update notification and notify listeners
         updateNotification()
         listeners.forEach { it.onDeviceDisconnected(deviceId) }
@@ -942,11 +907,8 @@ class NearClipService : Service(), FfiNearClipCallback {
         // Get device name before removing
         val deviceName = manager?.getPairedDevices()?.find { it.id == deviceId }?.name ?: deviceId
 
-        // Remove from FFI manager
+        // Remove from FFI manager (this will also remove from storage via FfiDeviceStorage)
         manager?.removePairedDevice(deviceId)
-
-        // Remove from local storage
-        secureStorage?.removePairedDevice(deviceId)
 
         // Show notification to user
         notificationHelper?.showPairingRejectedNotification(deviceName, reason)

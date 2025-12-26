@@ -100,6 +100,22 @@ callback interface FfiNearClipCallback {
     void on_device_lost(string peripheral_uuid);
 };
 
+// Device storage callback interface - platform implements this to provide persistent storage
+// Rust layer decides WHEN to save/load/delete, platform layer implements HOW (Keychain/SharedPreferences)
+callback interface FfiDeviceStorage {
+    // Save a paired device to persistent storage
+    // Called by Rust when a device is successfully paired and connected
+    void save_device(FfiDeviceInfo device);
+
+    // Remove a paired device from persistent storage
+    // Called by Rust when a device is unpaired
+    void remove_device(string device_id);
+
+    // Load all paired devices from persistent storage
+    // Called by Rust during initialization
+    sequence<FfiDeviceInfo> load_all_devices();
+};
+
 // BLE hardware callback interface - platform implements this to provide BLE hardware access
 // This interface provides complete BLE control including scanning, connecting,
 // data transfer, and advertising.
@@ -179,6 +195,17 @@ interface FfiNearClipManager {
     // Set BLE hardware interface
     // Platform clients call this to provide full BLE hardware access
     void set_ble_hardware(FfiBleHardware hardware);
+
+    // Set device storage interface
+    // Platform clients call this to provide persistent storage (Keychain/SharedPreferences)
+    // Must be called before start() to load existing paired devices
+    void set_device_storage(FfiDeviceStorage storage);
+
+    // Pair a new device - adds to memory, attempts connection, saves to storage on success
+    // This is the main entry point for pairing flow
+    // Returns true if pairing succeeded (connected and saved), false otherwise
+    [Throws=NearClipError]
+    boolean pair_device(FfiDeviceInfo device);
 
     // BLE discovery control (requires set_ble_hardware)
     void start_discovery();

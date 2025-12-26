@@ -358,6 +358,28 @@ pub trait FfiBleHardware: Send + Sync {
     fn configure(&self, device_id: String, public_key_hash: String);
 }
 
+// ============================================================
+// FFI Device Storage Trait
+// ============================================================
+
+/// Device storage callback interface
+///
+/// Platform clients implement this trait to provide persistent storage.
+/// Rust layer decides WHEN to save/load/delete, platform layer implements HOW.
+pub trait FfiDeviceStorage: Send + Sync {
+    /// Save a paired device to persistent storage
+    /// Called by Rust when a device is successfully paired and connected
+    fn save_device(&self, device: FfiDeviceInfo);
+
+    /// Remove a paired device from persistent storage
+    /// Called by Rust when a device is unpaired
+    fn remove_device(&self, device_id: String);
+
+    /// Load all paired devices from persistent storage
+    /// Called by Rust during initialization
+    fn load_all_devices(&self) -> Vec<FfiDeviceInfo>;
+}
+
 /// Bridge that adapts FfiBleHardware to the transport layer's BleSender trait
 ///
 /// This allows BleTransport to use FfiBleHardware for data transmission.
@@ -462,6 +484,8 @@ pub struct FfiNearClipManager {
     discovery_active: AtomicBool,
     /// History manager for sync history
     history_manager: StdRwLock<Option<Arc<HistoryManager>>>,
+    /// Device storage interface (set by platform)
+    device_storage: RwLock<Option<Arc<dyn FfiDeviceStorage>>>,
 }
 
 impl FfiNearClipManager {
@@ -506,6 +530,7 @@ impl FfiNearClipManager {
             callback,
             discovery_active: AtomicBool::new(false),
             history_manager: StdRwLock::new(None),
+            device_storage: RwLock::new(None),
         })
     }
 
@@ -562,11 +587,55 @@ impl FfiNearClipManager {
 
     /// Connect to a device
     ///
+    /// Tries WiFi first, then falls back to BLE if WiFi is not available.
+    ///
     /// # Arguments
     ///
     /// * `device_id` - ID of the device to connect
     pub fn connect_device(&self, device_id: String) -> Result<(), NearClipError> {
-        self.runtime.block_on(async { self.inner.connect_device(&device_id).await })
+        self.runtime.block_on(async {
+            // Try WiFi connection first
+            let wifi_result = self.inner.connect_device(&device_id).await;
+
+            match wifi_result {
+                Ok(()) => {
+                    tracing::info!(device_id = %device_id, "Connected via WiFi");
+                    Ok(())
+                }
+                Err(wifi_err) => {
+                    // WiFi failed, try BLE
+                    tracing::info!(
+                        device_id = %device_id,
+                        wifi_error = %wifi_err,
+                        "WiFi connection failed, trying BLE"
+                    );
+
+                    let controller = self.ble_controller.read().await;
+                    if let Some(ref ble) = *controller {
+                        match ble.connect(&device_id).await {
+                            Ok(()) => {
+                                tracing::info!(device_id = %device_id, "BLE connection initiated");
+                                // BLE connection is async - the actual connection will be
+                                // notified via on_ble_connection_changed callback
+                                Ok(())
+                            }
+                            Err(ble_err) => {
+                                tracing::warn!(
+                                    device_id = %device_id,
+                                    ble_error = %ble_err,
+                                    "BLE connection also failed"
+                                );
+                                // Return the original WiFi error as it's more informative
+                                Err(wifi_err)
+                            }
+                        }
+                    } else {
+                        tracing::warn!(device_id = %device_id, "No BLE controller available");
+                        Err(wifi_err)
+                    }
+                }
+            }
+        })
     }
 
     /// Disconnect from a device
@@ -594,6 +663,15 @@ impl FfiNearClipManager {
     /// * `device_id` - ID of the device to remove
     pub fn remove_paired_device(&self, device_id: String) {
         self.inner.remove_paired_device(&device_id);
+
+        // Also remove from persistent storage
+        self.runtime.block_on(async {
+            let storage = self.device_storage.read().await;
+            if let Some(ref storage) = *storage {
+                storage.remove_device(device_id.clone());
+                tracing::info!(device_id = %device_id, "Device removed from storage");
+            }
+        });
     }
 
     /// Unpair a device (send notification and remove)
@@ -605,7 +683,18 @@ impl FfiNearClipManager {
     ///
     /// * `device_id` - ID of the device to unpair
     pub fn unpair_device(&self, device_id: String) -> Result<(), NearClipError> {
-        self.runtime.block_on(async { self.inner.unpair_device(&device_id).await })
+        let result = self.runtime.block_on(async { self.inner.unpair_device(&device_id).await });
+
+        // Also remove from persistent storage (regardless of unpair result)
+        self.runtime.block_on(async {
+            let storage = self.device_storage.read().await;
+            if let Some(ref storage) = *storage {
+                storage.remove_device(device_id.clone());
+                tracing::info!(device_id = %device_id, "Device removed from storage after unpair");
+            }
+        });
+
+        result
     }
 
     /// Get the status of a device
@@ -693,6 +782,136 @@ impl FfiNearClipManager {
             *ble_controller = Some(controller);
         });
         tracing::info!("BLE hardware interface set and controller initialized");
+    }
+
+    /// Set the device storage interface
+    ///
+    /// Platform clients call this to provide persistent storage (Keychain/SharedPreferences).
+    /// Must be called before start() to load existing paired devices.
+    pub fn set_device_storage(&self, storage: Box<dyn FfiDeviceStorage>) {
+        let storage: Arc<dyn FfiDeviceStorage> = storage.into();
+        self.runtime.block_on(async {
+            // Store storage interface
+            let mut device_storage = self.device_storage.write().await;
+            *device_storage = Some(storage.clone());
+            drop(device_storage);
+
+            // Load existing paired devices from storage
+            let devices = storage.load_all_devices();
+            tracing::info!(count = devices.len(), "Loading paired devices from storage");
+
+            for device in devices {
+                self.inner.add_paired_device(device.into());
+            }
+        });
+        tracing::info!("Device storage interface set and devices loaded");
+    }
+
+    /// Pair a new device
+    ///
+    /// This is the main entry point for the pairing flow:
+    /// 1. Add device to memory (required for connect_device to work)
+    /// 2. Attempt connection (WiFi + BLE, with timeout)
+    /// 3. On success: save to persistent storage
+    /// 4. On failure: remove from memory
+    ///
+    /// # Arguments
+    ///
+    /// * `device` - Device information from QR code or manual input
+    ///
+    /// # Returns
+    ///
+    /// true if pairing succeeded (connected and saved), false otherwise
+    pub fn pair_device(&self, device: FfiDeviceInfo) -> Result<bool, NearClipError> {
+        let device_id = device.id.clone();
+        tracing::info!(device_id = %device_id, "Starting device pairing");
+
+        // Step 1: Add to memory (required for connect_device)
+        self.inner.add_paired_device(device.clone().into());
+
+        // Step 2: Try to connect (with timeout)
+        let connect_result = self.runtime.block_on(async {
+            // Try WiFi first
+            let wifi_result = self.inner.connect_device(&device_id).await;
+
+            match wifi_result {
+                Ok(()) => {
+                    tracing::info!(device_id = %device_id, "Pairing: Connected via WiFi");
+                    Ok(true)
+                }
+                Err(wifi_err) => {
+                    // WiFi failed, try BLE
+                    tracing::info!(
+                        device_id = %device_id,
+                        wifi_error = %wifi_err,
+                        "Pairing: WiFi failed, trying BLE"
+                    );
+
+                    let controller = self.ble_controller.read().await;
+                    if let Some(ref ble) = *controller {
+                        // BLE connect is async, we need to wait for connection
+                        match tokio::time::timeout(
+                            Duration::from_secs(15),
+                            ble.connect(&device_id)
+                        ).await {
+                            Ok(Ok(())) => {
+                                tracing::info!(device_id = %device_id, "Pairing: BLE connection initiated");
+                                // Wait a bit for connection to establish
+                                tokio::time::sleep(Duration::from_millis(500)).await;
+
+                                // Check if actually connected
+                                let ble_hardware = self.ble_hardware.read().await;
+                                if let Some(ref hw) = *ble_hardware {
+                                    if hw.is_connected(device_id.clone()) {
+                                        tracing::info!(device_id = %device_id, "Pairing: BLE connected");
+                                        return Ok(true);
+                                    }
+                                }
+                                tracing::warn!(device_id = %device_id, "Pairing: BLE connection not established");
+                                Err(wifi_err)
+                            }
+                            Ok(Err(ble_err)) => {
+                                tracing::warn!(
+                                    device_id = %device_id,
+                                    ble_error = %ble_err,
+                                    "Pairing: BLE connection failed"
+                                );
+                                Err(wifi_err)
+                            }
+                            Err(_) => {
+                                tracing::warn!(device_id = %device_id, "Pairing: BLE connection timeout");
+                                Err(wifi_err)
+                            }
+                        }
+                    } else {
+                        tracing::warn!(device_id = %device_id, "Pairing: No BLE controller available");
+                        Err(wifi_err)
+                    }
+                }
+            }
+        });
+
+        match connect_result {
+            Ok(true) => {
+                // Step 3: Connection succeeded, save to persistent storage
+                self.runtime.block_on(async {
+                    let storage = self.device_storage.read().await;
+                    if let Some(ref storage) = *storage {
+                        storage.save_device(device);
+                        tracing::info!(device_id = %device_id, "Pairing: Device saved to storage");
+                    } else {
+                        tracing::warn!(device_id = %device_id, "Pairing: No storage interface, device not persisted");
+                    }
+                });
+                Ok(true)
+            }
+            Ok(false) | Err(_) => {
+                // Step 4: Connection failed, remove from memory
+                self.inner.remove_paired_device(&device_id);
+                tracing::info!(device_id = %device_id, "Pairing: Failed, device removed from memory");
+                Ok(false)
+            }
+        }
     }
 
     /// Start BLE device discovery

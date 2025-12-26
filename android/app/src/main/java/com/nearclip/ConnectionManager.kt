@@ -5,6 +5,7 @@ import android.os.Build
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.nearclip.data.DeviceStorageImpl
 import com.nearclip.data.SecureStorage
 import com.nearclip.data.SyncRetryStrategy
 import com.nearclip.data.settingsDataStore
@@ -117,8 +118,11 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
                     }
                 }
 
-                // Load paired devices from secure storage
-                loadPairedDevicesFromStorage()
+                // Register device storage with FFI manager
+                // This will load paired devices from storage automatically
+                val deviceStorage = DeviceStorageImpl(secureStorage)
+                manager?.setDeviceStorage(deviceStorage)
+                Log.i(TAG, "Device storage registered with FFI manager")
 
                 val paired = manager?.getPairedDevices() ?: emptyList()
                 val connected = manager?.getConnectedDevices() ?: emptyList()
@@ -130,29 +134,6 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
                 withContext(Dispatchers.Main) {
                     _lastError.value = "Failed to initialize: ${e.message}"
                 }
-            }
-        }
-    }
-
-    private fun loadPairedDevicesFromStorage() {
-        val result = secureStorage.loadPairedDevicesResult()
-        when (result) {
-            is SecureStorage.StorageResult.Success -> {
-                for (device in result.data) {
-                    try {
-                        manager?.addPairedDevice(device)
-                        Log.d(TAG, "Loaded paired device: ${device.name} (${device.id})")
-                    } catch (e: NearClipException) {
-                        // Device already exists in manager - this is expected
-                        Log.d(TAG, "Device ${device.id} already exists in manager")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to add device ${device.id} to manager", e)
-                    }
-                }
-            }
-            is SecureStorage.StorageResult.Error -> {
-                Log.e(TAG, "Failed to load paired devices from storage: ${result.message}")
-                _lastError.value = "Failed to load saved devices: ${result.message}"
             }
         }
     }
@@ -297,48 +278,28 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
 
         // Run FFI calls on IO dispatcher
         withContext(Dispatchers.IO) {
-            // Add to manager first - this is the source of truth
+            // Use Rust's pairDevice which handles:
+            // 1. Adding to memory
+            // 2. Attempting connection (WiFi + BLE, 15s timeout)
+            // 3. Saving to storage via FfiDeviceStorage on success
             try {
-                mgr.addPairedDevice(device)
-                Log.i(TAG, "Added paired device to manager: ${device.name} (${device.id})")
+                val success = mgr.pairDevice(device)
+                if (success) {
+                    Log.i(TAG, "Device paired successfully: ${device.name} (${device.id})")
+                } else {
+                    Log.w(TAG, "Device pairing failed (connection timeout): ${device.name}")
+                    throw IllegalStateException("Failed to connect to device. Make sure both devices are on the same network or within Bluetooth range.")
+                }
             } catch (e: NearClipException) {
-                throw IllegalStateException("Failed to add device to manager: ${e.message}")
+                throw IllegalStateException("Failed to pair device: ${e.message}")
             }
 
-            // Persist to secure storage (best effort - manager is already updated)
-            try {
-                secureStorage.addPairedDevice(device)
-                Log.i(TAG, "Persisted device to secure storage: ${device.id}")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to persist device to storage (device added to manager)", e)
-                // Don't fail - device is already in manager and will work for this session
-            }
-
-            // Refresh devices on IO thread
+            // Refresh devices
             val paired = manager?.getPairedDevices() ?: emptyList()
             val connected = manager?.getConnectedDevices() ?: emptyList()
             withContext(Dispatchers.Main) {
                 _pairedDevices.value = paired
                 _connectedDevices.value = connected
-            }
-
-            // Try to connect to the newly added device after a delay for mDNS discovery
-            kotlinx.coroutines.delay(2000)
-            try {
-                Log.i(TAG, "Auto-connecting to newly paired device: ${device.id}")
-                mgr.connectDevice(device.id)
-                Log.i(TAG, "Auto-connect successful for: ${device.id}")
-            } catch (e: Exception) {
-                Log.w(TAG, "Auto-connect failed (device may not be discovered yet): ${e.message}")
-                // Not a fatal error - user can manually connect later
-            }
-
-            // Refresh again after connection attempt
-            val pairedAfter = manager?.getPairedDevices() ?: emptyList()
-            val connectedAfter = manager?.getConnectedDevices() ?: emptyList()
-            withContext(Dispatchers.Main) {
-                _pairedDevices.value = pairedAfter
-                _connectedDevices.value = connectedAfter
             }
         }
 
@@ -347,32 +308,20 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
 
     /**
      * Remove a paired device.
-     * Removes from both manager and secure storage.
+     * Rust layer handles both manager and storage removal via FfiDeviceStorage.
      */
     fun removeDevice(deviceId: String) {
         Log.i(TAG, "removeDevice() called with deviceId=$deviceId")
         viewModelScope.launch(Dispatchers.IO) {
             Log.i(TAG, "removeDevice() coroutine started, manager=${manager != null}")
-            var managerSuccess = false
-            var storageSuccess = false
 
-            // Unpair device (sends notification to remote device and removes locally)
+            // Unpair device (Rust handles both disconnection and storage removal via FfiDeviceStorage)
             try {
                 Log.i(TAG, "Calling unpairDevice($deviceId)")
                 manager?.unpairDevice(deviceId)
-                managerSuccess = true
-                Log.i(TAG, "Unpaired device from manager: $deviceId")
+                Log.i(TAG, "Unpaired device: $deviceId")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to unpair device from manager: $deviceId", e)
-            }
-
-            // Remove from secure storage
-            try {
-                secureStorage.removePairedDevice(deviceId)
-                storageSuccess = true
-                Log.i(TAG, "Removed device from secure storage: $deviceId")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove device from secure storage: $deviceId", e)
+                Log.e(TAG, "Failed to unpair device: $deviceId", e)
             }
 
             // Remove from paused list
@@ -382,11 +331,6 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
                     _pausedDeviceIds.value = currentPaused
                 }
                 prefs.edit().putStringSet(KEY_PAUSED_DEVICES, currentPaused).apply()
-            }
-
-            // Log if partial removal occurred
-            if (managerSuccess != storageSuccess) {
-                Log.w(TAG, "Partial device removal - manager: $managerSuccess, storage: $storageSuccess")
             }
 
             // Refresh devices
@@ -544,20 +488,16 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
 
     override fun onDeviceUnpaired(deviceId: String) {
         Log.d(TAG, "Device unpaired by remote: $deviceId")
-        // Remove from local storage using SecureStorage
-        SecureStorage(getApplication()).removePairedDevice(deviceId)
-        Log.d(TAG, "Removed device $deviceId from storage")
+        // Note: Storage removal is handled by Rust layer via FfiDeviceStorage
         // Refresh device lists
         refreshDevices()
     }
 
     override fun onPairingRejected(deviceId: String, reason: String) {
         Log.w(TAG, "Pairing rejected by device: $deviceId, reason: $reason")
-        // Remove from FFI manager
+        // Remove from FFI manager (this will also remove from storage via FfiDeviceStorage)
         manager?.removePairedDevice(deviceId)
-        // Remove from local storage
-        SecureStorage(getApplication()).removePairedDevice(deviceId)
-        Log.d(TAG, "Removed rejected device $deviceId from storage")
+        Log.d(TAG, "Removed rejected device $deviceId")
         // Refresh device lists
         refreshDevices()
     }

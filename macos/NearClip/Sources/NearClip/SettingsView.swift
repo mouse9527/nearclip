@@ -348,8 +348,8 @@ struct DevicesSettingsTab: View {
     }
 
     private func refreshDevices() {
-        // Reload paired devices from Keychain
-        connectionManager.loadPairedDevicesFromKeychain()
+        // Refresh device lists from FFI
+        connectionManager.refreshDeviceLists()
 
         // Try to connect to all paired devices
         _ = connectionManager.nearClipManager?.tryConnectPairedDevices()

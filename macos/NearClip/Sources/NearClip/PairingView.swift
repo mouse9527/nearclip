@@ -12,6 +12,8 @@ struct PairingView: View {
     @State private var pairingError: String?
     @State private var pairingSuccess = false
     @State private var pairedDeviceName: String?
+    @State private var showConnectionFailedAlert = false
+    @State private var pendingDevice: (id: String, name: String, platform: String)?
 
     var body: some View {
         ZStack {
@@ -57,6 +59,16 @@ struct PairingView: View {
                     dismiss()
                 }
             }
+        }
+        .alert("连接失败", isPresented: $showConnectionFailedAlert) {
+            Button("重试") {
+                retryConnection()
+            }
+            Button("取消", role: .cancel) {
+                pendingDevice = nil
+            }
+        } message: {
+            Text("无法连接到设备，请确保两台设备在同一网络或蓝牙范围内。")
         }
     }
 
@@ -254,17 +266,10 @@ struct PairingView: View {
     }
 
     private var pairingCode: String {
-        let info: [String: Any] = [
-            "id": deviceId,
-            "name": deviceName,
-            "platform": "macOS"
-        ]
-
-        if let data = try? JSONSerialization.data(withJSONObject: info),
-           let string = String(data: data, encoding: .utf8) {
-            return string
-        }
-        return "{}"
+        // Use a fixed order for JSON keys to ensure consistent QR code
+        let id = deviceId
+        let name = deviceName
+        return "{\"id\":\"\(id)\",\"name\":\"\(name)\",\"platform\":\"macOS\"}"
     }
 
     private func generateQRCode() -> NSImage? {
@@ -317,6 +322,9 @@ struct PairingView: View {
 
         let platform = json["platform"] as? String ?? "Unknown"
 
+        // Store pending device info for retry
+        pendingDevice = (id: id, name: name, platform: platform)
+
         // Create device display
         let device = DeviceDisplay(
             id: id,
@@ -325,16 +333,65 @@ struct PairingView: View {
             isConnected: false
         )
 
-        // Add to paired devices (saves to Keychain and updates FFI)
-        connectionManager.addPairedDevice(device)
+        // Use Rust FFI to pair device (handles connection + storage)
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let success = connectionManager.pairDevice(device)
 
-        isPairing = false
-        pairingSuccess = true
-        manualPairingCode = ""
+            DispatchQueue.main.async {
+                isPairing = false
 
-        // Auto-dismiss after success
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            dismiss()
+                if success {
+                    pairingSuccess = true
+                    manualPairingCode = ""
+                    pendingDevice = nil
+
+                    // Auto-dismiss after success
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        dismiss()
+                    }
+                } else {
+                    // Connection failed, show retry dialog
+                    showConnectionFailedAlert = true
+                }
+            }
+        }
+    }
+
+    private func retryConnection() {
+        guard let device = pendingDevice else { return }
+
+        isPairing = true
+        pairingError = nil
+
+        // Create device display
+        let deviceDisplay = DeviceDisplay(
+            id: device.id,
+            name: device.name,
+            platform: device.platform,
+            isConnected: false
+        )
+
+        // Retry pairing via Rust FFI
+        DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let success = connectionManager.pairDevice(deviceDisplay)
+
+            DispatchQueue.main.async {
+                isPairing = false
+
+                if success {
+                    pairingSuccess = true
+                    manualPairingCode = ""
+                    pendingDevice = nil
+
+                    // Auto-dismiss after success
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        dismiss()
+                    }
+                } else {
+                    // Connection failed again, show retry dialog
+                    showConnectionFailedAlert = true
+                }
+            }
         }
     }
 

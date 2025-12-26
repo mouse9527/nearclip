@@ -218,9 +218,6 @@ final class ConnectionManager: ObservableObject {
     }
 
     private init() {
-        // Load paired devices from Keychain
-        loadPairedDevicesFromKeychain()
-
         // Initialize BLE manager
         NSLog("ConnectionManager: Initializing BleManager")
         bleManager = BleManager()
@@ -306,22 +303,19 @@ final class ConnectionManager: ObservableObject {
                 let bleHardwareBridge = BleHardwareBridge(bleManager: bleManager)
                 manager.setBleHardware(hardware: bleHardwareBridge)
                 NSLog("ConnectionManager: BLE hardware bridge registered with FFI manager")
+
+                // Register device storage with FFI manager
+                // This will load paired devices from storage automatically
+                let deviceStorage = DeviceStorageImpl()
+                manager.setDeviceStorage(storage: deviceStorage)
+                NSLog("ConnectionManager: Device storage registered with FFI manager")
             }
 
             isRunning = true
             lastError = nil
 
-            // Add paired devices from Keychain to FFI manager
-            for device in pairedDevices {
-                let ffiDevice = FfiDeviceInfo(
-                    id: device.id,
-                    name: device.name,
-                    platform: platformFromString(device.platform),
-                    status: DeviceStatus.disconnected
-                )
-                nearClipManager?.addPairedDevice(device: ffiDevice)
-                print("Added Keychain device to FFI manager: \(device.name) (\(device.id))")
-            }
+            // Refresh paired devices from FFI manager (loaded by setDeviceStorage)
+            refreshDeviceLists()
 
             // Try to connect to paired devices after a delay to allow mDNS discovery
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
@@ -488,14 +482,61 @@ final class ConnectionManager: ObservableObject {
     // MARK: - Device Management
 
     /// Connect to a specific device
+    ///
+    /// Tries WiFi first via FFI, then falls back to BLE if WiFi is not available.
     func connectDevice(_ deviceId: String) {
         guard isRunning else { return }
 
         do {
             try nearClipManager?.connectDevice(deviceId: deviceId)
         } catch {
-            print("Failed to connect device: \(error)")
-            lastError = String(describing: error)
+            print("WiFi connection failed: \(error), trying BLE fallback")
+
+            // Try BLE connection as fallback
+            if let bleManager = bleManager {
+                // Check if we have a peripheral UUID for this device
+                // The device might be discoverable via BLE even if WiFi failed
+                bleManager.connect(peripheralUuid: deviceId)
+                print("BLE connection initiated for device: \(deviceId)")
+            } else {
+                print("Failed to connect device: \(error)")
+                lastError = String(describing: error)
+            }
+        }
+    }
+
+    /// Pair a new device using Rust FFI
+    ///
+    /// This is the main entry point for pairing flow:
+    /// 1. Rust adds device to memory
+    /// 2. Rust attempts connection (WiFi + BLE)
+    /// 3. On success: Rust saves to storage via FfiDeviceStorage
+    /// 4. On failure: Rust removes from memory
+    ///
+    /// - Parameter device: Device information from QR code
+    /// - Returns: true if pairing succeeded, false otherwise
+    func pairDevice(_ device: DeviceDisplay) -> Bool {
+        guard let manager = nearClipManager else { return false }
+
+        let ffiDevice = FfiDeviceInfo(
+            id: device.id,
+            name: device.name,
+            platform: platformFromString(device.platform),
+            status: .disconnected
+        )
+
+        do {
+            let success = try manager.pairDevice(device: ffiDevice)
+            if success {
+                print("ConnectionManager: Device paired successfully: \(device.name)")
+                refreshDeviceLists()
+            } else {
+                print("ConnectionManager: Device pairing failed: \(device.name)")
+            }
+            return success
+        } catch {
+            print("ConnectionManager: Device pairing error: \(error)")
+            return false
         }
     }
 
@@ -605,28 +646,19 @@ final class ConnectionManager: ObservableObject {
             self.connectedDevices.removeAll { $0.id == device.id }
             self.connectedDevices.append(display)
 
-            // Auto-add to paired devices if not already present (bidirectional pairing)
-            if !self.pairedDevices.contains(where: { $0.id == device.id }) {
-                print("Auto-adding connected device to paired list: \(device.name)")
-                self.savePairedDeviceToKeychain(display)
-                self.pairedDevices.append(display)
-
-                // Notify that a new device was paired (for closing pairing window)
-                NotificationCenter.default.post(
-                    name: .devicePaired,
-                    object: nil,
-                    userInfo: ["device": display]
+            // Update paired devices status if already paired
+            if let index = self.pairedDevices.firstIndex(where: { $0.id == device.id }) {
+                self.pairedDevices[index] = DeviceDisplay(
+                    id: device.id,
+                    name: device.name,
+                    platform: self.platformString(device.platform),
+                    isConnected: true
                 )
             } else {
-                // Update paired devices status
-                if let index = self.pairedDevices.firstIndex(where: { $0.id == device.id }) {
-                    self.pairedDevices[index] = DeviceDisplay(
-                        id: device.id,
-                        name: device.name,
-                        platform: self.platformString(device.platform),
-                        isConnected: true
-                    )
-                }
+                // Device connected but not in our paired list - this can happen with bidirectional pairing
+                // The device will be added to paired list via refreshDeviceLists from FFI
+                print("Connected device not in local paired list, will refresh from FFI: \(device.name)")
+                self.refreshDeviceLists()
             }
 
             self.updateStatus()
@@ -684,8 +716,7 @@ final class ConnectionManager: ObservableObject {
             // Remove from paired devices list
             self.pairedDevices.removeAll { $0.id == deviceId }
 
-            // Remove from Keychain storage
-            self.removePairedDeviceFromKeychain(deviceId)
+            // Storage removal is handled by Rust via FfiDeviceStorage
 
             self.updateStatus()
         }
@@ -704,10 +735,7 @@ final class ConnectionManager: ObservableObject {
             self.pairedDevices.removeAll { $0.id == deviceId }
             self.connectedDevices.removeAll { $0.id == deviceId }
 
-            // Remove from Keychain storage
-            self.removePairedDeviceFromKeychain(deviceId)
-
-            // Remove from FFI manager
+            // Remove from FFI manager (this will also remove from storage via FfiDeviceStorage)
             self.nearClipManager?.removePairedDevice(deviceId: deviceId)
 
             // Show user notification about the rejection
@@ -892,82 +920,18 @@ final class ConnectionManager: ObservableObject {
         }
     }
 
-    // MARK: - Keychain Integration
+    // MARK: - Device Removal
 
-    /// Load paired devices from Keychain
-    func loadPairedDevicesFromKeychain() {
-        let storedDevices = KeychainManager.shared.loadPairedDevices()
-        let paused = pausedDeviceIds
-        pairedDevices = storedDevices.map { stored in
-            var device = stored.toDeviceDisplay()
-            device.isPaused = paused.contains(device.id)
-            return device
-        }
-        print("ConnectionManager: Loaded \(pairedDevices.count) paired devices from Keychain")
-    }
-
-    /// Save a device to Keychain
-    func savePairedDeviceToKeychain(_ device: DeviceDisplay) {
-        let storedDevice = StoredDevice(from: device)
-        if KeychainManager.shared.addPairedDevice(storedDevice) {
-            print("ConnectionManager: Saved device '\(device.name)' to Keychain")
-        }
-    }
-
-    /// Remove a device from Keychain
-    func removePairedDeviceFromKeychain(_ deviceId: String) {
-        if KeychainManager.shared.removePairedDevice(deviceId: deviceId) {
-            print("ConnectionManager: Removed device '\(deviceId)' from Keychain")
-        }
-    }
-
-    /// Add a paired device (saves to Keychain and updates FFI)
-    /// Returns false if the maximum device limit has been reached
-    @discardableResult
-    func addPairedDevice(_ device: DeviceDisplay) -> Bool {
-        // Check if device already exists (updating existing device)
-        let isExisting = pairedDevices.contains { $0.id == device.id }
-
-        // Check maximum device limit for new devices
-        if !isExisting && pairedDevices.count >= Self.maxPairedDevices {
-            print("ConnectionManager: Cannot add device - maximum \(Self.maxPairedDevices) devices reached")
-            lastError = "Maximum \(Self.maxPairedDevices) devices reached"
-            return false
-        }
-
-        // Save to Keychain
-        savePairedDeviceToKeychain(device)
-
-        // Update local list
-        pairedDevices.removeAll { $0.id == device.id }
-        pairedDevices.append(device)
-
-        // Update FFI if available
-        if let manager = nearClipManager {
-            let ffiDevice = FfiDeviceInfo(
-                id: device.id,
-                name: device.name,
-                platform: platformFromString(device.platform),
-                status: .disconnected
-            )
-            manager.addPairedDevice(device: ffiDevice)
-        }
-
-        return true
-    }
-
-    /// Remove a paired device (sends unpair notification to remote device, removes from Keychain and updates FFI)
+    /// Remove a paired device (sends unpair notification to remote device)
+    /// Storage removal is handled by Rust via FfiDeviceStorage
     func removePairedDevice(_ deviceId: String) {
-        // Unpair device via FFI (sends notification to remote device and removes from FFI)
+        // Unpair device via FFI (sends notification to remote device, removes from FFI and storage)
         do {
             try nearClipManager?.unpairDevice(deviceId: deviceId)
             print("ConnectionManager: Unpaired device via FFI: \(deviceId)")
         } catch {
             print("ConnectionManager: Failed to unpair device via FFI: \(deviceId), error: \(error)")
         }
-
-        // Remove from Keychain
-        removePairedDeviceFromKeychain(deviceId)
 
         // Remove from paused list
         var paused = pausedDeviceIds

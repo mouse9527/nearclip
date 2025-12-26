@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2025-12-26
+
+### Changed
+- **Architecture**: Migrate device storage to FFI layer with dependency inversion pattern
+  - Rust layer now controls when devices are saved/loaded/removed
+  - Platform layers (macOS/Android) implement `FfiDeviceStorage` interface for actual storage
+  - Unified pairing flow: pair → connect → save on success
+- **FFI**: Add `FfiBleHardware` interface consolidating BLE operations
+- **FFI**: Add `FfiDeviceStorage` interface for platform storage implementations
+
+### Fixed
+- Device pairing now only persists after successful connection (prevents orphaned entries)
+- Sync history storage migrated to FFI layer for consistency
+
 ## [0.1.6] - 2025-12-16
 
 ### Fixed

@@ -3,6 +3,28 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Task to build Rust native library and generate Kotlin bindings
+tasks.register<Exec>("buildRustLibrary") {
+    description = "Build Rust native library for Android"
+    workingDir = rootProject.projectDir.parentFile // nearclip root
+    commandLine("cargo", "ndk", "-t", "arm64-v8a", "-o", "android/app/src/main/jniLibs", "build", "--release", "-p", "nearclip-ffi")
+}
+
+tasks.register<Exec>("generateKotlinBindings") {
+    description = "Generate Kotlin FFI bindings from UDL"
+    dependsOn("buildRustLibrary")
+    workingDir = rootProject.projectDir.parentFile // nearclip root
+    commandLine("cargo", "run", "-p", "nearclip-ffi", "--bin", "uniffi-bindgen", "--",
+        "generate", "crates/nearclip-ffi/src/nearclip.udl",
+        "--language", "kotlin",
+        "--out-dir", "android/app/src/main/java")
+}
+
+// Hook into Android build - run before compiling Kotlin
+tasks.matching { it.name == "preBuild" }.configureEach {
+    dependsOn("generateKotlinBindings")
+}
+
 android {
     namespace = "com.nearclip"
     compileSdk = 34

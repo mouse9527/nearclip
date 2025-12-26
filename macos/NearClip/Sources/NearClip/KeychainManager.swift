@@ -1,4 +1,5 @@
 import Foundation
+import NearClipFFI
 
 /// Manages storage of pairing information using UserDefaults
 /// Note: Changed from Keychain to UserDefaults to avoid password prompts
@@ -105,6 +106,56 @@ final class KeychainManager {
     func clearPairedDevices() -> Bool {
         defaults.removeObject(forKey: pairedDevicesKey)
         return true
+    }
+}
+
+// MARK: - FfiDeviceStorage Implementation
+
+/// Implements FfiDeviceStorage protocol for Rust FFI
+/// This allows Rust layer to control when devices are saved/loaded/removed
+final class DeviceStorageImpl: FfiDeviceStorage {
+    private let keychainManager = KeychainManager.shared
+
+    func saveDevice(device: FfiDeviceInfo) {
+        let storedDevice = StoredDevice(from: device)
+        if keychainManager.addPairedDevice(storedDevice) {
+            print("DeviceStorageImpl: Saved device '\(device.name)' (\(device.id))")
+        } else {
+            print("DeviceStorageImpl: Failed to save device '\(device.name)'")
+        }
+    }
+
+    func removeDevice(deviceId: String) {
+        if keychainManager.removePairedDevice(deviceId: deviceId) {
+            print("DeviceStorageImpl: Removed device '\(deviceId)'")
+        } else {
+            print("DeviceStorageImpl: Failed to remove device '\(deviceId)'")
+        }
+    }
+
+    func loadAllDevices() -> [FfiDeviceInfo] {
+        let storedDevices = keychainManager.loadPairedDevices()
+        let ffiDevices = storedDevices.map { stored -> FfiDeviceInfo in
+            FfiDeviceInfo(
+                id: stored.id,
+                name: stored.name,
+                platform: platformFromString(stored.platform),
+                status: .disconnected
+            )
+        }
+        print("DeviceStorageImpl: Loaded \(ffiDevices.count) devices")
+        return ffiDevices
+    }
+
+    private func platformFromString(_ platform: String) -> DevicePlatform {
+        switch platform.lowercased() {
+        case "macos":
+            return .macOs
+        case "android":
+            return .android
+        default:
+            return .unknown
+        }
     }
 }
 

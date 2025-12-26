@@ -321,6 +321,27 @@ typedef void (*UniffiCallbackInterfaceFfiBleHardwareMethod9)(uint64_t, RustBuffe
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE_METHOD0
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE_METHOD0
+typedef void (*UniffiCallbackInterfaceFfiDeviceStorageMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE_METHOD1
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE_METHOD1
+typedef void (*UniffiCallbackInterfaceFfiDeviceStorageMethod1)(uint64_t, RustBuffer, void* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
+#ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE_METHOD2
+#define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE_METHOD2
+typedef void (*UniffiCallbackInterfaceFfiDeviceStorageMethod2)(uint64_t, RustBuffer* _Nonnull, 
+        RustCallStatus *_Nonnull uniffiCallStatus
+    );
+
+#endif
 #ifndef UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD0
 #define UNIFFI_FFIDEF_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK_METHOD0
 typedef void (*UniffiCallbackInterfaceFfiNearClipCallbackMethod0)(uint64_t, RustBuffer, void* _Nonnull, 
@@ -392,6 +413,16 @@ typedef struct UniffiVTableCallbackInterfaceFfiBleHardware {
     UniffiCallbackInterfaceFfiBleHardwareMethod9 _Nonnull configure;
     UniffiCallbackInterfaceFree _Nonnull uniffiFree;
 } UniffiVTableCallbackInterfaceFfiBleHardware;
+
+#endif
+#ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE
+#define UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_DEVICE_STORAGE
+typedef struct UniffiVTableCallbackInterfaceFfiDeviceStorage {
+    UniffiCallbackInterfaceFfiDeviceStorageMethod0 _Nonnull saveDevice;
+    UniffiCallbackInterfaceFfiDeviceStorageMethod1 _Nonnull removeDevice;
+    UniffiCallbackInterfaceFfiDeviceStorageMethod2 _Nonnull loadAllDevices;
+    UniffiCallbackInterfaceFree _Nonnull uniffiFree;
+} UniffiVTableCallbackInterfaceFfiDeviceStorage;
 
 #endif
 #ifndef UNIFFI_FFIDEF_V_TABLE_CALLBACK_INTERFACE_FFI_NEAR_CLIP_CALLBACK
@@ -509,6 +540,11 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_connection_changed(
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_data_received(void*_Nonnull ptr, RustBuffer device_id, RustBuffer data, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_PAIR_DEVICE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_PAIR_DEVICE
+int8_t uniffi_nearclip_ffi_fn_method_ffinearclipmanager_pair_device(void*_Nonnull ptr, RustBuffer device, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(void*_Nonnull ptr, RustBuffer device_id, RustCallStatus *_Nonnull out_status
@@ -517,6 +553,11 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(void*
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
 void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_hardware(void*_Nonnull ptr, uint64_t hardware, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_DEVICE_STORAGE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_SET_DEVICE_STORAGE
+void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_device_storage(void*_Nonnull ptr, uint64_t storage, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_METHOD_FFINEARCLIPMANAGER_START
@@ -557,6 +598,11 @@ void uniffi_nearclip_ffi_fn_method_ffinearclipmanager_unpair_device(void*_Nonnul
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLEHARDWARE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIBLEHARDWARE
 void uniffi_nearclip_ffi_fn_init_callback_vtable_ffiblehardware(UniffiVTableCallbackInterfaceFfiBleHardware* _Nonnull vtable
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIDEVICESTORAGE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFIDEVICESTORAGE
+void uniffi_nearclip_ffi_fn_init_callback_vtable_ffidevicestorage(UniffiVTableCallbackInterfaceFfiDeviceStorage* _Nonnull vtable
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_FN_INIT_CALLBACK_VTABLE_FFINEARCLIPCALLBACK
@@ -969,6 +1015,12 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_data_rece
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_PAIR_DEVICE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_PAIR_DEVICE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_device(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_REMOVE_PAIRED_DEVICE
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device(void
@@ -978,6 +1030,12 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_de
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_BLE_HARDWARE
 uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_hardware(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_DEVICE_STORAGE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFINEARCLIPMANAGER_SET_DEVICE_STORAGE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_device_storage(void
     
 );
 #endif
@@ -1086,6 +1144,24 @@ uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_advertising(voi
 #ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_CONFIGURE
 #define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIBLEHARDWARE_CONFIGURE
 uint16_t uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIDEVICESTORAGE_SAVE_DEVICE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIDEVICESTORAGE_SAVE_DEVICE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffidevicestorage_save_device(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIDEVICESTORAGE_REMOVE_DEVICE
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIDEVICESTORAGE_REMOVE_DEVICE
+uint16_t uniffi_nearclip_ffi_checksum_method_ffidevicestorage_remove_device(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIDEVICESTORAGE_LOAD_ALL_DEVICES
+#define UNIFFI_FFIDEF_UNIFFI_NEARCLIP_FFI_CHECKSUM_METHOD_FFIDEVICESTORAGE_LOAD_ALL_DEVICES
+uint16_t uniffi_nearclip_ffi_checksum_method_ffidevicestorage_load_all_devices(void
     
 );
 #endif

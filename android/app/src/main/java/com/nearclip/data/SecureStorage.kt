@@ -8,6 +8,7 @@ import androidx.security.crypto.MasterKey
 import com.nearclip.ffi.DevicePlatform
 import com.nearclip.ffi.DeviceStatus
 import com.nearclip.ffi.FfiDeviceInfo
+import com.nearclip.ffi.FfiDeviceStorage
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -248,5 +249,48 @@ class SecureStorage(private val context: Context) {
      */
     fun clearAll() {
         encryptedPrefs.edit().clear().apply()
+    }
+}
+
+/**
+ * Implements FfiDeviceStorage interface for Rust FFI.
+ * This allows Rust layer to control when devices are saved/loaded/removed.
+ *
+ * The dependency inversion pattern:
+ * - Rust layer decides WHEN to save/load/delete devices
+ * - This class implements HOW (using SecureStorage/EncryptedSharedPreferences)
+ */
+class DeviceStorageImpl(private val secureStorage: SecureStorage) : FfiDeviceStorage {
+
+    companion object {
+        private const val TAG = "DeviceStorageImpl"
+    }
+
+    /**
+     * Save a paired device to persistent storage.
+     * Called by Rust when a device is successfully paired and connected.
+     */
+    override fun saveDevice(device: FfiDeviceInfo) {
+        secureStorage.addPairedDevice(device)
+        Log.i(TAG, "Saved device '${device.name}' (${device.id})")
+    }
+
+    /**
+     * Remove a paired device from persistent storage.
+     * Called by Rust when a device is unpaired.
+     */
+    override fun removeDevice(deviceId: String) {
+        secureStorage.removePairedDevice(deviceId)
+        Log.i(TAG, "Removed device '$deviceId'")
+    }
+
+    /**
+     * Load all paired devices from persistent storage.
+     * Called by Rust during initialization.
+     */
+    override fun loadAllDevices(): List<FfiDeviceInfo> {
+        val devices = secureStorage.loadPairedDevices()
+        Log.i(TAG, "Loaded ${devices.size} devices")
+        return devices
     }
 }
