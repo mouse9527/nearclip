@@ -586,8 +586,6 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func setBleHardware(hardware: FfiBleHardware) 
     
-    func setBleSender(sender: FfiBleSender) 
-    
     func start() throws 
     
     func startDiscovery() 
@@ -799,13 +797,6 @@ open func removePairedDevice(deviceId: String) {try! rustCall() {
 open func setBleHardware(hardware: FfiBleHardware) {try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_hardware(self.uniffiClonePointer(),
         FfiConverterCallbackInterfaceFfiBleHardware.lower(hardware),$0
-    )
-}
-}
-    
-open func setBleSender(sender: FfiBleSender) {try! rustCall() {
-    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_set_ble_sender(self.uniffiClonePointer(),
-        FfiConverterCallbackInterfaceFfiBleSender.lower(sender),$0
     )
 }
 }
@@ -1992,159 +1983,6 @@ extension FfiConverterCallbackInterfaceFfiBleHardware : FfiConverter {
 
 
 
-public protocol FfiBleSender : AnyObject {
-    
-    func sendBleData(deviceId: String, data: Data)  -> String
-    
-    func isBleConnected(deviceId: String)  -> Bool
-    
-    func getMtu(deviceId: String)  -> UInt32
-    
-}
-
-
-
-// Put the implementation in a struct so we don't pollute the top-level namespace
-fileprivate struct UniffiCallbackInterfaceFfiBleSender {
-
-    // Create the VTable using a series of closures.
-    // Swift automatically converts these into C callback functions.
-    static var vtable: UniffiVTableCallbackInterfaceFfiBleSender = UniffiVTableCallbackInterfaceFfiBleSender(
-        sendBleData: { (
-            uniffiHandle: UInt64,
-            deviceId: RustBuffer,
-            data: RustBuffer,
-            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
-            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
-        ) in
-            let makeCall = {
-                () throws -> String in
-                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleSender.handleMap.get(handle: uniffiHandle) else {
-                    throw UniffiInternalError.unexpectedStaleHandle
-                }
-                return uniffiObj.sendBleData(
-                     deviceId: try FfiConverterString.lift(deviceId),
-                     data: try FfiConverterData.lift(data)
-                )
-            }
-
-            
-            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
-            uniffiTraitInterfaceCall(
-                callStatus: uniffiCallStatus,
-                makeCall: makeCall,
-                writeReturn: writeReturn
-            )
-        },
-        isBleConnected: { (
-            uniffiHandle: UInt64,
-            deviceId: RustBuffer,
-            uniffiOutReturn: UnsafeMutablePointer<Int8>,
-            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
-        ) in
-            let makeCall = {
-                () throws -> Bool in
-                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleSender.handleMap.get(handle: uniffiHandle) else {
-                    throw UniffiInternalError.unexpectedStaleHandle
-                }
-                return uniffiObj.isBleConnected(
-                     deviceId: try FfiConverterString.lift(deviceId)
-                )
-            }
-
-            
-            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
-            uniffiTraitInterfaceCall(
-                callStatus: uniffiCallStatus,
-                makeCall: makeCall,
-                writeReturn: writeReturn
-            )
-        },
-        getMtu: { (
-            uniffiHandle: UInt64,
-            deviceId: RustBuffer,
-            uniffiOutReturn: UnsafeMutablePointer<UInt32>,
-            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
-        ) in
-            let makeCall = {
-                () throws -> UInt32 in
-                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleSender.handleMap.get(handle: uniffiHandle) else {
-                    throw UniffiInternalError.unexpectedStaleHandle
-                }
-                return uniffiObj.getMtu(
-                     deviceId: try FfiConverterString.lift(deviceId)
-                )
-            }
-
-            
-            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt32.lower($0) }
-            uniffiTraitInterfaceCall(
-                callStatus: uniffiCallStatus,
-                makeCall: makeCall,
-                writeReturn: writeReturn
-            )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterCallbackInterfaceFfiBleSender.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface FfiBleSender: handle missing in uniffiFree")
-            }
-        }
-    )
-}
-
-private func uniffiCallbackInitFfiBleSender() {
-    uniffi_nearclip_ffi_fn_init_callback_vtable_ffiblesender(&UniffiCallbackInterfaceFfiBleSender.vtable)
-}
-
-// FfiConverter protocol for callback interfaces
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterCallbackInterfaceFfiBleSender {
-    fileprivate static var handleMap = UniffiHandleMap<FfiBleSender>()
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-extension FfiConverterCallbackInterfaceFfiBleSender : FfiConverter {
-    typealias SwiftType = FfiBleSender
-    typealias FfiType = UInt64
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public static func lift(_ handle: UInt64) throws -> SwiftType {
-        try handleMap.get(handle: handle)
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public static func lower(_ v: SwiftType) -> UInt64 {
-        return handleMap.insert(obj: v)
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public static func write(_ v: SwiftType, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(v))
-    }
-}
-
-
-
-
 public protocol FfiNearClipCallback : AnyObject {
     
     func onDeviceConnected(device: FfiDeviceInfo) 
@@ -2614,9 +2452,6 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_hardware() != 20925) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_set_ble_sender() != 6154) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_start() != 22762) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2671,15 +2506,6 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure() != 59760) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblesender_send_ble_data() != 44995) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblesender_is_ble_connected() != 32228) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblesender_get_mtu() != 4381) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipcallback_on_device_connected() != 23454) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -2706,7 +2532,6 @@ private var initializationResult: InitializationResult = {
     }
 
     uniffiCallbackInitFfiBleHardware()
-    uniffiCallbackInitFfiBleSender()
     uniffiCallbackInitFfiNearClipCallback()
     return InitializationResult.ok
 }()

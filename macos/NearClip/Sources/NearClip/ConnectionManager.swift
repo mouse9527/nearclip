@@ -302,15 +302,10 @@ final class ConnectionManager: ObservableObject {
                 bleEnabled = true
                 NSLog("ConnectionManager: BLE enabled")
 
-                // Register BLE hardware bridge with FFI manager (new interface)
+                // Register BLE hardware bridge with FFI manager
                 let bleHardwareBridge = BleHardwareBridge(bleManager: bleManager)
                 manager.setBleHardware(hardware: bleHardwareBridge)
                 NSLog("ConnectionManager: BLE hardware bridge registered with FFI manager")
-
-                // Register BLE sender bridge with FFI manager (legacy interface)
-                let bleSenderBridge = BleSenderBridge(bleManager: bleManager, connectionManager: self)
-                manager.setBleSender(sender: bleSenderBridge)
-                NSLog("ConnectionManager: BLE sender bridge registered with FFI manager")
             }
 
             isRunning = true
@@ -1229,40 +1224,5 @@ final class BleHardwareBridge: FfiBleHardware {
 
     func configure(deviceId: String, publicKeyHash: String) {
         bleManager?.configure(deviceId: deviceId, publicKeyHash: publicKeyHash)
-    }
-}
-
-// MARK: - FfiBleSender Bridge (Legacy - kept for backward compatibility)
-
-/// Bridge class that implements FfiBleSender protocol and delegates to BleManager
-final class BleSenderBridge: FfiBleSender {
-    private weak var bleManager: BleManager?
-    private weak var connectionManager: ConnectionManager?
-
-    init(bleManager: BleManager?, connectionManager: ConnectionManager?) {
-        self.bleManager = bleManager
-        self.connectionManager = connectionManager
-    }
-
-    func sendBleData(deviceId: String, data: Data) -> String {
-        guard let bleManager = bleManager else {
-            return "BLE manager not available"
-        }
-
-        // Check if device is connected
-        guard connectionManager?.isDeviceConnectedViaBle(deviceId) == true else {
-            return "Device not connected via BLE: \(deviceId)"
-        }
-
-        // Send data through BleManager
-        return bleManager.writeData(peripheralUuid: deviceId, data: data)
-    }
-
-    func isBleConnected(deviceId: String) -> Bool {
-        return connectionManager?.isDeviceConnectedViaBle(deviceId) ?? false
-    }
-
-    func getMtu(deviceId: String) -> UInt32 {
-        return bleManager?.getMtu(peripheralUuid: deviceId) ?? 20
     }
 }
