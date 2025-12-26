@@ -22,6 +22,7 @@ qrcode.workspace = true
 image.workspace = true
 rqrr = "0.8"
 sha2 = "0.10"
+aes-gcm = "0.10"
 
 [dev-dependencies]
 hex.workspace = true

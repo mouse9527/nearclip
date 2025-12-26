@@ -18,6 +18,7 @@ async-trait.workspace = true
 nearclip-sync.workspace = true
 nearclip-net.workspace = true
 nearclip-ble.workspace = true
+nearclip-crypto.workspace = true
 
 # TLS (for WifiTransport)
 rustls.workspace = true

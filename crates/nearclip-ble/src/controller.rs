@@ -130,37 +130,78 @@ pub trait BleControllerCallback: Send + Sync {
 // ============================================================================
 
 /// BLE hardware abstraction (platform implements this)
+///
+/// Platform code only needs to implement these minimal BLE operations.
+/// All higher-level logic (discovery, connection management, data chunking)
+/// is handled by BleController in Rust.
 pub trait BleHardware: Send + Sync {
+    // ========== Scanning ==========
+
     /// Start scanning for NearClip devices
     fn start_scan(&self);
 
     /// Stop scanning
     fn stop_scan(&self);
 
-    /// Connect to a peripheral
-    fn connect(&self, peripheral_uuid: String);
+    // ========== Connection (raw BLE operations) ==========
+
+    /// Connect to a peripheral by ID
+    fn connect(&self, peripheral_id: &str);
 
     /// Disconnect from a peripheral
-    fn disconnect(&self, peripheral_uuid: String);
+    fn disconnect(&self, peripheral_id: &str);
 
-    /// Write data to a peripheral
-    /// Returns empty string on success, error message on failure
-    fn write_data(&self, peripheral_uuid: String, data: Vec<u8>) -> String;
+    // ========== GATT Operations ==========
 
-    /// Get MTU for a peripheral (0 = default)
-    fn get_mtu(&self, peripheral_uuid: String) -> u32;
+    /// Read a characteristic value
+    ///
+    /// # Returns
+    /// - `Ok(Vec<u8>)` - Characteristic data on success
+    /// - `Err(String)` - Error message on failure
+    fn read_characteristic(
+        &self,
+        peripheral_id: &str,
+        char_uuid: &str,
+    ) -> Result<Vec<u8>, String>;
 
-    /// Check if peripheral is connected
-    fn is_connected(&self, peripheral_uuid: String) -> bool;
+    /// Write data to a characteristic
+    ///
+    /// # Returns
+    /// - `Ok(())` - Success
+    /// - `Err(String)` - Error message on failure
+    fn write_characteristic(
+        &self,
+        peripheral_id: &str,
+        char_uuid: &str,
+        data: &[u8],
+    ) -> Result<(), String>;
 
-    /// Start advertising
-    fn start_advertising(&self);
+    /// Subscribe to characteristic notifications
+    ///
+    /// # Returns
+    /// - `Ok(())` - Success
+    /// - `Err(String)` - Error message on failure
+    fn subscribe_characteristic(
+        &self,
+        peripheral_id: &str,
+        char_uuid: &str,
+    ) -> Result<(), String>;
+
+    // ========== Advertising ==========
+
+    /// Start advertising with service data
+    fn start_advertising(&self, service_data: &[u8]);
 
     /// Stop advertising
     fn stop_advertising(&self);
 
-    /// Configure local device info
-    fn configure(&self, device_id: String, public_key_hash: String);
+    // ========== Status Query ==========
+
+    /// Check if a peripheral is connected
+    fn is_connected(&self, peripheral_id: &str) -> bool;
+
+    /// Get MTU for a peripheral
+    fn get_mtu(&self, peripheral_id: &str) -> u16;
 }
 
 // ============================================================================
@@ -267,9 +308,95 @@ impl BleController {
         drop(uuid_map);
 
         info!(device_id = %device_id, peripheral_uuid = %peripheral_uuid, "Connecting to device");
-        self.hardware.connect(peripheral_uuid);
+        self.hardware.connect(&peripheral_uuid);
 
         Ok(())
+    }
+
+    /// Scan and wait for a specific device_id to appear
+    ///
+    /// Starts BLE scanning and waits until the target device is discovered
+    /// or the timeout expires.
+    ///
+    /// # Arguments
+    /// * `device_id` - The device ID to search for
+    /// * `timeout_ms` - Maximum time to wait in milliseconds
+    ///
+    /// # Returns
+    /// The peripheral_uuid of the discovered device, or an error if not found
+    pub async fn scan_for_device(&self, device_id: &str, timeout_ms: u64) -> Result<String, BleError> {
+        info!(device_id = %device_id, timeout_ms = timeout_ms, "Scanning for specific device");
+
+        // Check if already discovered
+        {
+            let uuid_map = self.device_id_to_uuid.read().await;
+            if let Some(peripheral_uuid) = uuid_map.get(device_id) {
+                info!(device_id = %device_id, "Device already discovered");
+                return Ok(peripheral_uuid.clone());
+            }
+        }
+
+        // Start scanning
+        self.start_scan().await?;
+
+        let deadline = std::time::Instant::now() + Duration::from_millis(timeout_ms);
+        let check_interval = Duration::from_millis(200);
+
+        loop {
+            // Check if device has been discovered
+            {
+                let uuid_map = self.device_id_to_uuid.read().await;
+                if let Some(peripheral_uuid) = uuid_map.get(device_id) {
+                    info!(device_id = %device_id, peripheral_uuid = %peripheral_uuid, "Device found during scan");
+                    self.stop_scan().await;
+                    return Ok(peripheral_uuid.clone());
+                }
+            }
+
+            // Check timeout
+            if std::time::Instant::now() > deadline {
+                self.stop_scan().await;
+                warn!(device_id = %device_id, "Device not found within timeout");
+                return Err(BleError::Timeout(format!(
+                    "Device {} not found within {}ms",
+                    device_id, timeout_ms
+                )));
+            }
+
+            // Wait before next check
+            sleep(check_interval).await;
+        }
+    }
+
+    /// Connect to a device, scanning first if necessary
+    ///
+    /// If the device_id -> peripheral_uuid mapping doesn't exist,
+    /// this method will start BLE scanning and wait for the device
+    /// to appear before connecting.
+    ///
+    /// # Arguments
+    /// * `device_id` - The device ID to connect to
+    /// * `scan_timeout_ms` - Maximum time to scan for the device
+    ///
+    /// # Returns
+    /// Ok(()) if connection initiated successfully
+    pub async fn connect_with_scan(&self, device_id: &str, scan_timeout_ms: u64) -> Result<(), BleError> {
+        // Check if we already have the mapping
+        {
+            let uuid_map = self.device_id_to_uuid.read().await;
+            if uuid_map.contains_key(device_id) {
+                drop(uuid_map);
+                info!(device_id = %device_id, "Device mapping exists, connecting directly");
+                return self.connect(device_id).await;
+            }
+        }
+
+        // No mapping, need to scan first
+        info!(device_id = %device_id, "No device mapping, starting scan");
+        let _peripheral_uuid = self.scan_for_device(device_id, scan_timeout_ms).await?;
+
+        // Now connect
+        self.connect(device_id).await
     }
 
     /// Disconnect from a device
@@ -281,7 +408,7 @@ impl BleController {
         drop(uuid_map);
 
         info!(device_id = %device_id, peripheral_uuid = %peripheral_uuid, "Disconnecting from device");
-        self.hardware.disconnect(peripheral_uuid);
+        self.hardware.disconnect(&peripheral_uuid);
 
         Ok(())
     }
@@ -296,12 +423,14 @@ impl BleController {
 
         debug!(device_id = %device_id, size = data.len(), "Sending data");
 
-        let result = self.hardware.write_data(peripheral_uuid, data.to_vec());
-        if result.is_empty() {
-            Ok(())
-        } else {
-            Err(BleError::DataTransfer(result))
-        }
+        // Use DATA_TX_UUID - this should be defined in GATT module
+        // For now, use a placeholder UUID
+        const DATA_TX_UUID: &str = "0000xxx";
+
+        self.hardware.write_characteristic(&peripheral_uuid, DATA_TX_UUID, data)
+            .map_err(|e| BleError::DataTransfer(e))?;
+
+        Ok(())
     }
 
     /// Get list of discovered devices
@@ -505,7 +634,7 @@ impl BleController {
         tokio::spawn(async move {
             sleep(delay).await;
             info!(peripheral_uuid = %peripheral_uuid, "Attempting reconnect");
-            hardware.connect(peripheral_uuid);
+            hardware.connect(&peripheral_uuid);
         });
     }
 
@@ -566,7 +695,7 @@ impl BleController {
 
                 for (peripheral_uuid, device) in devices.iter() {
                     // Check if still connected at hardware level
-                    if !hardware.is_connected(peripheral_uuid.clone()) {
+                    if !hardware.is_connected(peripheral_uuid) {
                         warn!(
                             device_id = %device.device_id,
                             "Device not connected at hardware level"
@@ -584,7 +713,7 @@ impl BleController {
                             );
 
                             // Force disconnect
-                            hardware.disconnect(peripheral_uuid.clone());
+                            hardware.disconnect(peripheral_uuid);
                             callback.on_error(
                                 Some(device.device_id.clone()),
                                 "Connection timeout".to_string(),
@@ -625,29 +754,49 @@ mod tests {
             *self.scan_started.lock().unwrap() = false;
         }
 
-        fn connect(&self, peripheral_uuid: String) {
-            self.connected.lock().unwrap().push(peripheral_uuid);
+        fn connect(&self, peripheral_id: &str) {
+            self.connected.lock().unwrap().push(peripheral_id.to_string());
         }
 
-        fn disconnect(&self, peripheral_uuid: String) {
-            self.connected.lock().unwrap().retain(|u| u != &peripheral_uuid);
+        fn disconnect(&self, peripheral_id: &str) {
+            self.connected.lock().unwrap().retain(|u| u != peripheral_id);
         }
 
-        fn write_data(&self, _peripheral_uuid: String, _data: Vec<u8>) -> String {
-            String::new()
+        fn read_characteristic(
+            &self,
+            _peripheral_id: &str,
+            _char_uuid: &str,
+        ) -> Result<Vec<u8>, String> {
+            Ok(vec![1, 2, 3, 4])
         }
 
-        fn get_mtu(&self, _peripheral_uuid: String) -> u32 {
+        fn write_characteristic(
+            &self,
+            _peripheral_id: &str,
+            _char_uuid: &str,
+            _data: &[u8],
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn subscribe_characteristic(
+            &self,
+            _peripheral_id: &str,
+            _char_uuid: &str,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn start_advertising(&self, _service_data: &[u8]) {}
+        fn stop_advertising(&self) {}
+
+        fn is_connected(&self, peripheral_id: &str) -> bool {
+            self.connected.lock().unwrap().contains(&peripheral_id.to_string())
+        }
+
+        fn get_mtu(&self, _peripheral_id: &str) -> u16 {
             20
         }
-
-        fn is_connected(&self, peripheral_uuid: String) -> bool {
-            self.connected.lock().unwrap().contains(&peripheral_uuid)
-        }
-
-        fn start_advertising(&self) {}
-        fn stop_advertising(&self) {}
-        fn configure(&self, _device_id: String, _public_key_hash: String) {}
     }
 
     struct MockCallback {

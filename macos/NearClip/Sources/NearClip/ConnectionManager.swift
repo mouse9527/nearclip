@@ -1150,6 +1150,8 @@ final class BleHardwareBridge: FfiBleHardware {
         self.bleManager = bleManager
     }
 
+    // ========== Scanning ==========
+
     func startScan() {
         bleManager?.startScanning()
     }
@@ -1157,6 +1159,8 @@ final class BleHardwareBridge: FfiBleHardware {
     func stopScan() {
         bleManager?.stopScanning()
     }
+
+    // ========== Connection ==========
 
     func connect(peripheralUuid: String) {
         bleManager?.connect(peripheralUuid: peripheralUuid)
@@ -1166,27 +1170,47 @@ final class BleHardwareBridge: FfiBleHardware {
         bleManager?.disconnect(peripheralUuid: peripheralUuid)
     }
 
-    func writeData(peripheralUuid: String, data: Data) -> String {
-        return bleManager?.writeData(peripheralUuid: peripheralUuid, data: data) ?? "BLE manager not available"
+    // ========== GATT Operations ==========
+
+    func readCharacteristic(peripheralUuid: String, charUuid: String) -> Data {
+        guard let manager = bleManager else {
+            print("readCharacteristic: BLE manager not available")
+            return Data()
+        }
+        return manager.readCharacteristic(peripheralUuid: peripheralUuid, charUuid: charUuid)
     }
 
-    func getMtu(peripheralUuid: String) -> UInt32 {
-        return bleManager?.getMtu(peripheralUuid: peripheralUuid) ?? 20
+    func writeCharacteristic(peripheralUuid: String, charUuid: String, data: Data) -> String {
+        guard let manager = bleManager else {
+            return "BLE manager not available"
+        }
+        return manager.writeCharacteristic(peripheralUuid: peripheralUuid, charUuid: charUuid, data: data)
     }
 
-    func isConnected(peripheralUuid: String) -> Bool {
-        return bleManager?.isConnected(peripheralUuid: peripheralUuid) ?? false
+    func subscribeCharacteristic(peripheralUuid: String, charUuid: String) -> String {
+        guard let manager = bleManager else {
+            return "BLE manager not available"
+        }
+        return manager.subscribeCharacteristic(peripheralUuid: peripheralUuid, charUuid: charUuid)
     }
 
-    func startAdvertising() {
-        bleManager?.startAdvertising()
+    // ========== Advertising ==========
+
+    func startAdvertising(serviceData: Data) {
+        bleManager?.startAdvertising(serviceData: serviceData)
     }
 
     func stopAdvertising() {
         bleManager?.stopAdvertising()
     }
 
-    func configure(deviceId: String, publicKeyHash: String) {
-        bleManager?.configure(deviceId: deviceId, publicKeyHash: publicKeyHash)
+    // ========== Status Query ==========
+
+    func isConnected(peripheralUuid: String) -> Bool {
+        return bleManager?.isConnected(peripheralUuid: peripheralUuid) ?? false
+    }
+
+    func getMtu(peripheralUuid: String) -> UInt32 {
+        return bleManager?.getMtu(peripheralUuid: peripheralUuid) ?? 20
     }
 }

@@ -1668,27 +1668,45 @@ extension NearClipError: Foundation.LocalizedError {
 
 
 public protocol FfiBleHardware : AnyObject {
-    
-    func startScan() 
-    
-    func stopScan() 
-    
-    func connect(peripheralUuid: String) 
-    
-    func disconnect(peripheralUuid: String) 
-    
-    func writeData(peripheralUuid: String, data: Data)  -> String
-    
-    func getMtu(peripheralUuid: String)  -> UInt32
-    
-    func isConnected(peripheralUuid: String)  -> Bool
-    
-    func startAdvertising() 
-    
-    func stopAdvertising() 
-    
-    func configure(deviceId: String, publicKeyHash: String) 
-    
+
+    // ========== Scanning ==========
+
+    func start_scan()
+
+    func stop_scan()
+
+    // ========== Connection ==========
+
+    func connect(peripheral_uuid: String)
+
+    func disconnect(peripheral_uuid: String)
+
+    // ========== GATT Operations ==========
+
+    /// Read a GATT characteristic value
+    /// Returns data on success, empty array on error
+    func read_characteristic(peripheral_uuid: String, char_uuid: String) -> Data
+
+    /// Write to a GATT characteristic
+    /// Returns empty string on success, error message on failure
+    func write_characteristic(peripheral_uuid: String, char_uuid: String, data: Data) -> String
+
+    /// Subscribe to a GATT characteristic for notifications
+    /// Returns empty string on success, error message on failure
+    func subscribe_characteristic(peripheral_uuid: String, char_uuid: String) -> String
+
+    // ========== Advertising ==========
+
+    /// Start advertising with service data
+    func start_advertising(service_data: Data)
+
+    func stop_advertising()
+
+    // ========== Status Query ==========
+
+    func is_connected(peripheral_uuid: String) -> Bool
+
+    func get_mtu(peripheral_uuid: String) -> UInt32
 }
 
 // Magic number for the Rust proxy to call using the same mechanism as every other method,

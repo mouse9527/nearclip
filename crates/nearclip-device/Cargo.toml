@@ -1,0 +1,21 @@
+[package]
+name = "nearclip-device"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+nearclip-crypto = { path = "../nearclip-crypto" }
+nearclip-protocol = { path = "../nearclip-protocol" }
+thiserror = { workspace = true }
+rusqlite = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = { workspace = true }
+uuid = { workspace = true }
+rand = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
+tempfile = "3"

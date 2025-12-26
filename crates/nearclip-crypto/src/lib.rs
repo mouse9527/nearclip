@@ -38,6 +38,7 @@
 //! let client_config = TlsClientConfig::new(cert.cert_der()).unwrap();
 //! ```
 
+pub mod cipher;
 pub mod device_store;
 pub mod keypair;
 pub mod pairing;
@@ -45,6 +46,7 @@ pub mod qrcode_parser;
 pub mod tls_config;
 
 // Re-export main types for convenience
+pub use cipher::{Aes256Gcm, CipherError};
 pub use device_store::{DeviceStore, FileDeviceStore, FileDeviceStoreConfig};
 pub use keypair::{CryptoError, EcdhKeyPair};
 pub use pairing::{

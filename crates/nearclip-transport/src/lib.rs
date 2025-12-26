@@ -19,7 +19,7 @@
 //! └─────────────────┬───────────────────────┘
 //!                   │
 //! ┌─────────────────▼───────────────────────┐
-//! │ Transport Trait                         │
+//! │ Transport Trait / EncryptedTransport    │
 //! └───────┬─────────────┬───────────────────┘
 //!         │             │
 //! ┌───────▼───────┐ ┌───▼───────┐ ┌─────────────┐
@@ -40,6 +40,7 @@
 //! manager.broadcast(&msg).await;
 //! ```
 
+mod encrypted;
 mod error;
 mod traits;
 mod wifi;
@@ -47,6 +48,7 @@ mod ble;
 mod mock;
 mod manager;
 
+pub use encrypted::EncryptedTransport;
 pub use error::TransportError;
 pub use traits::{Transport, TransportConnector, TransportListener, TransportCallback};
 pub use wifi::{WifiTransport, WifiTransportConnector, WifiTransportListener};

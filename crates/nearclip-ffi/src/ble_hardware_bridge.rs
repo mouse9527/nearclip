@@ -20,6 +20,8 @@ impl BleHardwareBridge {
 }
 
 impl BleHardware for BleHardwareBridge {
+    // ========== Scanning ==========
+
     fn start_scan(&self) {
         self.ffi_hardware.start_scan();
     }
@@ -28,35 +30,84 @@ impl BleHardware for BleHardwareBridge {
         self.ffi_hardware.stop_scan();
     }
 
-    fn connect(&self, peripheral_uuid: String) {
-        self.ffi_hardware.connect(peripheral_uuid);
+    // ========== Connection ==========
+
+    fn connect(&self, peripheral_id: &str) {
+        self.ffi_hardware.connect(peripheral_id.to_string());
     }
 
-    fn disconnect(&self, peripheral_uuid: String) {
-        self.ffi_hardware.disconnect(peripheral_uuid);
+    fn disconnect(&self, peripheral_id: &str) {
+        self.ffi_hardware.disconnect(peripheral_id.to_string());
     }
 
-    fn write_data(&self, peripheral_uuid: String, data: Vec<u8>) -> String {
-        self.ffi_hardware.write_data(peripheral_uuid, data)
+    // ========== GATT Operations ==========
+
+    fn read_characteristic(
+        &self,
+        peripheral_id: &str,
+        char_uuid: &str,
+    ) -> Result<Vec<u8>, String> {
+        let data = self.ffi_hardware.read_characteristic(
+            peripheral_id.to_string(),
+            char_uuid.to_string(),
+        );
+        // Empty vec indicates error - but we can't distinguish from empty data
+        // For now, assume empty vec is valid data (might be intentional)
+        // Real error handling would require checking an error string method
+        Ok(data)
     }
 
-    fn get_mtu(&self, peripheral_uuid: String) -> u32 {
-        self.ffi_hardware.get_mtu(peripheral_uuid)
+    fn write_characteristic(
+        &self,
+        peripheral_id: &str,
+        char_uuid: &str,
+        data: &[u8],
+    ) -> Result<(), String> {
+        let error = self.ffi_hardware.write_characteristic(
+            peripheral_id.to_string(),
+            char_uuid.to_string(),
+            data.to_vec(),
+        );
+        if error.is_empty() {
+            Ok(())
+        } else {
+            Err(error)
+        }
     }
 
-    fn is_connected(&self, peripheral_uuid: String) -> bool {
-        self.ffi_hardware.is_connected(peripheral_uuid)
+    fn subscribe_characteristic(
+        &self,
+        peripheral_id: &str,
+        char_uuid: &str,
+    ) -> Result<(), String> {
+        let error = self.ffi_hardware.subscribe_characteristic(
+            peripheral_id.to_string(),
+            char_uuid.to_string(),
+        );
+        if error.is_empty() {
+            Ok(())
+        } else {
+            Err(error)
+        }
     }
 
-    fn start_advertising(&self) {
-        self.ffi_hardware.start_advertising();
+    // ========== Advertising ==========
+
+    fn start_advertising(&self, service_data: &[u8]) {
+        self.ffi_hardware.start_advertising(service_data.to_vec());
     }
 
     fn stop_advertising(&self) {
         self.ffi_hardware.stop_advertising();
     }
 
-    fn configure(&self, device_id: String, public_key_hash: String) {
-        self.ffi_hardware.configure(device_id, public_key_hash);
+    // ========== Status Query ==========
+
+    fn is_connected(&self, peripheral_id: &str) -> bool {
+        self.ffi_hardware.is_connected(peripheral_id.to_string())
+    }
+
+    fn get_mtu(&self, peripheral_id: &str) -> u16 {
+        self.ffi_hardware.get_mtu(peripheral_id.to_string()) as u16
     }
 }

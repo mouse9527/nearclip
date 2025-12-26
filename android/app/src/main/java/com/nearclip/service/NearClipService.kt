@@ -537,6 +537,11 @@ class NearClipService : Service(), FfiNearClipCallback {
         override fun onDeviceDiscovered(peripheralAddress: String, deviceId: String?, publicKeyHash: String?, rssi: Int) {
             android.util.Log.i("NearClipService", "BLE device discovered: peripheral=$peripheralAddress, deviceId=$deviceId, RSSI: $rssi")
 
+            // Notify FFI layer about device discovery (updates device_id -> peripheral_uuid mapping)
+            if (deviceId != null) {
+                manager?.onBleDeviceDiscovered(peripheralAddress, deviceId, publicKeyHash ?: "", rssi)
+            }
+
             // If we have a device ID, check if it's a paired device
             val effectiveDeviceId = deviceId ?: peripheralAddress
             val pairedDevices = manager?.getPairedDevices() ?: emptyList()
@@ -1005,7 +1010,9 @@ class BleHardwareBridge(
     }
 
     override fun isConnected(peripheralUuid: String): Boolean {
-        return bleManager?.isConnected(peripheralUuid) ?: false
+        // peripheralUuid can be either a peripheral address or a device ID
+        // Try both methods to check connection status
+        return bleManager?.isDeviceConnected(peripheralUuid) ?: false
     }
 
     override fun startAdvertising() {

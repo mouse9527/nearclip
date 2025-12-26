@@ -321,15 +321,27 @@ pub trait FfiNearClipCallback: Send + Sync {
 
 /// BLE hardware callback interface
 ///
-/// Platform clients implement this trait to provide full BLE hardware access.
-/// This interface provides complete BLE control including scanning, connecting,
-/// data transfer, and advertising.
+/// Platform clients implement this trait to provide low-level BLE hardware access.
+/// This is the MINIMAL interface - all higher-level logic (discovery, connection
+/// management, data chunking) is handled by the Rust BleController.
+///
+/// ## Design Principles
+///
+/// - **Platform only provides hardware access**: Platform code should only handle
+///   direct BLE operations (scan, connect, GATT read/write/subscribe)
+/// - **Rust handles all logic**: Device discovery, connection state, data chunking,
+///   and pairing protocol are managed by Rust BleController
+/// - **Result types for GATT**: GATT operations return Result for proper error handling
 pub trait FfiBleHardware: Send + Sync {
+    // ========== Scanning ==========
+
     /// Start BLE scanning for nearby devices
     fn start_scan(&self);
 
     /// Stop BLE scanning
     fn stop_scan(&self);
+
+    // ========== Connection ==========
 
     /// Connect to a BLE peripheral
     fn connect(&self, peripheral_uuid: String);
@@ -337,25 +349,53 @@ pub trait FfiBleHardware: Send + Sync {
     /// Disconnect from a BLE peripheral
     fn disconnect(&self, peripheral_uuid: String);
 
-    /// Write data to a BLE peripheral
+    // ========== GATT Operations ==========
+
+    /// Read a GATT characteristic value
+    ///
+    /// Returns the characteristic data, or empty vec on error
+    fn read_characteristic(
+        &self,
+        peripheral_uuid: String,
+        char_uuid: String,
+    ) -> Vec<u8>;
+
+    /// Write data to a GATT characteristic
     ///
     /// Returns empty string on success, error message on failure
-    fn write_data(&self, peripheral_uuid: String, data: Vec<u8>) -> String;
+    fn write_characteristic(
+        &self,
+        peripheral_uuid: String,
+        char_uuid: String,
+        data: Vec<u8>,
+    ) -> String;
 
-    /// Get the negotiated MTU for a peripheral
-    fn get_mtu(&self, peripheral_uuid: String) -> u32;
+    /// Subscribe to characteristic notifications
+    ///
+    /// Returns empty string on success, error message on failure
+    fn subscribe_characteristic(
+        &self,
+        peripheral_uuid: String,
+        char_uuid: String,
+    ) -> String;
 
-    /// Check if connected to a peripheral
-    fn is_connected(&self, peripheral_uuid: String) -> bool;
+    // ========== Advertising ==========
 
     /// Start BLE advertising (peripheral mode)
-    fn start_advertising(&self);
+    ///
+    /// The `service_data` contains the device info to broadcast
+    fn start_advertising(&self, service_data: Vec<u8>);
 
     /// Stop BLE advertising
     fn stop_advertising(&self);
 
-    /// Configure the BLE hardware with device info
-    fn configure(&self, device_id: String, public_key_hash: String);
+    // ========== Status Query ==========
+
+    /// Check if connected to a peripheral
+    fn is_connected(&self, peripheral_uuid: String) -> bool;
+
+    /// Get the negotiated MTU for a peripheral
+    fn get_mtu(&self, peripheral_uuid: String) -> u32;
 }
 
 // ============================================================
@@ -395,11 +435,20 @@ impl BleHardwareSenderBridge {
 
 impl BleSender for BleHardwareSenderBridge {
     fn send_ble_data(&self, device_id: &str, data: &[u8]) -> Result<(), String> {
-        let result = self.hardware.write_data(device_id.to_string(), data.to_vec());
-        if result.is_empty() {
+        // Use DATA_TRANSFER_CHARACTERISTIC_UUID for sending data
+        let char_uuid = nearclip_ble::DATA_TRANSFER_CHARACTERISTIC_UUID
+            .to_string();
+
+        let error = self.hardware.write_characteristic(
+            device_id.to_string(),
+            char_uuid,
+            data.to_vec(),
+        );
+
+        if error.is_empty() {
             Ok(())
         } else {
-            Err(result)
+            Err(error)
         }
     }
 
@@ -840,24 +889,27 @@ impl FfiNearClipManager {
                     Ok(true)
                 }
                 Err(wifi_err) => {
-                    // WiFi failed, try BLE
+                    // WiFi failed, try BLE with scan
+                    // This will scan for the device if not already discovered
                     tracing::info!(
                         device_id = %device_id,
                         wifi_error = %wifi_err,
-                        "Pairing: WiFi failed, trying BLE"
+                        "Pairing: WiFi failed, trying BLE with scan"
                     );
 
                     let controller = self.ble_controller.read().await;
                     if let Some(ref ble) = *controller {
-                        // BLE connect is async, we need to wait for connection
+                        // Use connect_with_scan which will scan for the device if needed
+                        // 20 second scan timeout, 30 second total timeout
                         match tokio::time::timeout(
-                            Duration::from_secs(15),
-                            ble.connect(&device_id)
+                            Duration::from_secs(30),
+                            ble.connect_with_scan(&device_id, 20000)
                         ).await {
                             Ok(Ok(())) => {
-                                tracing::info!(device_id = %device_id, "Pairing: BLE connection initiated");
-                                // Wait a bit for connection to establish
-                                tokio::time::sleep(Duration::from_millis(500)).await;
+                                tracing::info!(device_id = %device_id, "Pairing: BLE connection initiated after scan");
+                                // Wait for connection to establish (includes service discovery and characteristic read)
+                                // BLE connection typically takes 2-4 seconds to fully establish
+                                tokio::time::sleep(Duration::from_millis(5000)).await;
 
                                 // Check if actually connected
                                 let ble_hardware = self.ble_hardware.read().await;
@@ -874,12 +926,12 @@ impl FfiNearClipManager {
                                 tracing::warn!(
                                     device_id = %device_id,
                                     ble_error = %ble_err,
-                                    "Pairing: BLE connection failed"
+                                    "Pairing: BLE scan/connection failed"
                                 );
                                 Err(wifi_err)
                             }
                             Err(_) => {
-                                tracing::warn!(device_id = %device_id, "Pairing: BLE connection timeout");
+                                tracing::warn!(device_id = %device_id, "Pairing: BLE scan/connection timeout");
                                 Err(wifi_err)
                             }
                         }
@@ -1067,6 +1119,47 @@ impl FfiNearClipManager {
 
                 // Notify callback
                 self.callback.on_device_disconnected(device_id);
+            }
+        });
+    }
+
+    /// Called by platform when a BLE device is discovered during scanning
+    ///
+    /// Platform clients call this when they discover a NearClip device via BLE scanning.
+    /// This updates the device_id -> peripheral_uuid mapping in the BLE controller,
+    /// which is required for connect_with_scan to work properly.
+    ///
+    /// # Arguments
+    ///
+    /// * `peripheral_uuid` - The platform-specific peripheral identifier (e.g., MAC address)
+    /// * `device_id` - The NearClip device ID read from the GATT characteristic
+    /// * `public_key_hash` - The public key hash (optional, can be empty string)
+    /// * `rssi` - Signal strength
+    pub fn on_ble_device_discovered(
+        &self,
+        peripheral_uuid: String,
+        device_id: String,
+        public_key_hash: String,
+        rssi: i32,
+    ) {
+        tracing::info!(
+            peripheral_uuid = %peripheral_uuid,
+            device_id = %device_id,
+            rssi = rssi,
+            "on_ble_device_discovered"
+        );
+
+        self.runtime.block_on(async {
+            let controller = self.ble_controller.read().await;
+            if let Some(ref controller) = *controller {
+                controller
+                    .handle_device_discovered(&peripheral_uuid, &device_id, &public_key_hash, rssi)
+                    .await;
+            } else {
+                tracing::warn!(
+                    device_id = %device_id,
+                    "BLE device discovered but no BLE controller is set"
+                );
             }
         });
     }

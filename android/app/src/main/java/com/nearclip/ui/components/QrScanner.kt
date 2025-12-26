@@ -82,10 +82,48 @@ private fun CameraPreview(
     val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
+    // Store camera provider reference for cleanup
+    var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
+
     DisposableEffect(Unit) {
         onDispose {
             cameraExecutor.shutdown()
+            cameraProvider?.unbindAll()
         }
+    }
+
+    // Unbind camera when disabled (QR code scanned, processing)
+    LaunchedEffect(enabled) {
+        if (!enabled) {
+            cameraProvider?.unbindAll()
+        }
+    }
+
+    // Show placeholder when disabled
+    if (!enabled) {
+        Card(
+            modifier = modifier,
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant
+            )
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    CircularProgressIndicator()
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Connecting...",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
+        }
+        return
     }
 
     AndroidView(
@@ -100,7 +138,8 @@ private fun CameraPreview(
             }
 
             cameraProviderFuture.addListener({
-                val cameraProvider = cameraProviderFuture.get()
+                val provider = cameraProviderFuture.get()
+                cameraProvider = provider
 
                 val preview = Preview.Builder()
                     .build()
@@ -154,8 +193,8 @@ private fun CameraPreview(
                     }
 
                 try {
-                    cameraProvider.unbindAll()
-                    cameraProvider.bindToLifecycle(
+                    provider.unbindAll()
+                    provider.bindToLifecycle(
                         lifecycleOwner,
                         CameraSelector.DEFAULT_BACK_CAMERA,
                         preview,

@@ -189,7 +189,7 @@ final class BleManager: NSObject, ObservableObject {
     // MARK: - Peripheral Mode (Advertiser)
 
     /// Start advertising as a NearClip device
-    func startAdvertising() {
+    func startAdvertising(serviceData: Data? = nil) {
         guard peripheralManager.state == .poweredOn else {
             os_log("Cannot advertise - Bluetooth not powered on", log: bleLog, type: .info)
             return
@@ -204,10 +204,15 @@ final class BleManager: NSObject, ObservableObject {
             setupGattService()
         }
 
-        let advertisementData: [String: Any] = [
+        var advertisementData: [String: Any] = [
             CBAdvertisementDataServiceUUIDsKey: [BleUUID.service],
             CBAdvertisementDataLocalNameKey: "NearClip"
         ]
+
+        // Add service data if provided
+        if let serviceData = serviceData {
+            advertisementData[CBAdvertisementDataServiceDataKey] = [BleUUID.service: serviceData]
+        }
 
         os_log("Starting advertisement", log: bleLog, type: .info)
         peripheralManager.startAdvertising(advertisementData)
@@ -253,6 +258,86 @@ final class BleManager: NSObject, ObservableObject {
         }
 
         return "" // Success
+    }
+
+    // MARK: - GATT Operations
+
+    /// Read a characteristic value from a peripheral
+    func readCharacteristic(peripheralUuid: String, charUuid: String) -> Data {
+        guard let uuid = UUID(uuidString: peripheralUuid),
+              let peripheral = peripherals[uuid] else {
+            os_log("Peripheral not found for read: %{public}@", log: bleLog, type: .error, peripheralUuid)
+            return Data()
+        }
+
+        guard let service = peripheral.services?.first(where: { $0.uuid == BleUUID.service }) else {
+            os_log("Service not found for read: %{public}@", log: bleLog, type: .error, peripheralUuid)
+            return Data()
+        }
+
+        let cbuuid = CBUUID(string: charUuid)
+        guard let characteristic = service.characteristics?.first(where: { $0.uuid == cbuuid }) else {
+            os_log("Characteristic not found for read: %{public}@", log: bleLog, type: .error, charUuid)
+            return Data()
+        }
+
+        // Return cached value if available
+        return characteristic.value ?? Data()
+    }
+
+    /// Write to a characteristic on a peripheral
+    func writeCharacteristic(peripheralUuid: String, charUuid: String, data: Data) -> String {
+        guard let uuid = UUID(uuidString: peripheralUuid),
+              let peripheral = peripherals[uuid] else {
+            return "Peripheral not found: \(peripheralUuid)"
+        }
+
+        guard let service = peripheral.services?.first(where: { $0.uuid == BleUUID.service }) else {
+            return "Service not found for peripheral: \(peripheralUuid)"
+        }
+
+        let cbuuid = CBUUID(string: charUuid)
+        guard let characteristic = service.characteristics?.first(where: { $0.uuid == cbuuid }) else {
+            return "Characteristic not found: \(charUuid)"
+        }
+
+        // Determine write type based on characteristic properties
+        let writeType: CBCharacteristicWriteType
+        if characteristic.properties.contains(.write) {
+            writeType = .withResponse
+        } else if characteristic.properties.contains(.writeWithoutResponse) {
+            writeType = .withoutResponse
+        } else {
+            return "Characteristic does not support writing"
+        }
+
+        peripheral.writeValue(data, for: characteristic, type: writeType)
+        return "" // Success
+    }
+
+    /// Subscribe to notifications/indications from a characteristic
+    func subscribeCharacteristic(peripheralUuid: String, charUuid: String) -> String {
+        guard let uuid = UUID(uuidString: peripheralUuid),
+              let peripheral = peripherals[uuid] else {
+            return "Peripheral not found: \(peripheralUuid)"
+        }
+
+        guard let service = peripheral.services?.first(where: { $0.uuid == BleUUID.service }) else {
+            return "Service not found for peripheral: \(peripheralUuid)"
+        }
+
+        let cbuuid = CBUUID(string: charUuid)
+        guard let characteristic = service.characteristics?.first(where: { $0.uuid == cbuuid }) else {
+            return "Characteristic not found: \(charUuid)"
+        }
+
+        // Check if characteristic supports notify or indicate
+        if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {
+            peripheral.setNotifyValue(true, for: characteristic)
+            return "" // Success
+        } else {
+            return "Characteristic does not support notifications"
+        }
     }
 
     // MARK: - Private Methods

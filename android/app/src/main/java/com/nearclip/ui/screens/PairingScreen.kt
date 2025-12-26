@@ -259,6 +259,40 @@ fun ScanQRCodeTab(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Show loading indicator while pairing
+            if (isLoading) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Connecting to device...")
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
+            // Show error message in scan mode too
+            errorMessage?.let { error ->
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+
             TextButton(onClick = { showManualInput = true }) {
                 Icon(
                     imageVector = Icons.Default.Keyboard,

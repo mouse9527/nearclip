@@ -1225,6 +1225,15 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_device_discovered(
+        `ptr`: Pointer,
+        `peripheralUuid`: RustBuffer.ByValue,
+        `deviceId`: RustBuffer.ByValue,
+        `publicKeyHash`: RustBuffer.ByValue,
+        `rssi`: Int,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
+
     fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_pair_device(
         `ptr`: Pointer,
         `device`: RustBuffer.ByValue,
@@ -1553,6 +1562,8 @@ internal interface UniffiLib : Library {
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_data_received(): Short
 
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_device_discovered(): Short
+
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_device(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device(): Short
@@ -1689,6 +1700,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_data_received() != 44728.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_device_discovered() != 59927.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_device() != 30453.toShort()) {
@@ -1875,6 +1889,26 @@ public object FfiConverterUInt : FfiConverter<UInt, Int> {
         buf: ByteBuffer,
     ) {
         buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterInt : FfiConverter<Int, Int> {
+    override fun lift(value: Int): Int = value
+
+    override fun read(buf: ByteBuffer): Int = buf.getInt()
+
+    override fun lower(value: Int): Int = value
+
+    override fun allocationSize(value: Int) = 4UL
+
+    override fun write(
+        value: Int,
+        buf: ByteBuffer,
+    ) {
+        buf.putInt(value)
     }
 }
 
@@ -2236,6 +2270,13 @@ public interface FfiNearClipManagerInterface {
         `data`: kotlin.ByteArray,
     )
 
+    fun `onBleDeviceDiscovered`(
+        `peripheralUuid`: kotlin.String,
+        `deviceId`: kotlin.String,
+        `publicKeyHash`: kotlin.String,
+        `rssi`: kotlin.Int,
+    )
+
     fun `pairDevice`(`device`: FfiDeviceInfo): kotlin.Boolean
 
     fun `removePairedDevice`(`deviceId`: kotlin.String)
@@ -2552,6 +2593,24 @@ open class FfiNearClipManager :
                 it,
                 FfiConverterString.lower(`deviceId`),
                 FfiConverterByteArray.lower(`data`),
+                _status,
+            )
+        }
+    }
+
+    override fun `onBleDeviceDiscovered`(
+        `peripheralUuid`: kotlin.String,
+        `deviceId`: kotlin.String,
+        `publicKeyHash`: kotlin.String,
+        `rssi`: kotlin.Int,
+    ) = callWithPointer {
+        uniffiRustCall { _status ->
+            UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_device_discovered(
+                it,
+                FfiConverterString.lower(`peripheralUuid`),
+                FfiConverterString.lower(`deviceId`),
+                FfiConverterString.lower(`publicKeyHash`),
+                FfiConverterInt.lower(`rssi`),
                 _status,
             )
         }

@@ -116,32 +116,64 @@ callback interface FfiDeviceStorage {
     sequence<FfiDeviceInfo> load_all_devices();
 };
 
-// BLE hardware callback interface - platform implements this to provide BLE hardware access
-// This interface provides complete BLE control including scanning, connecting,
-// data transfer, and advertising.
+// BLE hardware callback interface - platform implements this to provide low-level BLE hardware access
+//
+// ## v2 Design Philosophy
+//
+// Platform code should ONLY provide direct BLE hardware access:
+// - Scanning (start/stop)
+// - Connection (connect/disconnect)
+// - GATT operations (read/write/subscribe characteristics)
+// - Advertising (start/stop with service data)
+//
+// All higher-level logic is handled by Rust BleController:
+// - Device discovery and mapping
+// - Connection state management
+// - Data chunking/reassembly
+// - Auto-reconnection
+// - Health checks
+//
+// ## Error Handling
+//
+// Methods that can fail use a return string:
+// - Empty string "" = success
+// - Non-empty string = error message
 callback interface FfiBleHardware {
-    // Scanning
+    // ========== Scanning ==========
+
     void start_scan();
     void stop_scan();
 
-    // Connection management
+    // ========== Connection ==========
+
     void connect(string peripheral_uuid);
     void disconnect(string peripheral_uuid);
 
-    // Data transfer
+    // ========== GATT Operations ==========
+
+    // Read a GATT characteristic value
+    // Returns data on success, or error message on failure
+    // Since UDL doesn't support Result in callbacks, we use a workaround:
+    // - Empty byte array = error (check error_string for details)
+    // - Non-empty byte array = success
+    bytes read_characteristic(string peripheral_uuid, string char_uuid);
+
     // Returns empty string on success, error message on failure
-    string write_data(string peripheral_uuid, bytes data);
+    string write_characteristic(string peripheral_uuid, string char_uuid, bytes data);
 
-    // Connection info
-    u32 get_mtu(string peripheral_uuid);
-    boolean is_connected(string peripheral_uuid);
+    // Returns empty string on success, error message on failure
+    string subscribe_characteristic(string peripheral_uuid, string char_uuid);
 
-    // Advertising (for peripheral mode)
-    void start_advertising();
+    // ========== Advertising ==========
+
+    // Start advertising with service data
+    void start_advertising(bytes service_data);
     void stop_advertising();
 
-    // Configuration
-    void configure(string device_id, string public_key_hash);
+    // ========== Status Query ==========
+
+    boolean is_connected(string peripheral_uuid);
+    u32 get_mtu(string peripheral_uuid);
 };
 
 // Main manager interface
@@ -191,6 +223,10 @@ interface FfiNearClipManager {
 
     // BLE connection state - called by platform when BLE connection state changes
     void on_ble_connection_changed(string device_id, boolean connected);
+
+    // BLE device discovery - called by platform when a BLE device is discovered
+    // This updates the device_id -> peripheral_uuid mapping for connect_with_scan
+    void on_ble_device_discovered(string peripheral_uuid, string device_id, string public_key_hash, i32 rssi);
 
     // Set BLE hardware interface
     // Platform clients call this to provide full BLE hardware access

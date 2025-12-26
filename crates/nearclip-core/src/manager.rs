@@ -1177,15 +1177,25 @@ impl NearClipManager {
         // 创建取消配对消息
         let unpair_msg = Message::unpair(self.device_id.clone());
 
-        // 尝试发送取消配对通知（如果连接存在）
+        // 尝试发送取消配对通知（如果连接存在），带超时保护
         {
             let network = self.network.lock().await;
             if let Some(ref services) = *network {
-                if let Err(e) = services.transport_manager.send_to_device(device_id, &unpair_msg).await {
-                    // 发送失败不影响取消配对流程
-                    tracing::warn!(device_id = %device_id, error = %e, "Failed to send unpair message");
-                } else {
-                    tracing::debug!(device_id = %device_id, "Unpair message sent");
+                // Use timeout to prevent blocking if device is offline
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(2),
+                    services.transport_manager.send_to_device(device_id, &unpair_msg)
+                ).await {
+                    Ok(Ok(())) => {
+                        tracing::debug!(device_id = %device_id, "Unpair message sent");
+                    }
+                    Ok(Err(e)) => {
+                        // 发送失败不影响取消配对流程
+                        tracing::warn!(device_id = %device_id, error = %e, "Failed to send unpair message");
+                    }
+                    Err(_) => {
+                        tracing::warn!(device_id = %device_id, "Unpair message send timed out");
+                    }
                 }
             }
         }

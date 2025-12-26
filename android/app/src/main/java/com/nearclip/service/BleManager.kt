@@ -93,7 +93,11 @@ class BleManager(private val context: Context) {
     // ==================== Central Mode (Scanner) ====================
 
     fun startScanning() {
-        if (isScanning) return
+        Log.i(TAG, "startScanning() called, isScanning=$isScanning")
+        if (isScanning) {
+            Log.i(TAG, "Already scanning, skipping")
+            return
+        }
         if (bluetoothAdapter?.isEnabled != true) {
             Log.w(TAG, "Cannot scan - Bluetooth not enabled")
             return
@@ -109,13 +113,14 @@ class BleManager(private val context: Context) {
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
+        // Temporarily scan without filter to debug discovery issues
         val filters = listOf(
             ScanFilter.Builder()
                 .setServiceUuid(ParcelUuid(SERVICE_UUID))
                 .build()
         )
 
-        Log.i(TAG, "Starting BLE scan")
+        Log.i(TAG, "Starting BLE scan with SERVICE_UUID filter: $SERVICE_UUID")
         bleScanner?.startScan(filters, settings, scanCallback)
         isScanning = true
     }
@@ -157,6 +162,9 @@ class BleManager(private val context: Context) {
         return mtuCache[peripheralAddress] ?: DEFAULT_MTU
     }
 
+    // Track devices we're currently connecting to for discovery
+    private val pendingDiscoveryConnections = ConcurrentHashMap<String, Boolean>()
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
@@ -167,14 +175,120 @@ class BleManager(private val context: Context) {
 
             Log.i(TAG, "Discovered peripheral: $address, RSSI: ${result.rssi}")
 
-            // Notify callback - Rust layer will decide whether to connect
-            callback?.onDeviceDiscovered(address, null, null, result.rssi)
+            // Check if we already know this device's ID
+            val knownDeviceId = peripheralDeviceIds[address]
+            if (knownDeviceId != null) {
+                // Already know this device, just notify with known info
+                callback?.onDeviceDiscovered(address, knownDeviceId, null, result.rssi)
+                return
+            }
+
+            // Check if we're already connecting to this device
+            if (pendingDiscoveryConnections.containsKey(address)) {
+                return
+            }
+
+            // Check if already connected
+            if (connectedGatts.containsKey(address)) {
+                return
+            }
+
+            // Auto-connect to read device ID (for discovery purposes)
+            Log.i(TAG, "Auto-connecting to $address to read device ID")
+            pendingDiscoveryConnections[address] = true
+            handler.post {
+                try {
+                    device.connectGatt(context, false, discoveryGattCallback, BluetoothDevice.TRANSPORT_LE)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to connect for discovery: ${e.message}")
+                    pendingDiscoveryConnections.remove(address)
+                }
+            }
         }
 
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "Scan failed with error: $errorCode")
             isScanning = false
             callback?.onError(null, "BLE scan failed: $errorCode")
+        }
+    }
+
+    // Separate GATT callback for discovery connections (read device ID then disconnect)
+    private val discoveryGattCallback = object : BluetoothGattCallback() {
+        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
+            val address = gatt.device.address
+
+            when (newState) {
+                BluetoothProfile.STATE_CONNECTED -> {
+                    Log.i(TAG, "Discovery: Connected to $address")
+                    gatt.discoverServices()
+                }
+                BluetoothProfile.STATE_DISCONNECTED -> {
+                    Log.i(TAG, "Discovery: Disconnected from $address")
+                    pendingDiscoveryConnections.remove(address)
+                    gatt.close()
+                }
+            }
+        }
+
+        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
+            val address = gatt.device.address
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "Discovery: Service discovery failed for $address: $status")
+                gatt.disconnect()
+                return
+            }
+
+            val service = gatt.getService(SERVICE_UUID)
+            if (service == null) {
+                Log.w(TAG, "Discovery: NearClip service not found on $address")
+                gatt.disconnect()
+                return
+            }
+
+            // Read device ID characteristic
+            val deviceIdChar = service.getCharacteristic(DEVICE_ID_UUID)
+            if (deviceIdChar != null) {
+                gatt.readCharacteristic(deviceIdChar)
+            } else {
+                Log.w(TAG, "Discovery: Device ID characteristic not found on $address")
+                gatt.disconnect()
+            }
+        }
+
+        override fun onCharacteristicRead(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            val address = gatt.device.address
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e(TAG, "Discovery: Failed to read characteristic from $address")
+                gatt.disconnect()
+                return
+            }
+
+            val value = characteristic.value ?: run {
+                gatt.disconnect()
+                return
+            }
+
+            when (characteristic.uuid) {
+                DEVICE_ID_UUID -> {
+                    val deviceId = String(value, Charsets.UTF_8)
+                    peripheralDeviceIds[address] = deviceId
+                    Log.i(TAG, "Discovery: Got device ID from $address: $deviceId")
+
+                    // Notify callback with device ID
+                    callback?.onDeviceDiscovered(address, deviceId, null, 0)
+
+                    // Disconnect after reading device ID (discovery complete)
+                    gatt.disconnect()
+                }
+                else -> {
+                    gatt.disconnect()
+                }
+            }
         }
     }
 
