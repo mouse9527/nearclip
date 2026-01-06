@@ -4,10 +4,9 @@ import android.annotation.SuppressLint
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
-import android.os.Handler
-import android.os.Looper
 import android.os.ParcelUuid
 import android.util.Log
+import kotlinx.coroutines.*
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
@@ -33,7 +32,7 @@ class BleManager(private val context: Context) {
         // Default MTU payload size
         private const val DEFAULT_MTU = 20
 
-        // Chunk header size: [messageId: 4 bytes][sequence: 2 bytes][total: 2 bytes]
+        // Chunk header size (Rust format): [messageId: 2 bytes][sequence: 2 bytes][total: 2 bytes][payloadLength: 2 bytes]
         private const val CHUNK_HEADER_SIZE = 8
     }
 
@@ -71,7 +70,7 @@ class BleManager(private val context: Context) {
     // Data transfer
     private val dataReassemblers = ConcurrentHashMap<String, DataReassembler>()
     private val dataChunker = DataChunker()
-    private val handler = Handler(Looper.getMainLooper())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // GATT characteristics for peripheral mode
     private var deviceIdCharacteristic: BluetoothGattCharacteristic? = null
@@ -113,15 +112,10 @@ class BleManager(private val context: Context) {
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        // Temporarily scan without filter to debug discovery issues
-        val filters = listOf(
-            ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid(SERVICE_UUID))
-                .build()
-        )
-
-        Log.i(TAG, "Starting BLE scan with SERVICE_UUID filter: $SERVICE_UUID")
-        bleScanner?.startScan(filters, settings, scanCallback)
+        // Scan without filter first, then filter in callback
+        // This is needed because macOS CoreBluetooth may not include Service UUID in advertisement packet
+        Log.i(TAG, "Starting BLE scan without filter (will filter by service in callback)")
+        bleScanner?.startScan(null, settings, scanCallback)
         isScanning = true
     }
 
@@ -140,8 +134,19 @@ class BleManager(private val context: Context) {
             return
         }
 
+        if (connectedGatts.containsKey(peripheralAddress)) {
+            Log.i(TAG, "Already connected to $peripheralAddress")
+            return
+        }
+
         Log.i(TAG, "Connecting to peripheral: $peripheralAddress")
-        device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        val gatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        if (gatt != null) {
+            connectedGatts[peripheralAddress] = gatt
+        } else {
+            Log.e(TAG, "Failed to create GATT connection")
+            callback?.onError(peripheralAddress, "Failed to create GATT connection")
+        }
     }
 
     fun disconnect(peripheralAddress: String) {
@@ -165,15 +170,40 @@ class BleManager(private val context: Context) {
     // Track devices we're currently connecting to for discovery
     private val pendingDiscoveryConnections = ConcurrentHashMap<String, Boolean>()
 
+    // Throttle discovery connections - track last connection attempt time
+    private val lastDiscoveryAttempt = ConcurrentHashMap<String, Long>()
+    private val discoveryThrottleMs = 30_000L // 30 seconds between discovery attempts for same device
+    private val maxConcurrentDiscovery = 2 // Max concurrent discovery connections
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
             val address = device.address
+            val deviceName = result.scanRecord?.deviceName
+
+            // Check if this device advertises our service UUID
+            val serviceUuids = result.scanRecord?.serviceUuids
+            val hasNearClipService = serviceUuids?.any { it.uuid == SERVICE_UUID } == true
+
+            // Also check if we already know this device (from previous discovery)
+            val isKnownDevice = peripheralDeviceIds.containsKey(address)
+            // Handle specific case for macOS which may not advertise service UUID but has correct name
+            val hasNameMatch = deviceName?.contains("NearClip", ignoreCase = true) == true
+
+            // Debug logging for discovered devices with service UUIDs
+            if (serviceUuids?.isNotEmpty() == true) {
+                Log.d(TAG, "Scan: $address name='$deviceName' services=${serviceUuids?.map { it.uuid }} hasNearClip=$hasNearClipService")
+            }
+
+            if (!hasNearClipService && !isKnownDevice && !hasNameMatch) {
+                // Not a NearClip device, ignore
+                return
+            }
+
+            Log.i(TAG, "NearClip device found: $address name='$deviceName' hasService=$hasNearClipService isKnown=$isKnownDevice hasName=$hasNameMatch")
 
             // Store peripheral reference
             peripherals[address] = device
-
-            Log.i(TAG, "Discovered peripheral: $address, RSSI: ${result.rssi}")
 
             // Check if we already know this device's ID
             val knownDeviceId = peripheralDeviceIds[address]
@@ -193,10 +223,23 @@ class BleManager(private val context: Context) {
                 return
             }
 
+            // Throttle: check if we recently tried to connect to this device
+            val now = System.currentTimeMillis()
+            val lastAttempt = lastDiscoveryAttempt[address] ?: 0L
+            if (now - lastAttempt < discoveryThrottleMs) {
+                return
+            }
+
+            // Limit concurrent discovery connections to prevent connection storm
+            if (pendingDiscoveryConnections.size >= maxConcurrentDiscovery) {
+                return
+            }
+
             // Auto-connect to read device ID (for discovery purposes)
-            Log.i(TAG, "Auto-connecting to $address to read device ID")
+            Log.i(TAG, "Auto-connecting to $address to read device ID (pending: ${pendingDiscoveryConnections.size})")
             pendingDiscoveryConnections[address] = true
-            handler.post {
+            lastDiscoveryAttempt[address] = now
+            scope.launch {
                 try {
                     device.connectGatt(context, false, discoveryGattCallback, BluetoothDevice.TRANSPORT_LE)
                 } catch (e: Exception) {
@@ -299,6 +342,8 @@ class BleManager(private val context: Context) {
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Connected to peripheral: $address")
+                    // gatt is already in connectedGatts if we initiated via connect(),
+                    // but make sure it's up to date
                     connectedGatts[address] = gatt
                     gatt.discoverServices()
                     gatt.requestMtu(512)
@@ -360,10 +405,10 @@ class BleManager(private val context: Context) {
                     }
 
                     // Subscribe to ACK notifications
-                    val ackChar = service?.getCharacteristic(DATA_ACK_UUID)
-                    if (ackChar != null) {
-                        gatt.setCharacteristicNotification(ackChar, true)
-                    }
+                    subscribeCharacteristic(address, DATA_ACK_UUID.toString())
+
+                    // Subscribe to Data Transfer notifications (for receiving data)
+                    subscribeCharacteristic(address, DATA_TRANSFER_UUID.toString())
                 }
                 PUBLIC_KEY_HASH_UUID -> {
                     val hash = String(value, Charsets.UTF_8)
@@ -376,8 +421,14 @@ class BleManager(private val context: Context) {
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
         ) {
-            if (characteristic.uuid == DATA_ACK_UUID) {
-                Log.i(TAG, "ACK received")
+            when (characteristic.uuid) {
+                DATA_ACK_UUID -> Log.i(TAG, "ACK received")
+                DATA_TRANSFER_UUID -> {
+                    val value = characteristic.value
+                    if (value != null) {
+                        handleIncomingData(value, gatt.device)
+                    }
+                }
             }
         }
 
@@ -392,7 +443,7 @@ class BleManager(private val context: Context) {
 
     // ==================== Peripheral Mode (Advertiser) ====================
 
-    fun startAdvertising() {
+    fun startAdvertising(serviceData: ByteArray? = null) {
         if (isAdvertising) return
         if (bluetoothAdapter?.isEnabled != true) {
             Log.w(TAG, "Cannot advertise - Bluetooth not enabled")
@@ -421,6 +472,12 @@ class BleManager(private val context: Context) {
         val data = AdvertiseData.Builder()
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
+            .apply {
+                // Add service data if provided
+                if (serviceData != null) {
+                    addServiceData(ParcelUuid(SERVICE_UUID), serviceData)
+                }
+            }
             .build()
 
         Log.i(TAG, "Starting BLE advertisement")
@@ -462,8 +519,15 @@ class BleManager(private val context: Context) {
 
         dataTransferCharacteristic = BluetoothGattCharacteristic(
             DATA_TRANSFER_UUID,
-            BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
-            BluetoothGattCharacteristic.PERMISSION_WRITE
+            BluetoothGattCharacteristic.PROPERTY_WRITE or BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
+            BluetoothGattCharacteristic.PERMISSION_WRITE or BluetoothGattCharacteristic.PERMISSION_READ
+        )
+        // Add CCCD for notifications
+        dataTransferCharacteristic?.addDescriptor(
+            BluetoothGattDescriptor(
+                UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
+                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+            )
         )
         service.addCharacteristic(dataTransferCharacteristic)
 
@@ -471,6 +535,13 @@ class BleManager(private val context: Context) {
             DATA_ACK_UUID,
             BluetoothGattCharacteristic.PROPERTY_READ or BluetoothGattCharacteristic.PROPERTY_NOTIFY,
             BluetoothGattCharacteristic.PERMISSION_READ
+        )
+        // Add CCCD for notifications
+        dataAckCharacteristic?.addDescriptor(
+            BluetoothGattDescriptor(
+                UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"),
+                BluetoothGattDescriptor.PERMISSION_READ or BluetoothGattDescriptor.PERMISSION_WRITE
+            )
         )
         service.addCharacteristic(dataAckCharacteristic)
 
@@ -534,6 +605,7 @@ class BleManager(private val context: Context) {
             offset: Int,
             value: ByteArray?
         ) {
+            Log.i(TAG, "onCharacteristicWriteRequest: uuid=${characteristic.uuid} from ${device.address}, size=${value?.size}, responseNeeded=$responseNeeded")
             if (characteristic.uuid == DATA_TRANSFER_UUID && value != null) {
                 handleIncomingData(value, device)
             }
@@ -542,10 +614,40 @@ class BleManager(private val context: Context) {
                 gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
             }
         }
+
+        override fun onDescriptorWriteRequest(
+            device: BluetoothDevice,
+            requestId: Int,
+            descriptor: BluetoothGattDescriptor,
+            preparedWrite: Boolean,
+            responseNeeded: Boolean,
+            offset: Int,
+            value: ByteArray?
+        ) {
+            // Handle CCCD writes for notification subscription
+            val cccdUuid = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+            if (descriptor.uuid == cccdUuid) {
+                if (value != null) {
+                    val isNotifyEnabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
+                    val isIndicateEnabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
+                    val charUuid = descriptor.characteristic?.uuid
+                    Log.i(TAG, "CCCD write for ${charUuid}: notify=$isNotifyEnabled, indicate=$isIndicateEnabled")
+                }
+                // Always respond with success for CCCD writes
+                if (responseNeeded) {
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null)
+                }
+            } else {
+                if (responseNeeded) {
+                    gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
+                }
+            }
+        }
     }
 
     private fun handleIncomingData(data: ByteArray, device: BluetoothDevice) {
         val address = device.address
+        Log.d(TAG, "handleIncomingData: ${data.size} bytes from $address")
 
         val parsed = DataChunker.parseChunk(data)
         if (parsed == null) {
@@ -554,6 +656,7 @@ class BleManager(private val context: Context) {
         }
 
         val (messageId, sequence, total, payload) = parsed
+        Log.d(TAG, "Chunk parsed: msgId=$messageId, seq=$sequence, total=$total, payload=${payload.size} bytes")
 
         val reassembler = dataReassemblers.getOrPut(address) { DataReassembler() }
 
@@ -569,16 +672,28 @@ class BleManager(private val context: Context) {
         }
     }
 
-    private fun sendAck(device: BluetoothDevice, messageId: UInt) {
-        val ackData = ByteArray(4)
+    private fun sendAck(device: BluetoothDevice, messageId: UShort) {
+        // ACK format matches Rust: 2 bytes for message_id (LE)
+        val ackData = ByteArray(2)
         val msgId = messageId.toInt()
         ackData[0] = (msgId and 0xFF).toByte()
         ackData[1] = ((msgId shr 8) and 0xFF).toByte()
-        ackData[2] = ((msgId shr 16) and 0xFF).toByte()
-        ackData[3] = ((msgId shr 24) and 0xFF).toByte()
 
-        dataAckCharacteristic?.value = ackData
-        gattServer?.notifyCharacteristicChanged(device, dataAckCharacteristic, false)
+        val ackChar = dataAckCharacteristic
+        if (ackChar == null) {
+            Log.e(TAG, "sendAck: dataAckCharacteristic is null!")
+            return
+        }
+
+        val server = gattServer
+        if (server == null) {
+            Log.e(TAG, "sendAck: gattServer is null!")
+            return
+        }
+
+        ackChar.value = ackData
+        val result = server.notifyCharacteristicChanged(device, ackChar, false)
+        Log.i(TAG, "sendAck: Sent ACK for messageId=$msgId to ${device.address}, result=$result")
     }
 
     // ==================== Data Transfer ====================
@@ -608,11 +723,13 @@ class BleManager(private val context: Context) {
         val chunks = dataChunker.createChunks(data, mtu)
         Log.i(TAG, "Sending ${data.size} bytes in ${chunks.size} chunks")
 
-        for (chunk in chunks) {
-            characteristic.value = chunk
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-            gatt.writeCharacteristic(characteristic)
-            Thread.sleep(5) // Small delay between chunks
+        scope.launch {
+            for (chunk in chunks) {
+                characteristic.value = chunk
+                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                gatt.writeCharacteristic(characteristic)
+                delay(5) // Small delay between chunks
+            }
         }
 
         return "" // Success
@@ -623,15 +740,149 @@ class BleManager(private val context: Context) {
         val chunks = dataChunker.createChunks(data, mtu)
         Log.i(TAG, "Sending ${data.size} bytes in ${chunks.size} chunks via notify")
 
-        handler.post {
+        scope.launch {
             for (chunk in chunks) {
                 dataTransferCharacteristic?.value = chunk
                 gattServer?.notifyCharacteristicChanged(device, dataTransferCharacteristic, false)
-                Thread.sleep(5)
+                delay(5)
             }
         }
 
         return "" // Success
+    }
+
+    // ==================== GATT Operations ====================
+
+    /**
+     * Read a GATT characteristic value.
+     * @param peripheralUuid The peripheral address or device ID
+     * @param charUuid The characteristic UUID as string
+     * @return The characteristic value, or empty byte array on error
+     */
+    fun readCharacteristic(peripheralUuid: String, charUuid: String): ByteArray {
+        // Find the actual peripheral address if deviceId was passed
+        val peripheralAddress = peripheralDeviceIds.entries.find { it.value == peripheralUuid }?.key ?: peripheralUuid
+
+        val gatt = connectedGatts[peripheralAddress]
+        if (gatt == null) {
+            Log.w(TAG, "readCharacteristic: Device not connected: $peripheralUuid")
+            return ByteArray(0)
+        }
+
+        try {
+            val service = gatt.getService(SERVICE_UUID)
+            if (service == null) {
+                Log.w(TAG, "readCharacteristic: Service not found")
+                return ByteArray(0)
+            }
+
+            val uuid = UUID.fromString(charUuid)
+            val characteristic = service.getCharacteristic(uuid)
+            if (characteristic == null) {
+                Log.w(TAG, "readCharacteristic: Characteristic not found: $charUuid")
+                return ByteArray(0)
+            }
+
+            val value = characteristic.value ?: return ByteArray(0)
+            Log.i(TAG, "readCharacteristic: Read ${value.size} bytes from $charUuid")
+            return value
+        } catch (e: Exception) {
+            Log.e(TAG, "readCharacteristic: Error reading characteristic: ${e.message}")
+            return ByteArray(0)
+        }
+    }
+
+    /**
+     * Write to a GATT characteristic.
+     * @param peripheralUuid The peripheral address or device ID
+     * @param charUuid The characteristic UUID as string
+     * @param data The data to write
+     * @return Empty string on success, error message on failure
+     */
+    fun writeCharacteristic(peripheralUuid: String, charUuid: String, data: ByteArray): String {
+        // Find the actual peripheral address if deviceId was passed
+        val peripheralAddress = peripheralDeviceIds.entries.find { it.value == peripheralUuid }?.key ?: peripheralUuid
+
+        val gatt = connectedGatts[peripheralAddress]
+        if (gatt == null) {
+            return "Device not connected: $peripheralUuid"
+        }
+
+        try {
+            val service = gatt.getService(SERVICE_UUID)
+            if (service == null) {
+                return "Service not found"
+            }
+
+            val uuid = UUID.fromString(charUuid)
+            val characteristic = service.getCharacteristic(uuid)
+            if (characteristic == null) {
+                return "Characteristic not found: $charUuid"
+            }
+
+            characteristic.value = data
+            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+            val success = gatt.writeCharacteristic(characteristic)
+
+            if (!success) {
+                return "Failed to initiate write operation"
+            }
+
+            Log.i(TAG, "writeCharacteristic: Wrote ${data.size} bytes to $charUuid")
+            return "" // Success
+        } catch (e: Exception) {
+            Log.e(TAG, "writeCharacteristic: Error: ${e.message}")
+            return "Error: ${e.message}"
+        }
+    }
+
+    /**
+     * Subscribe to notifications/indications from a GATT characteristic.
+     * @param peripheralUuid The peripheral address or device ID
+     * @param charUuid The characteristic UUID as string
+     * @return Empty string on success, error message on failure
+     */
+    fun subscribeCharacteristic(peripheralUuid: String, charUuid: String): String {
+        // Find the actual peripheral address if deviceId was passed
+        val peripheralAddress = peripheralDeviceIds.entries.find { it.value == peripheralUuid }?.key ?: peripheralUuid
+
+        val gatt = connectedGatts[peripheralAddress]
+        if (gatt == null) {
+            return "Device not connected: $peripheralUuid"
+        }
+
+        try {
+            val service = gatt.getService(SERVICE_UUID)
+            if (service == null) {
+                return "Service not found"
+            }
+
+            val uuid = UUID.fromString(charUuid)
+            val characteristic = service.getCharacteristic(uuid)
+            if (characteristic == null) {
+                return "Characteristic not found: $charUuid"
+            }
+
+            // Enable local notifications
+            val success = gatt.setCharacteristicNotification(characteristic, true)
+            if (!success) {
+                return "Failed to enable notifications"
+            }
+
+            // Enable notifications on the characteristic descriptor
+            val cccd = characteristic.getDescriptor(UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+            if (cccd != null) {
+                // Enable notifications (0x0100)
+                cccd.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                gatt.writeDescriptor(cccd)
+            }
+
+            Log.i(TAG, "subscribeCharacteristic: Subscribed to $charUuid")
+            return "" // Success
+        } catch (e: Exception) {
+            Log.e(TAG, "subscribeCharacteristic: Error: ${e.message}")
+            return "Error: ${e.message}"
+        }
     }
 
     // ==================== Helper Methods ====================
@@ -694,7 +945,7 @@ class BleManager(private val context: Context) {
     fun destroy() {
         stopScanning()
         stopAdvertising()
-        handler.removeCallbacksAndMessages(null)
+        scope.cancel()
         connectedGatts.values.forEach { it.close() }
         connectedGatts.clear()
         peripherals.clear()
@@ -708,7 +959,7 @@ class BleManager(private val context: Context) {
     class DataReassembler {
         private val chunks = mutableMapOf<Int, ByteArray>()
         private var totalChunks = 0
-        private var messageId: UInt = 0u
+        private var messageId: UShort = 0u
         private var lastActivityTime = System.currentTimeMillis()
         private val timeoutMs = 30000L
 
@@ -720,10 +971,11 @@ class BleManager(private val context: Context) {
             messageId = 0u
         }
 
-        fun addChunk(data: ByteArray, sequence: Int, total: Int, msgId: UInt): ByteArray? {
+        fun addChunk(data: ByteArray, sequence: Int, total: Int, msgId: UShort): ByteArray? {
             lastActivityTime = System.currentTimeMillis()
 
-            if (this.messageId != msgId) {
+            // Reset if different message OR first chunk of a new session
+            if (this.messageId != msgId || chunks.isEmpty()) {
                 chunks.clear()
                 this.messageId = msgId
                 this.totalChunks = total
@@ -750,7 +1002,7 @@ class BleManager(private val context: Context) {
     // ==================== Data Chunker ====================
 
     class DataChunker {
-        private var messageIdCounter: UInt = 0u
+        private var messageIdCounter: UShort = 0u
 
         fun createChunks(data: ByteArray, maxPayloadSize: Int): List<ByteArray> {
             val payloadSize = maxOf(1, maxPayloadSize - CHUNK_HEADER_SIZE)
@@ -769,17 +1021,22 @@ class BleManager(private val context: Context) {
 
                 val chunk = ByteArray(CHUNK_HEADER_SIZE + payload.size)
                 val msgId = messageId.toInt()
+                // message_id: 2 bytes (LE)
                 chunk[0] = (msgId and 0xFF).toByte()
                 chunk[1] = ((msgId shr 8) and 0xFF).toByte()
-                chunk[2] = ((msgId shr 16) and 0xFF).toByte()
-                chunk[3] = ((msgId shr 24) and 0xFF).toByte()
 
+                // sequence: 2 bytes (LE)
                 val seq = sequence.toInt()
-                chunk[4] = (seq and 0xFF).toByte()
-                chunk[5] = ((seq shr 8) and 0xFF).toByte()
+                chunk[2] = (seq and 0xFF).toByte()
+                chunk[3] = ((seq shr 8) and 0xFF).toByte()
 
-                chunk[6] = (totalChunks and 0xFF).toByte()
-                chunk[7] = ((totalChunks shr 8) and 0xFF).toByte()
+                // total_chunks: 2 bytes (LE)
+                chunk[4] = (totalChunks and 0xFF).toByte()
+                chunk[5] = ((totalChunks shr 8) and 0xFF).toByte()
+
+                // payload_length: 2 bytes (LE)
+                chunk[6] = (chunkPayloadSize and 0xFF).toByte()
+                chunk[7] = ((chunkPayloadSize shr 8) and 0xFF).toByte()
 
                 payload.copyInto(chunk, CHUNK_HEADER_SIZE)
 
@@ -789,13 +1046,13 @@ class BleManager(private val context: Context) {
             }
 
             if (chunks.isEmpty()) {
+                // Empty message - send header only with 0 payload length
                 val chunk = ByteArray(CHUNK_HEADER_SIZE)
                 val msgId = messageId.toInt()
                 chunk[0] = (msgId and 0xFF).toByte()
                 chunk[1] = ((msgId shr 8) and 0xFF).toByte()
-                chunk[2] = ((msgId shr 16) and 0xFF).toByte()
-                chunk[3] = ((msgId shr 24) and 0xFF).toByte()
-                chunk[6] = 1
+                // sequence = 0, total = 1, payload_length = 0
+                chunk[4] = 1  // total_chunks = 1
                 chunks.add(chunk)
             }
 
@@ -806,18 +1063,28 @@ class BleManager(private val context: Context) {
             fun parseChunk(data: ByteArray): ChunkInfo? {
                 if (data.size < CHUNK_HEADER_SIZE) return null
 
+                // message_id: 2 bytes (LE)
                 val messageId = ((data[0].toInt() and 0xFF) or
-                        ((data[1].toInt() and 0xFF) shl 8) or
-                        ((data[2].toInt() and 0xFF) shl 16) or
-                        ((data[3].toInt() and 0xFF) shl 24)).toUInt()
+                        ((data[1].toInt() and 0xFF) shl 8)).toUShort()
 
-                val sequence = ((data[4].toInt() and 0xFF) or
+                // sequence: 2 bytes (LE)
+                val sequence = ((data[2].toInt() and 0xFF) or
+                        ((data[3].toInt() and 0xFF) shl 8)).toUShort()
+
+                // total_chunks: 2 bytes (LE)
+                val total = ((data[4].toInt() and 0xFF) or
                         ((data[5].toInt() and 0xFF) shl 8)).toUShort()
 
-                val total = ((data[6].toInt() and 0xFF) or
+                // payload_length: 2 bytes (LE)
+                val payloadLength = ((data[6].toInt() and 0xFF) or
                         ((data[7].toInt() and 0xFF) shl 8)).toUShort()
 
                 val payload = data.copyOfRange(CHUNK_HEADER_SIZE, data.size)
+
+                // Validate payload length
+                if (payload.size != payloadLength.toInt()) {
+                    Log.w(TAG, "Payload length mismatch: header=$payloadLength, actual=${payload.size}")
+                }
 
                 return ChunkInfo(messageId, sequence, total, payload)
             }
@@ -825,7 +1092,7 @@ class BleManager(private val context: Context) {
     }
 
     data class ChunkInfo(
-        val messageId: UInt,
+        val messageId: UShort,
         val sequence: UShort,
         val total: UShort,
         val payload: ByteArray
