@@ -43,6 +43,7 @@ class BleManager(private val context: Context) {
         fun onDeviceConnected(peripheralAddress: String, deviceId: String)
         fun onDeviceDisconnected(peripheralAddress: String, deviceId: String?)
         fun onDataReceived(peripheralAddress: String, data: ByteArray)
+        fun onAckReceived(peripheralAddress: String, data: ByteArray)
         fun onError(peripheralAddress: String?, error: String)
     }
 
@@ -421,8 +422,17 @@ class BleManager(private val context: Context) {
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic
         ) {
+            val address = gatt.device.address
             when (characteristic.uuid) {
-                DATA_ACK_UUID -> Log.i(TAG, "ACK received")
+                DATA_ACK_UUID -> {
+                    val value = characteristic.value
+                    if (value != null) {
+                        Log.i(TAG, "ACK received from $address: ${value.size} bytes")
+                        // Forward ACK to callback - use device ID if available, otherwise address
+                        val deviceId = peripheralDeviceIds[address] ?: address
+                        callback?.onAckReceived(deviceId, value)
+                    }
+                }
                 DATA_TRANSFER_UUID -> {
                     val value = characteristic.value
                     if (value != null) {

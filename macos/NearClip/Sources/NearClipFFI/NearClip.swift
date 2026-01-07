@@ -431,6 +431,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
+    typealias FfiType = Int32
+    typealias SwiftType = Int32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int32, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -578,9 +594,13 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func isRunning()  -> Bool
     
+    func onBleAckReceived(deviceId: String, data: Data) 
+    
     func onBleConnectionChanged(deviceId: String, connected: Bool) 
     
     func onBleDataReceived(deviceId: String, data: Data) 
+    
+    func onBleDeviceDiscovered(peripheralUuid: String, deviceId: String, publicKeyHash: String, rssi: Int32) 
     
     func pairDevice(device: FfiDeviceInfo) throws  -> Bool
     
@@ -775,6 +795,14 @@ open func isRunning() -> Bool {
 })
 }
     
+open func onBleAckReceived(deviceId: String, data: Data) {try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_ack_received(self.uniffiClonePointer(),
+        FfiConverterString.lower(deviceId),
+        FfiConverterData.lower(data),$0
+    )
+}
+}
+    
 open func onBleConnectionChanged(deviceId: String, connected: Bool) {try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_connection_changed(self.uniffiClonePointer(),
         FfiConverterString.lower(deviceId),
@@ -787,6 +815,16 @@ open func onBleDataReceived(deviceId: String, data: Data) {try! rustCall() {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_data_received(self.uniffiClonePointer(),
         FfiConverterString.lower(deviceId),
         FfiConverterData.lower(data),$0
+    )
+}
+}
+    
+open func onBleDeviceDiscovered(peripheralUuid: String, deviceId: String, publicKeyHash: String, rssi: Int32) {try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_device_discovered(self.uniffiClonePointer(),
+        FfiConverterString.lower(peripheralUuid),
+        FfiConverterString.lower(deviceId),
+        FfiConverterString.lower(publicKeyHash),
+        FfiConverterInt32.lower(rssi),$0
     )
 }
 }
@@ -1668,45 +1706,29 @@ extension NearClipError: Foundation.LocalizedError {
 
 
 public protocol FfiBleHardware : AnyObject {
-
-    // ========== Scanning ==========
-
-    func start_scan()
-
-    func stop_scan()
-
-    // ========== Connection ==========
-
-    func connect(peripheral_uuid: String)
-
-    func disconnect(peripheral_uuid: String)
-
-    // ========== GATT Operations ==========
-
-    /// Read a GATT characteristic value
-    /// Returns data on success, empty array on error
-    func read_characteristic(peripheral_uuid: String, char_uuid: String) -> Data
-
-    /// Write to a GATT characteristic
-    /// Returns empty string on success, error message on failure
-    func write_characteristic(peripheral_uuid: String, char_uuid: String, data: Data) -> String
-
-    /// Subscribe to a GATT characteristic for notifications
-    /// Returns empty string on success, error message on failure
-    func subscribe_characteristic(peripheral_uuid: String, char_uuid: String) -> String
-
-    // ========== Advertising ==========
-
-    /// Start advertising with service data
-    func start_advertising(service_data: Data)
-
-    func stop_advertising()
-
-    // ========== Status Query ==========
-
-    func is_connected(peripheral_uuid: String) -> Bool
-
-    func get_mtu(peripheral_uuid: String) -> UInt32
+    
+    func startScan() 
+    
+    func stopScan() 
+    
+    func connect(peripheralUuid: String) 
+    
+    func disconnect(peripheralUuid: String) 
+    
+    func readCharacteristic(peripheralUuid: String, charUuid: String)  -> Data
+    
+    func writeCharacteristic(peripheralUuid: String, charUuid: String, data: Data)  -> String
+    
+    func subscribeCharacteristic(peripheralUuid: String, charUuid: String)  -> String
+    
+    func startAdvertising(serviceData: Data) 
+    
+    func stopAdvertising() 
+    
+    func isConnected(peripheralUuid: String)  -> Bool
+    
+    func getMtu(peripheralUuid: String)  -> UInt32
+    
 }
 
 // Magic number for the Rust proxy to call using the same mechanism as every other method,
@@ -1815,9 +1837,36 @@ fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
                 writeReturn: writeReturn
             )
         },
-        writeData: { (
+        readCharacteristic: { (
             uniffiHandle: UInt64,
             peripheralUuid: RustBuffer,
+            charUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Data in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.readCharacteristic(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid),
+                     charUuid: try FfiConverterString.lift(charUuid)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterData.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        writeCharacteristic: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            charUuid: RustBuffer,
             data: RustBuffer,
             uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
@@ -1827,8 +1876,9 @@ fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
                 guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
-                return uniffiObj.writeData(
+                return uniffiObj.writeCharacteristic(
                      peripheralUuid: try FfiConverterString.lift(peripheralUuid),
+                     charUuid: try FfiConverterString.lift(charUuid),
                      data: try FfiConverterData.lift(data)
                 )
             }
@@ -1841,48 +1891,26 @@ fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
                 writeReturn: writeReturn
             )
         },
-        getMtu: { (
+        subscribeCharacteristic: { (
             uniffiHandle: UInt64,
             peripheralUuid: RustBuffer,
-            uniffiOutReturn: UnsafeMutablePointer<UInt32>,
+            charUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
             let makeCall = {
-                () throws -> UInt32 in
+                () throws -> String in
                 guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
-                return uniffiObj.getMtu(
-                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                return uniffiObj.subscribeCharacteristic(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid),
+                     charUuid: try FfiConverterString.lift(charUuid)
                 )
             }
 
             
-            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt32.lower($0) }
-            uniffiTraitInterfaceCall(
-                callStatus: uniffiCallStatus,
-                makeCall: makeCall,
-                writeReturn: writeReturn
-            )
-        },
-        isConnected: { (
-            uniffiHandle: UInt64,
-            peripheralUuid: RustBuffer,
-            uniffiOutReturn: UnsafeMutablePointer<Int8>,
-            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
-        ) in
-            let makeCall = {
-                () throws -> Bool in
-                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
-                    throw UniffiInternalError.unexpectedStaleHandle
-                }
-                return uniffiObj.isConnected(
-                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
-                )
-            }
-
-            
-            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
                 makeCall: makeCall,
@@ -1891,6 +1919,7 @@ fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
         },
         startAdvertising: { (
             uniffiHandle: UInt64,
+            serviceData: RustBuffer,
             uniffiOutReturn: UnsafeMutableRawPointer,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
@@ -1900,6 +1929,7 @@ fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
                 return uniffiObj.startAdvertising(
+                     serviceData: try FfiConverterData.lift(serviceData)
                 )
             }
 
@@ -1933,26 +1963,48 @@ fileprivate struct UniffiCallbackInterfaceFfiBleHardware {
                 writeReturn: writeReturn
             )
         },
-        configure: { (
+        isConnected: { (
             uniffiHandle: UInt64,
-            deviceId: RustBuffer,
-            publicKeyHash: RustBuffer,
-            uniffiOutReturn: UnsafeMutableRawPointer,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<Int8>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
             let makeCall = {
-                () throws -> () in
+                () throws -> Bool in
                 guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
                     throw UniffiInternalError.unexpectedStaleHandle
                 }
-                return uniffiObj.configure(
-                     deviceId: try FfiConverterString.lift(deviceId),
-                     publicKeyHash: try FfiConverterString.lift(publicKeyHash)
+                return uniffiObj.isConnected(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
                 )
             }
 
             
-            let writeReturn = { () }
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterBool.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        getMtu: { (
+            uniffiHandle: UInt64,
+            peripheralUuid: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<UInt32>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> UInt32 in
+                guard let uniffiObj = try? FfiConverterCallbackInterfaceFfiBleHardware.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.getMtu(
+                     peripheralUuid: try FfiConverterString.lift(peripheralUuid)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterUInt32.lower($0) }
             uniffiTraitInterfaceCall(
                 callStatus: uniffiCallStatus,
                 makeCall: makeCall,
@@ -2626,10 +2678,16 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running() != 27473) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_ack_received() != 49825) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_connection_changed() != 5720) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_data_received() != 44728) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_device_discovered() != 59927) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_device() != 30453) {
@@ -2680,22 +2738,25 @@ private var initializationResult: InitializationResult = {
     if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_disconnect() != 19327) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_data() != 2275) {
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_read_characteristic() != 10510) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu() != 8130) {
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_characteristic() != 7268) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected() != 50619) {
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_subscribe_characteristic() != 40611) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising() != 53725) {
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising() != 19708) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_advertising() != 51147) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure() != 59760) {
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected() != 50619) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu() != 8130) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffidevicestorage_save_device() != 17485) {

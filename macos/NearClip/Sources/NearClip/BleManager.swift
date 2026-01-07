@@ -952,6 +952,8 @@ extension BleManager: CBPeripheralManagerDelegate {
                let data = request.value {
                 handleIncomingData(data, from: request.central)
             }
+            // Always respond to write requests to complete the GATT transaction
+            peripheral.respond(to: request, withResult: .success)
         }
     }
 

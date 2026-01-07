@@ -515,6 +515,25 @@ impl BleController {
 
         let mut id_map = self.uuid_to_device_id.write().await;
         id_map.insert(peripheral_uuid.to_string(), device_id.to_string());
+
+        // Also update connected_devices if this peripheral is connected
+        // This is important for get_connected_devices to return the correct device_id
+        drop(id_map);
+        drop(uuid_map);
+        {
+            let mut devices = self.connected_devices.write().await;
+            if let Some(device) = devices.get_mut(peripheral_uuid) {
+                if device.device_id != device_id {
+                    tracing::info!(
+                        old_device_id = %device.device_id,
+                        new_device_id = %device_id,
+                        peripheral_uuid = %peripheral_uuid,
+                        "Updating connected device ID from MAC address to real device ID"
+                    );
+                    device.device_id = device_id.to_string();
+                }
+            }
+        }
     }
 
     // ========================================================================

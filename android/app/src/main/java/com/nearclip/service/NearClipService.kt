@@ -581,6 +581,13 @@ class NearClipService : Service(), FfiNearClipCallback {
             android.util.Log.i("NearClipService", "Forwarded BLE data to FFI layer: ${data.size} bytes from $peripheralAddress")
         }
 
+        override fun onAckReceived(peripheralAddress: String, data: ByteArray) {
+            android.util.Log.i("NearClipService", "BLE ACK received from $peripheralAddress: ${data.size} bytes")
+            // Forward ACK to FFI layer for processing
+            manager?.onBleAckReceived(peripheralAddress, data)
+            android.util.Log.i("NearClipService", "Forwarded BLE ACK to FFI layer: ${data.size} bytes from $peripheralAddress")
+        }
+
         override fun onError(peripheralAddress: String?, error: String) {
             android.util.Log.e("NearClipService", "BLE error for $peripheralAddress: $error")
         }
@@ -998,15 +1005,34 @@ class BleHardwareBridge(
         bleManager?.disconnect(peripheralUuid)
     }
 
-    override fun writeData(peripheralUuid: String, data: ByteArray): String {
+    override fun readCharacteristic(peripheralUuid: String, charUuid: String): ByteArray {
+        if (bleManager == null) {
+            android.util.Log.w("BleHardwareBridge", "readCharacteristic: BLE manager not available")
+            return ByteArray(0)
+        }
+        return bleManager.readCharacteristic(peripheralUuid, charUuid)
+    }
+
+    override fun writeCharacteristic(peripheralUuid: String, charUuid: String, data: ByteArray): String {
         if (bleManager == null) {
             return "BLE manager not available"
         }
-        return bleManager.writeData(peripheralUuid, data)
+        return bleManager.writeCharacteristic(peripheralUuid, charUuid, data)
     }
 
-    override fun getMtu(peripheralUuid: String): UInt {
-        return bleManager?.getMtu(peripheralUuid)?.toUInt() ?: 20u
+    override fun subscribeCharacteristic(peripheralUuid: String, charUuid: String): String {
+        if (bleManager == null) {
+            return "BLE manager not available"
+        }
+        return bleManager.subscribeCharacteristic(peripheralUuid, charUuid)
+    }
+
+    override fun startAdvertising(serviceData: ByteArray) {
+        bleManager?.startAdvertising(serviceData)
+    }
+
+    override fun stopAdvertising() {
+        bleManager?.stopAdvertising()
     }
 
     override fun isConnected(peripheralUuid: String): Boolean {
@@ -1015,15 +1041,7 @@ class BleHardwareBridge(
         return bleManager?.isDeviceConnected(peripheralUuid) ?: false
     }
 
-    override fun startAdvertising() {
-        bleManager?.startAdvertising()
-    }
-
-    override fun stopAdvertising() {
-        bleManager?.stopAdvertising()
-    }
-
-    override fun configure(deviceId: String, publicKeyHash: String) {
-        bleManager?.configure(deviceId, publicKeyHash)
+    override fun getMtu(peripheralUuid: String): UInt {
+        return bleManager?.getMtu(peripheralUuid)?.toUInt() ?: 20u
     }
 }

@@ -36,7 +36,7 @@ use tokio::task::JoinHandle;
 mod ble_hardware_bridge;
 mod ble_recv_task;
 use ble_hardware_bridge::BleHardwareBridge;
-use ble_recv_task::spawn_ble_recv_task;
+use ble_recv_task::spawn_ble_recv_task_with_controller;
 
 // ============================================================
 // FFI Types (must be defined before uniffi scaffolding)
@@ -550,7 +550,7 @@ pub struct FfiNearClipManager {
     /// BLE hardware sender bridge for BleTransport
     ble_hardware_sender: RwLock<Option<Arc<BleHardwareSenderBridge>>>,
     /// BLE controller (manages BLE logic)
-    ble_controller: RwLock<Option<Arc<BleController>>>,
+    ble_controller: Arc<RwLock<Option<Arc<BleController>>>>,
     /// BLE transports per device
     ble_transports: RwLock<HashMap<String, Arc<BleTransport>>>,
     /// BLE receive tasks per device
@@ -607,7 +607,7 @@ impl FfiNearClipManager {
             runtime,
             ble_hardware: RwLock::new(None),
             ble_hardware_sender: RwLock::new(None),
-            ble_controller: RwLock::new(None),
+            ble_controller: Arc::new(RwLock::new(None)),
             ble_transports: RwLock::new(HashMap::new()),
             ble_recv_tasks: RwLock::new(HashMap::new()),
             discovered_devices: Arc::new(RwLock::new(HashMap::new())),
@@ -1057,10 +1057,11 @@ impl FfiNearClipManager {
                     transport.on_data_received(&data).await;
 
                     // Start a receive task for this transport
-                    let recv_task = spawn_ble_recv_task(
+                    let recv_task = spawn_ble_recv_task_with_controller(
                         transport.clone(),
                         self.callback.clone(),
                         device_id.clone(),
+                        Some(self.ble_controller.clone()),
                     );
 
                     let mut transports = self.ble_transports.write().await;
@@ -1161,10 +1162,13 @@ impl FfiNearClipManager {
                     transport.on_connection_state_changed(true);
 
                     // Start a receive task for this transport
-                    let recv_task = spawn_ble_recv_task(
+                    // Pass ble_controller so the task can update device ID mapping when
+                    // it receives PairingRequest with real device ID
+                    let recv_task = spawn_ble_recv_task_with_controller(
                         transport.clone(),
                         self.callback.clone(),
                         device_id.clone(),
+                        Some(self.ble_controller.clone()),
                     );
 
                     let mut transports = self.ble_transports.write().await;
