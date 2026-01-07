@@ -27,7 +27,8 @@ use nearclip_core::{
     DeviceInfo, DevicePlatform, DeviceStatus, HistoryManager, NearClipCallback, NearClipConfig,
     NearClipError, NearClipManager, SyncHistoryEntry,
 };
-use nearclip_transport::{BleTransport, BleSender};
+use nearclip_sync::{Message, PairingPayload, ProtocolPlatform};
+use nearclip_transport::{BleTransport, BleSender, Transport};
 use nearclip_ble::{BleController, BleControllerCallback, BleControllerConfig, ControllerDiscoveredDevice};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -65,13 +66,13 @@ pub struct FfiBleControllerConfig {
 impl Default for FfiBleControllerConfig {
     fn default() -> Self {
         Self {
-            scan_timeout_ms: 0,
+            scan_timeout_ms: 20000, // 20 seconds to scan for devices
             device_lost_timeout_ms: 30000,
             auto_reconnect: true,
             max_reconnect_attempts: 5,
             reconnect_base_delay_ms: 1000,
             health_check_interval_ms: 30000,
-            connection_timeout_ms: 10000,
+            connection_timeout_ms: 300000, // 5 minutes - allow longer idle periods for BLE
         }
     }
 }
@@ -459,6 +460,42 @@ impl BleSender for BleHardwareSenderBridge {
     fn get_mtu(&self, device_id: &str) -> usize {
         self.hardware.get_mtu(device_id.to_string()) as usize
     }
+
+    fn send_ack(&self, device_id: &str, message_id: u16) -> Result<(), String> {
+        // Use DATA_ACK_CHARACTERISTIC_UUID for sending ACK
+        let char_uuid = nearclip_ble::DATA_ACK_CHARACTERISTIC_UUID.to_string();
+
+        // ACK payload is just the message_id as 2 bytes (little-endian)
+        let ack_data = message_id.to_le_bytes().to_vec();
+
+        let error = self.hardware.write_characteristic(
+            device_id.to_string(),
+            char_uuid,
+            ack_data,
+        );
+
+        if error.is_empty() {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
+
+    fn subscribe_ack(&self, device_id: &str) -> Result<(), String> {
+        // Subscribe to DATA_ACK_CHARACTERISTIC_UUID for ACK notifications
+        let char_uuid = nearclip_ble::DATA_ACK_CHARACTERISTIC_UUID.to_string();
+
+        let error = self.hardware.subscribe_characteristic(
+            device_id.to_string(),
+            char_uuid,
+        );
+
+        if error.is_empty() {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
 }
 
 /// Bridge callback that converts between FFI and core callbacks
@@ -661,7 +698,8 @@ impl FfiNearClipManager {
 
                     let controller = self.ble_controller.read().await;
                     if let Some(ref ble) = *controller {
-                        match ble.connect(&device_id).await {
+                        // Use connect_with_scan to scan for the device if not already discovered
+                        match ble.connect_with_scan(&device_id, 10_000).await {
                             Ok(()) => {
                                 tracing::info!(device_id = %device_id, "BLE connection initiated");
                                 // BLE connection is async - the actual connection will be
@@ -897,30 +935,16 @@ impl FfiNearClipManager {
                         "Pairing: WiFi failed, trying BLE with scan"
                     );
 
-                    let controller = self.ble_controller.read().await;
-                    if let Some(ref ble) = *controller {
-                        // Use connect_with_scan which will scan for the device if needed
-                        // 20 second scan timeout, 30 second total timeout
+                    let controller_guard = self.ble_controller.read().await;
+                    if let Some(ref ble) = *controller_guard {
+                        let ble_config = ble.get_config(); // Get the latest config from the controller
                         match tokio::time::timeout(
-                            Duration::from_secs(30),
-                            ble.connect_with_scan(&device_id, 20000)
+                            Duration::from_millis(ble_config.connection_timeout_ms), // Use BleControllerConfig's connection timeout
+                            ble.connect_with_scan(&device_id, ble_config.scan_timeout_ms) // Use BleControllerConfig's scan timeout
                         ).await {
                             Ok(Ok(())) => {
-                                tracing::info!(device_id = %device_id, "Pairing: BLE connection initiated after scan");
-                                // Wait for connection to establish (includes service discovery and characteristic read)
-                                // BLE connection typically takes 2-4 seconds to fully establish
-                                tokio::time::sleep(Duration::from_millis(5000)).await;
-
-                                // Check if actually connected
-                                let ble_hardware = self.ble_hardware.read().await;
-                                if let Some(ref hw) = *ble_hardware {
-                                    if hw.is_connected(device_id.clone()) {
-                                        tracing::info!(device_id = %device_id, "Pairing: BLE connected");
-                                        return Ok(true);
-                                    }
-                                }
-                                tracing::warn!(device_id = %device_id, "Pairing: BLE connection not established");
-                                Err(wifi_err)
+                                tracing::info!(device_id = %device_id, "Pairing: BLE connection successful after scan");
+                                Ok(true)
                             }
                             Ok(Err(ble_err)) => {
                                 tracing::warn!(
@@ -928,6 +952,7 @@ impl FfiNearClipManager {
                                     ble_error = %ble_err,
                                     "Pairing: BLE scan/connection failed"
                                 );
+                                // Return the original WiFi error as it's the primary failure.
                                 Err(wifi_err)
                             }
                             Err(_) => {
@@ -1000,10 +1025,26 @@ impl FfiNearClipManager {
     ///
     /// # Arguments
     ///
-    /// * `device_id` - The device ID that sent the data
+    /// * `device_id` - The device ID that sent the data (can be device_id or peripheral_uuid)
     /// * `data` - Raw bytes received from BLE
     pub fn on_ble_data_received(&self, device_id: String, data: Vec<u8>) {
         self.runtime.block_on(async {
+            // Notify BleController to update last_activity (prevents connection timeout)
+            // Try both device_id -> peripheral_uuid and using device_id as peripheral_uuid directly
+            {
+                let controller = self.ble_controller.read().await;
+                if let Some(ref controller) = *controller {
+                    // First try: device_id -> peripheral_uuid mapping
+                    if let Some(peripheral_uuid) = controller.get_peripheral_uuid(&device_id).await {
+                        controller.handle_data_received(&peripheral_uuid, &data).await;
+                    } else {
+                        // Fallback: use device_id as peripheral_uuid directly
+                        // This handles the case where platform sends the central/peripheral UUID directly
+                        controller.handle_data_received(&device_id, &data).await;
+                    }
+                }
+            }
+
             let transports = self.ble_transports.read().await;
             if let Some(transport) = transports.get(&device_id) {
                 transport.on_data_received(&data).await;
@@ -1037,6 +1078,47 @@ impl FfiNearClipManager {
         });
     }
 
+    /// Called by platform when a BLE ACK notification is received
+    ///
+    /// Platform clients call this when they receive an ACK notification from
+    /// the DATA_ACK characteristic. This signals that the remote device has
+    /// received a complete message.
+    ///
+    /// # Arguments
+    ///
+    /// * `device_id` - The device ID that sent the ACK
+    /// * `data` - Raw bytes containing the message_id (2 bytes, little-endian)
+    pub fn on_ble_ack_received(&self, device_id: String, data: Vec<u8>) {
+        if data.len() < 2 {
+            tracing::warn!(
+                device_id = %device_id,
+                data_len = data.len(),
+                "Received ACK with invalid length (expected 2 bytes)"
+            );
+            return;
+        }
+
+        let message_id = u16::from_le_bytes([data[0], data[1]]);
+        tracing::debug!(
+            device_id = %device_id,
+            message_id,
+            "on_ble_ack_received"
+        );
+
+        self.runtime.block_on(async {
+            let transports = self.ble_transports.read().await;
+            if let Some(transport) = transports.get(&device_id) {
+                transport.on_ack_received(message_id).await;
+            } else {
+                tracing::debug!(
+                    device_id = %device_id,
+                    message_id,
+                    "Received ACK but no transport found for device"
+                );
+            }
+        });
+    }
+
     /// Called by platform when BLE connection state changes
     ///
     /// Platform clients call this when a BLE connection is established or lost.
@@ -1049,6 +1131,27 @@ impl FfiNearClipManager {
         tracing::info!(device_id = %device_id, connected = connected, "on_ble_connection_changed");
         self.runtime.block_on(async {
             if connected {
+                // Get peripheral_uuid from device_id mapping
+                let peripheral_uuid = {
+                    let controller = self.ble_controller.read().await;
+                    if let Some(ref controller) = *controller {
+                        controller.get_peripheral_uuid(&device_id).await
+                    } else {
+                        None
+                    }
+                };
+
+                if let Some(periph_uuid) = peripheral_uuid {
+                    // Notify BleController that connection is complete
+                    let controller = self.ble_controller.read().await;
+                    if let Some(ref controller) = *controller {
+                        controller.handle_connected(&periph_uuid).await;
+                        tracing::info!(device_id = %device_id, peripheral_uuid = %periph_uuid, "Notified BleController of connection");
+                    }
+                } else {
+                    tracing::warn!(device_id = %device_id, "No peripheral_uuid found for device");
+                }
+
                 // Create BLE transport if we have BLE hardware
                 let sender = self.ble_hardware_sender.read().await;
                 if let Some(ref sender) = *sender {
@@ -1086,6 +1189,35 @@ impl FfiNearClipManager {
 
                     let mut device_info = device_info;
                     device_info.set_status(DeviceStatus::Connected);
+
+                    // Send PairingRequest to establish pairing over BLE
+                    // This mirrors what NearClipManager::connect_device does for WiFi connections
+                    let my_platform = if cfg!(target_os = "macos") {
+                        ProtocolPlatform::MacOS
+                    } else if cfg!(target_os = "android") {
+                        ProtocolPlatform::Android
+                    } else {
+                        ProtocolPlatform::Unknown
+                    };
+
+                    let my_device_id = self.inner.device_id().to_string();
+                    let my_device_name = self.inner.config().device_name().to_string();
+
+                    let pairing_payload = PairingPayload::new(
+                        my_device_id.clone(),
+                        my_device_name,
+                        my_platform,
+                    );
+
+                    if let Ok(payload_bytes) = pairing_payload.serialize() {
+                        let pairing_msg = Message::pairing_request(payload_bytes, my_device_id);
+
+                        if let Err(e) = transport.send(&pairing_msg).await {
+                            tracing::warn!(device_id = %device_id, error = %e, "Failed to send PairingRequest over BLE");
+                        } else {
+                            tracing::info!(device_id = %device_id, "PairingRequest sent over BLE");
+                        }
+                    }
 
                     self.callback.on_device_connected(FfiDeviceInfo::from(device_info));
                 } else {
