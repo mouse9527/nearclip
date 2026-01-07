@@ -568,6 +568,9 @@ class BleManager(private val context: Context) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     Log.i(TAG, "Central connected: ${device.address}")
                     connectedCentrals[device.address] = device
+                    // Notify callback - use device.address as both peripheralAddress and deviceId
+                    // This enables the FFI layer to create BLE transport for this connection
+                    callback?.onDeviceConnected(device.address, device.address)
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     Log.i(TAG, "Central disconnected: ${device.address}")
@@ -794,6 +797,8 @@ class BleManager(private val context: Context) {
 
     /**
      * Write to a GATT characteristic.
+     * In Central mode: writes to the remote peripheral's characteristic
+     * In Peripheral mode: sends notification to the connected central
      * @param peripheralUuid The peripheral address or device ID
      * @param charUuid The characteristic UUID as string
      * @param data The data to write
@@ -803,37 +808,71 @@ class BleManager(private val context: Context) {
         // Find the actual peripheral address if deviceId was passed
         val peripheralAddress = peripheralDeviceIds.entries.find { it.value == peripheralUuid }?.key ?: peripheralUuid
 
+        // First try Central mode (we connected to a peripheral)
         val gatt = connectedGatts[peripheralAddress]
-        if (gatt == null) {
-            return "Device not connected: $peripheralUuid"
+        if (gatt != null) {
+            try {
+                val service = gatt.getService(SERVICE_UUID)
+                if (service == null) {
+                    return "Service not found"
+                }
+
+                val uuid = UUID.fromString(charUuid)
+                val characteristic = service.getCharacteristic(uuid)
+                if (characteristic == null) {
+                    return "Characteristic not found: $charUuid"
+                }
+
+                characteristic.value = data
+                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                val success = gatt.writeCharacteristic(characteristic)
+
+                if (!success) {
+                    return "Failed to initiate write operation"
+                }
+
+                Log.i(TAG, "writeCharacteristic: Wrote ${data.size} bytes to $charUuid (Central mode)")
+                return "" // Success
+            } catch (e: Exception) {
+                Log.e(TAG, "writeCharacteristic: Error: ${e.message}")
+                return "Error: ${e.message}"
+            }
         }
 
-        try {
-            val service = gatt.getService(SERVICE_UUID)
-            if (service == null) {
-                return "Service not found"
+        // Try Peripheral mode (central connected to us)
+        val central = connectedCentrals[peripheralAddress]
+        if (central != null) {
+            try {
+                val server = gattServer ?: return "GATT server not initialized"
+                val uuid = UUID.fromString(charUuid)
+
+                // Find the characteristic in our GATT server
+                val characteristic = when (uuid) {
+                    DATA_TRANSFER_UUID -> dataTransferCharacteristic
+                    DATA_ACK_UUID -> dataAckCharacteristic
+                    else -> return "Characteristic not found for peripheral mode: $charUuid"
+                }
+
+                if (characteristic == null) {
+                    return "Characteristic not initialized: $charUuid"
+                }
+
+                characteristic.value = data
+                val success = server.notifyCharacteristicChanged(central, characteristic, false)
+
+                if (!success) {
+                    return "Failed to send notification"
+                }
+
+                Log.i(TAG, "writeCharacteristic: Notified ${data.size} bytes via $charUuid (Peripheral mode)")
+                return "" // Success
+            } catch (e: Exception) {
+                Log.e(TAG, "writeCharacteristic (Peripheral): Error: ${e.message}")
+                return "Error: ${e.message}"
             }
-
-            val uuid = UUID.fromString(charUuid)
-            val characteristic = service.getCharacteristic(uuid)
-            if (characteristic == null) {
-                return "Characteristic not found: $charUuid"
-            }
-
-            characteristic.value = data
-            characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-            val success = gatt.writeCharacteristic(characteristic)
-
-            if (!success) {
-                return "Failed to initiate write operation"
-            }
-
-            Log.i(TAG, "writeCharacteristic: Wrote ${data.size} bytes to $charUuid")
-            return "" // Success
-        } catch (e: Exception) {
-            Log.e(TAG, "writeCharacteristic: Error: ${e.message}")
-            return "Error: ${e.message}"
         }
+
+        return "Device not connected: $peripheralUuid"
     }
 
     /**

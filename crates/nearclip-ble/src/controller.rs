@@ -14,6 +14,8 @@ use tokio::sync::RwLock;
 use tokio::time::{interval, sleep};
 use tracing::{debug, error, info, warn};
 
+use tokio::sync::oneshot;
+
 use crate::error::BleError;
 
 // ============================================================================
@@ -243,6 +245,9 @@ pub struct BleController {
 
     /// Scanning state
     is_scanning: Arc<RwLock<bool>>,
+
+    /// Pending connection requests: peripheral_uuid -> oneshot::Sender
+    pending_connect_senders: Arc<RwLock<HashMap<String, tokio::sync::oneshot::Sender<Result<(), BleError>>>>>,
 }
 
 impl BleController {
@@ -262,6 +267,7 @@ impl BleController {
             config,
             callback,
             is_scanning: Arc::new(RwLock::new(false)),
+            pending_connect_senders: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -301,16 +307,51 @@ impl BleController {
     /// Connect to a device by device_id
     pub async fn connect(&self, device_id: &str) -> Result<(), BleError> {
         // Find peripheral_uuid from device_id
-        let uuid_map = self.device_id_to_uuid.read().await;
-        let peripheral_uuid = uuid_map.get(device_id)
-            .ok_or_else(|| BleError::ConnectionFailed(format!("Device {} not found", device_id)))?
-            .clone();
-        drop(uuid_map);
+        let peripheral_uuid = {
+            let uuid_map = self.device_id_to_uuid.read().await;
+            uuid_map.get(device_id)
+                .ok_or_else(|| BleError::ConnectionFailed(format!("Device {} not found", device_id)))?
+                .clone()
+        };
 
         info!(device_id = %device_id, peripheral_uuid = %peripheral_uuid, "Connecting to device");
+
+        // Create a oneshot channel to wait for connection result
+        let (sender, receiver) = oneshot::channel();
+        {
+            let mut pending_senders = self.pending_connect_senders.write().await;
+            pending_senders.insert(peripheral_uuid.clone(), sender);
+        }
+
+        // Initiate connection at hardware level
         self.hardware.connect(&peripheral_uuid);
 
-        Ok(())
+        // Wait for connection result or timeout
+        tokio::select! {
+            result = receiver => {
+                match result {
+                    Ok(Ok(())) => {
+                        info!(device_id = %device_id, "Device connected successfully");
+                        Ok(())
+                    },
+                    Ok(Err(e)) => {
+                        error!(device_id = %device_id, error = %e, "Device connection failed via oneshot");
+                        Err(e)
+                    },
+                    Err(_) => {
+                        error!(device_id = %device_id, "Oneshot channel closed before connection result");
+                        Err(BleError::ConnectionFailed("Oneshot channel closed".to_string()))
+                    }
+                }
+            }
+            _ = sleep(Duration::from_millis(self.config.connection_timeout_ms)) => {
+                warn!(device_id = %device_id, "Connection timed out for device");
+                // Remove the pending sender if it still exists
+                let mut pending_senders = self.pending_connect_senders.write().await;
+                pending_senders.remove(&peripheral_uuid);
+                Err(BleError::Timeout(format!("Connection to device {} timed out", device_id)))
+            }
+        }
     }
 
     /// Scan and wait for a specific device_id to appear
@@ -423,11 +464,12 @@ impl BleController {
 
         debug!(device_id = %device_id, size = data.len(), "Sending data");
 
-        // Use DATA_TX_UUID - this should be defined in GATT module
-        // For now, use a placeholder UUID
-        const DATA_TX_UUID: &str = "0000xxx";
+        // Use DATA_TX_UUID from gatt module
+        use crate::gatt::DATA_TRANSFER_CHARACTERISTIC_UUID;
 
-        self.hardware.write_characteristic(&peripheral_uuid, DATA_TX_UUID, data)
+        let data_tx_uuid_str = DATA_TRANSFER_CHARACTERISTIC_UUID.to_string();
+
+        self.hardware.write_characteristic(&peripheral_uuid, &data_tx_uuid_str, data)
             .map_err(|e| BleError::DataTransfer(e))?;
 
         Ok(())
@@ -443,6 +485,36 @@ impl BleController {
     pub async fn get_connected_devices(&self) -> Vec<String> {
         let devices = self.connected_devices.read().await;
         devices.values().map(|d| d.device_id.clone()).collect()
+    }
+
+    /// Get peripheral UUID for a device ID
+    pub async fn get_peripheral_uuid(&self, device_id: &str) -> Option<String> {
+        let uuid_map = self.device_id_to_uuid.read().await;
+        uuid_map.get(device_id).cloned()
+    }
+
+    /// Register a device_id <-> peripheral_uuid mapping
+    /// This is used in peripheral mode where the platform provides the central's UUID
+    pub async fn register_device_mapping(&self, device_id: &str, peripheral_uuid: &str) {
+        // Only register if not already present
+        {
+            let uuid_map = self.device_id_to_uuid.read().await;
+            if uuid_map.contains_key(device_id) {
+                return;
+            }
+        }
+
+        tracing::info!(
+            device_id = %device_id,
+            peripheral_uuid = %peripheral_uuid,
+            "Registering device mapping"
+        );
+
+        let mut uuid_map = self.device_id_to_uuid.write().await;
+        uuid_map.insert(device_id.to_string(), peripheral_uuid.to_string());
+
+        let mut id_map = self.uuid_to_device_id.write().await;
+        id_map.insert(peripheral_uuid.to_string(), device_id.to_string());
     }
 
     // ========================================================================
@@ -502,41 +574,71 @@ impl BleController {
             Some(id) => id.clone(),
             None => {
                 warn!(peripheral_uuid = %peripheral_uuid, "Connected but no device_id mapping");
+                // Try to resolve device_id by reading characteristic
+                if let Ok(device_id_bytes) = self.hardware.read_characteristic(peripheral_uuid, &crate::gatt::DEVICE_ID_CHARACTERISTIC_UUID.to_string()) {
+                    if let Ok(id) = String::from_utf8(device_id_bytes) {
+                        info!(peripheral_uuid = %peripheral_uuid, device_id = %id, "Resolved device_id from characteristic");
+                        // Update mappings
+                        {
+                            let mut uuid_map = self.uuid_to_device_id.write().await;
+                            let mut device_map = self.device_id_to_uuid.write().await;
+                            uuid_map.insert(peripheral_uuid.to_string(), id.clone());
+                            device_map.insert(id.clone(), peripheral_uuid.to_string());
+                        }
+                        return Box::pin(self.handle_connected(peripheral_uuid)).await; // Recurse to handle with device_id
+                    }
+                }
+                self.fail_pending_connection(peripheral_uuid, BleError::ConnectionFailed(format!("Failed to resolve device_id for {}", peripheral_uuid))).await;
                 return;
             }
         };
         drop(uuid_map);
+
+        // Notify any pending connect calls
+        self.resolve_pending_connection(peripheral_uuid, Ok(())).await;
 
         // Get device info from discovered devices
         let discovered = self.discovered_devices.read().await;
         let device_info = discovered.get(peripheral_uuid).cloned();
         drop(discovered);
 
-        if let Some(info) = device_info {
-            let now = SystemTime::now();
-            let connected_device = ConnectedDevice {
+        // Create connected device info
+        let now = SystemTime::now();
+        let connected_device = if let Some(info) = device_info {
+            ConnectedDevice {
                 peripheral_uuid: peripheral_uuid.to_string(),
                 device_id: device_id.clone(),
                 public_key_hash: info.public_key_hash,
                 connected_at: now,
                 last_activity: now,
-            };
-
-            // Add to connected devices
-            {
-                let mut devices = self.connected_devices.write().await;
-                devices.insert(peripheral_uuid.to_string(), connected_device);
             }
-
-            // Clear reconnect state
-            {
-                let mut reconnect = self.reconnect_state.write().await;
-                reconnect.remove(peripheral_uuid);
+        } else {
+            // Peripheral mode: we didn't discover this device, it connected to us
+            // Use empty public_key_hash for now, it will be updated when we receive data
+            info!(peripheral_uuid = %peripheral_uuid, device_id = %device_id, "Device connected in peripheral mode (no discovery info)");
+            ConnectedDevice {
+                peripheral_uuid: peripheral_uuid.to_string(),
+                device_id: device_id.clone(),
+                public_key_hash: String::new(),
+                connected_at: now,
+                last_activity: now,
             }
+        };
 
-            info!(device_id = %device_id, "Device connected");
-            self.callback.on_device_connected(device_id);
+        // Add to connected devices
+        {
+            let mut devices = self.connected_devices.write().await;
+            devices.insert(peripheral_uuid.to_string(), connected_device);
         }
+
+        // Clear reconnect state
+        {
+            let mut reconnect = self.reconnect_state.write().await;
+            reconnect.remove(peripheral_uuid);
+        }
+
+        info!(device_id = %device_id, "Device connected");
+        self.callback.on_device_connected(device_id);
     }
 
     /// Handle disconnected event from platform
@@ -546,10 +648,14 @@ impl BleController {
             Some(id) => id.clone(),
             None => {
                 warn!(peripheral_uuid = %peripheral_uuid, "Disconnected but no device_id mapping");
+                self.fail_pending_connection(peripheral_uuid, BleError::ConnectionFailed(format!("Disconnected before device_id resolution for {}", peripheral_uuid))).await;
                 return;
             }
         };
         drop(uuid_map);
+
+        // Notify any pending connect calls
+        self.fail_pending_connection(peripheral_uuid, BleError::ConnectionFailed(format!("Disconnected for reason: {}", reason))).await;
 
         // Remove from connected devices
         {
@@ -724,6 +830,29 @@ impl BleController {
             }
         });
     }
+
+    /// Get current controller configuration
+    pub fn get_config(&self) -> BleControllerConfig {
+        self.config.clone()
+    }
+
+    async fn resolve_pending_connection(&self, peripheral_uuid: &str, result: Result<(), BleError>) {
+        let mut pending_senders = self.pending_connect_senders.write().await;
+        if let Some(sender) = pending_senders.remove(peripheral_uuid) {
+            if sender.send(result).is_err() {
+                warn!(peripheral_uuid = %peripheral_uuid, "Failed to send connection result via oneshot sender (receiver dropped)");
+            }
+        }
+    }
+
+    async fn fail_pending_connection(&self, peripheral_uuid: &str, error: BleError) {
+        let mut pending_senders = self.pending_connect_senders.write().await;
+        if let Some(sender) = pending_senders.remove(peripheral_uuid) {
+            if sender.send(Err(error)).is_err() {
+                warn!(peripheral_uuid = %peripheral_uuid, "Failed to send connection error via oneshot sender (receiver dropped)");
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -883,7 +1012,7 @@ mod tests {
         let callback = Arc::new(MockCallback::new());
         let config = BleControllerConfig::default();
 
-        let controller = BleController::new(hardware.clone(), config, callback.clone());
+        let controller = Arc::new(BleController::new(hardware.clone(), config, callback.clone()));
 
         // Discover device first
         controller.handle_device_discovered(
@@ -893,12 +1022,18 @@ mod tests {
             -50,
         ).await;
 
+        // Simulate connection flow in parallel
+        let controller_clone = controller.clone();
+        tokio::spawn(async move {
+            // Wait a bit for the connect call to register the pending sender
+            sleep(Duration::from_millis(100)).await;
+            // Simulate hardware reporting connection success
+            controller_clone.handle_connected("uuid-1").await;
+        });
+
         // Connect
         controller.connect("device-1").await.unwrap();
         assert!(hardware.connected.lock().unwrap().contains(&"uuid-1".to_string()));
-
-        // Simulate connection success
-        controller.handle_connected("uuid-1").await;
 
         // Check connected devices
         let devices = controller.get_connected_devices().await;

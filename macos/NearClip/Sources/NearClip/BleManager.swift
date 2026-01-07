@@ -210,10 +210,11 @@ final class BleManager: NSObject, ObservableObject {
         centralManager.cancelPeripheralConnection(peripheral)
     }
 
-    /// Check if connected to a peripheral
+    /// Check if connected to a peripheral or central
     func isConnected(peripheralUuid: String) -> Bool {
         guard let uuid = UUID(uuidString: peripheralUuid) else { return false }
-        return connectedPeripherals.contains(uuid)
+        // Check both Central mode (we connected to a peripheral) and Peripheral mode (central connected to us)
+        return connectedPeripherals.contains(uuid) || connectedCentrals[uuid] != nil
     }
 
     /// Get MTU for a peripheral
@@ -252,9 +253,15 @@ final class BleManager: NSObject, ObservableObject {
     /// Check if a device is connected by device ID
     /// This allows checking connection status using either peripheral UUID or device ID
     func isConnectedByDeviceId(_ deviceId: String) -> Bool {
-        // Try to find the peripheral UUID for this device ID
+        // Try to find the peripheral UUID for this device ID (Central mode)
         if let peripheralUuid = getPeripheralUuid(for: deviceId) {
             return isConnected(peripheralUuid: peripheralUuid)
+        }
+        // Try to find the central UUID for this device ID (Peripheral mode)
+        for (centralUuid, id) in centralDeviceIds {
+            if id == deviceId {
+                return connectedCentrals[centralUuid] != nil
+            }
         }
         // Fall back to trying it as a peripheral UUID directly
         return isConnected(peripheralUuid: deviceId)

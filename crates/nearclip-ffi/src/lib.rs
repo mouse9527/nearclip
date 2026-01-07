@@ -1125,31 +1125,33 @@ impl FfiNearClipManager {
     ///
     /// # Arguments
     ///
-    /// * `device_id` - The device ID
+    /// * `device_id` - The device ID (can be actual device_id or central/peripheral UUID in peripheral mode)
     /// * `connected` - Whether the device is now connected
     pub fn on_ble_connection_changed(&self, device_id: String, connected: bool) {
         tracing::info!(device_id = %device_id, connected = connected, "on_ble_connection_changed");
         self.runtime.block_on(async {
             if connected {
-                // Get peripheral_uuid from device_id mapping
+                // Get peripheral_uuid from device_id mapping, or use device_id as peripheral_uuid
+                // (for peripheral mode where device_id is actually the central's UUID)
                 let peripheral_uuid = {
                     let controller = self.ble_controller.read().await;
                     if let Some(ref controller) = *controller {
                         controller.get_peripheral_uuid(&device_id).await
+                            .unwrap_or_else(|| device_id.clone()) // Use device_id as peripheral_uuid if not found
                     } else {
-                        None
+                        device_id.clone()
                     }
                 };
 
-                if let Some(periph_uuid) = peripheral_uuid {
-                    // Notify BleController that connection is complete
+                // Notify BleController that connection is complete
+                {
                     let controller = self.ble_controller.read().await;
                     if let Some(ref controller) = *controller {
-                        controller.handle_connected(&periph_uuid).await;
-                        tracing::info!(device_id = %device_id, peripheral_uuid = %periph_uuid, "Notified BleController of connection");
+                        // Register mapping if not already present (peripheral mode)
+                        controller.register_device_mapping(&device_id, &peripheral_uuid).await;
+                        controller.handle_connected(&peripheral_uuid).await;
+                        tracing::info!(device_id = %device_id, peripheral_uuid = %peripheral_uuid, "Notified BleController of connection");
                     }
-                } else {
-                    tracing::warn!(device_id = %device_id, "No peripheral_uuid found for device");
                 }
 
                 // Create BLE transport if we have BLE hardware
