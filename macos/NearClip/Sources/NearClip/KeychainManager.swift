@@ -1,18 +1,165 @@
 import Foundation
+import Security
 import NearClipFFI
 
-/// Manages storage of pairing information using UserDefaults
-/// Note: Changed from Keychain to UserDefaults to avoid password prompts
-/// during development (code signature changes trigger Keychain access dialogs)
+/// Manages secure storage of pairing information using macOS Keychain
+/// Uses Apple's Security framework for encrypted storage
 final class KeychainManager {
     static let shared = KeychainManager()
 
-    private let defaults = UserDefaults.standard
-    private let pairedDevicesKey = "com.nearclip.pairedDevices"
+    private let serviceName = "com.nearclip.devices"
+    private let legacyUserDefaultsKey = "com.nearclip.pairedDevices"  // For migration
 
-    private init() {}
+    private init() {
+        // Auto-migrate from UserDefaults on first launch
+        migrateFromUserDefaultsIfNeeded()
+    }
 
-    // MARK: - Paired Devices Storage
+    // MARK: - Keychain Error Handling
+
+    enum KeychainError: Error {
+        case saveFailed(OSStatus)
+        case loadFailed(OSStatus)
+        case deleteFailed(OSStatus)
+        case encodingFailed(Error)
+        case decodingFailed(Error)
+        case itemNotFound
+
+        var localizedDescription: String {
+            switch self {
+            case .saveFailed(let status):
+                return "Failed to save to Keychain: \(statusString(status))"
+            case .loadFailed(let status):
+                return "Failed to load from Keychain: \(statusString(status))"
+            case .deleteFailed(let status):
+                return "Failed to delete from Keychain: \(statusString(status))"
+            case .encodingFailed(let error):
+                return "Encoding failed: \(error.localizedDescription)"
+            case .decodingFailed(let error):
+                return "Decoding failed: \(error.localizedDescription)"
+            case .itemNotFound:
+                return "Item not found in Keychain"
+            }
+        }
+
+        private func statusString(_ status: OSStatus) -> String {
+            if let errorString = SecCopyErrorMessageString(status, nil) {
+                return errorString as String
+            }
+            return "OSStatus: \(status)"
+        }
+    }
+
+    // MARK: - Keychain Operations
+
+    /// Save a single device to Keychain
+    private func saveDeviceToKeychain(_ device: StoredDevice) throws {
+        do {
+            let data = try encoder.encode(device)
+
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrAccount as String: device.id,
+                kSecAttrService as String: serviceName,
+                kSecValueData as String: data,
+                kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+            ]
+
+            // Delete existing item first (to handle updates)
+            let deleteStatus = SecItemDelete(query as CFDictionary)
+            if deleteStatus != errSecSuccess && deleteStatus != errSecItemNotFound {
+                print("KeychainManager: Warning - delete returned: \(deleteStatus)")
+            }
+
+            // Add new item
+            let status = SecItemAdd(query as CFDictionary, nil)
+
+            guard status == errSecSuccess else {
+                throw KeychainError.saveFailed(status)
+            }
+
+            print("KeychainManager: Saved device '\(device.name)' (\(device.id)) to Keychain")
+        } catch let error as KeychainError {
+            throw error
+        } catch {
+            throw KeychainError.encodingFailed(error)
+        }
+    }
+
+    /// Load a single device from Keychain
+    private func loadDeviceFromKeychain(deviceId: String) throws -> StoredDevice? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: deviceId,
+            kSecAttrService as String: serviceName,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecItemNotFound {
+            return nil
+        }
+
+        guard status == errSecSuccess,
+              let data = result as? Data else {
+            throw KeychainError.loadFailed(status)
+        }
+
+        do {
+            let device = try decoder.decode(StoredDevice.self, from: data)
+            return device
+        } catch {
+            throw KeychainError.decodingFailed(error)
+        }
+    }
+
+    /// Delete a single device from Keychain
+    private func deleteDeviceFromKeychain(deviceId: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: deviceId,
+            kSecAttrService as String: serviceName
+        ]
+
+        let status = SecItemDelete(query as CFDictionary)
+
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.deleteFailed(status)
+        }
+
+        print("KeychainManager: Deleted device '\(deviceId)' from Keychain")
+    }
+
+    /// Load all device IDs from Keychain
+    private func loadAllDeviceIds() throws -> [String] {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: serviceName,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        if status == errSecItemNotFound {
+            return []
+        }
+
+        guard status == errSecSuccess,
+              let items = result as? [[String: Any]] else {
+            throw KeychainError.loadFailed(status)
+        }
+
+        return items.compactMap { item in
+            item[kSecAttrAccount as String] as? String
+        }
+    }
+
+    // MARK: - Public API (Using Keychain)
 
     /// JSON encoder with consistent date format
     private lazy var encoder: JSONEncoder = {
@@ -50,62 +197,117 @@ final class KeychainManager {
         return decoder
     }()
 
-    /// Save paired devices to UserDefaults
+    /// Save paired devices (now stored individually in Keychain)
     func savePairedDevices(_ devices: [StoredDevice]) -> Bool {
+        var allSucceeded = true
+
+        for device in devices {
+            do {
+                try saveDeviceToKeychain(device)
+            } catch {
+                print("KeychainManager: Failed to save device '\(device.name)': \(error)")
+                allSucceeded = false
+            }
+        }
+
+        if allSucceeded {
+            print("KeychainManager: Saved \(devices.count) paired devices to Keychain")
+        }
+
+        return allSucceeded
+    }
+
+    /// Load all paired devices from Keychain
+    func loadPairedDevices() -> [StoredDevice] {
         do {
-            let data = try encoder.encode(devices)
-            defaults.set(data, forKey: pairedDevicesKey)
-            print("KeychainManager: Saved \(devices.count) paired devices")
+            let deviceIds = try loadAllDeviceIds()
+            var devices: [StoredDevice] = []
+
+            for deviceId in deviceIds {
+                if let device = try loadDeviceFromKeychain(deviceId: deviceId) {
+                    devices.append(device)
+                }
+            }
+
+            print("KeychainManager: Loaded \(devices.count) paired devices from Keychain")
+            return devices
+
+        } catch {
+            print("KeychainManager: Failed to load devices: \(error)")
+            return []
+        }
+    }
+
+    /// Add a device to Keychain
+    func addPairedDevice(_ device: StoredDevice) -> Bool {
+        do {
+            try saveDeviceToKeychain(device)
             return true
         } catch {
-            print("KeychainManager: Failed to encode devices: \(error)")
+            print("KeychainManager: Failed to add device: \(error)")
             return false
         }
     }
 
-    /// Load paired devices from UserDefaults
-    func loadPairedDevices() -> [StoredDevice] {
-        guard let data = defaults.data(forKey: pairedDevicesKey) else {
-            print("KeychainManager: No paired devices data found")
-            return []
+    /// Remove a device from Keychain
+    func removePairedDevice(deviceId: String) -> Bool {
+        do {
+            try deleteDeviceFromKeychain(deviceId: deviceId)
+            return true
+        } catch {
+            print("KeychainManager: Failed to remove device: \(error)")
+            return false
         }
+    }
+
+    /// Clear all paired devices from Keychain
+    func clearPairedDevices() -> Bool {
+        do {
+            let deviceIds = try loadAllDeviceIds()
+
+            for deviceId in deviceIds {
+                try deleteDeviceFromKeychain(deviceId: deviceId)
+            }
+
+            print("KeychainManager: Cleared all paired devices from Keychain")
+            return true
+
+        } catch {
+            print("KeychainManager: Failed to clear devices: \(error)")
+            return false
+        }
+    }
+
+    // MARK: - Migration from UserDefaults
+
+    /// Migrate devices from legacy UserDefaults storage to Keychain
+    private func migrateFromUserDefaultsIfNeeded() {
+        let defaults = UserDefaults.standard
+
+        guard let data = defaults.data(forKey: legacyUserDefaultsKey) else {
+            // No legacy data to migrate
+            return
+        }
+
+        print("KeychainManager: Found legacy UserDefaults data, migrating to Keychain...")
 
         do {
             let devices = try decoder.decode([StoredDevice].self, from: data)
-            print("KeychainManager: Loaded \(devices.count) paired devices")
-            return devices
+
+            // Save all devices to Keychain
+            for device in devices {
+                try saveDeviceToKeychain(device)
+            }
+
+            // Clear UserDefaults after successful migration
+            defaults.removeObject(forKey: legacyUserDefaultsKey)
+
+            print("KeychainManager: ✅ Successfully migrated \(devices.count) devices to Keychain")
+
         } catch {
-            print("KeychainManager: Failed to decode devices: \(error), clearing old data")
-            // Clear corrupted data and return empty
-            defaults.removeObject(forKey: pairedDevicesKey)
-            return []
+            print("KeychainManager: ❌ Migration failed: \(error)")
+            print("KeychainManager: Legacy data will remain in UserDefaults")
         }
-    }
-
-    /// Add a device to paired devices
-    func addPairedDevice(_ device: StoredDevice) -> Bool {
-        var devices = loadPairedDevices()
-
-        // Remove existing device with same ID
-        devices.removeAll { $0.id == device.id }
-
-        // Add new device
-        devices.append(device)
-
-        return savePairedDevices(devices)
-    }
-
-    /// Remove a device from paired devices
-    func removePairedDevice(deviceId: String) -> Bool {
-        var devices = loadPairedDevices()
-        devices.removeAll { $0.id == deviceId }
-        return savePairedDevices(devices)
-    }
-
-    /// Clear all paired devices
-    func clearPairedDevices() -> Bool {
-        defaults.removeObject(forKey: pairedDevicesKey)
-        return true
     }
 }
 
