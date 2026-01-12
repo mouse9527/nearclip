@@ -13,6 +13,13 @@
 *.xcuserdata
 *.xcworkspace
 
+# Build artifacts
+*.a
+*.dylib
+*.so
+build/
+*.app/
+
 # Android
 clients/android/.gradle/
 clients/android/build/
