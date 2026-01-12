@@ -1,5 +1,6 @@
 # Rust
 /target/
+**/target/
 
 # IDE
 .idea/
@@ -12,24 +13,45 @@
 .DS_Store
 *.xcuserdata
 *.xcworkspace
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+xcuserdata/
+DerivedData/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+.build/
 
 # Build artifacts
 *.a
 *.dylib
 *.so
+*.o
+*.obj
 build/
 *.app/
+*.dSYM
+*.swiftmodule
+*.swiftdoc
 
 # Android
-clients/android/.gradle/
-clients/android/build/
-clients/android/app/build/
-clients/android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/app/src/main/jniLibs/
+.gradle/
+local.properties
+*.apk
+*.aab
 
 # Windows
 *.exe
 *.dll
 *.pdb
+*.lib
 
 # Logs
 *.log
@@ -37,3 +59,7 @@ clients/android/local.properties
 # Environment
 .env
 .env.local
+
+# macOS specific compiled outputs
+macos/**/NearClip.app/
+macos/**/*.log
