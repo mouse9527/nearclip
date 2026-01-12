@@ -247,6 +247,17 @@ interface FfiNearClipManager {
     [Throws=NearClipError]
     boolean pair_device(FfiDeviceInfo device);
 
+    // Generate QR code data for pairing
+    // Returns a JSON string containing device info and public key for QR code display
+    [Throws=NearClipError]
+    string generate_qr_code();
+
+    // Pair with a device by scanning its QR code
+    // qr_data: JSON string from scanned QR code
+    // Returns the paired device info on success
+    [Throws=NearClipError]
+    FfiDeviceInfo pair_with_qr_code(string qr_data);
+
     // BLE discovery control (requires set_ble_hardware)
     void start_discovery();
     void stop_discovery();

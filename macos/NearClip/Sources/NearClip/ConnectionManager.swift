@@ -547,6 +547,55 @@ final class ConnectionManager: ObservableObject {
         }
     }
 
+    /// Generate QR code data for pairing
+    ///
+    /// Calls Rust FFI to generate a JSON string containing device info and ECDH public key.
+    /// The returned JSON should be displayed as a QR code for other devices to scan.
+    ///
+    /// - Returns: JSON string with device ID, name, and public key
+    /// - Throws: NearClipError if generation fails
+    func generateQRCode() throws -> String {
+        guard let manager = nearClipManager else {
+            throw NSError(domain: "com.nearclip", code: -1, userInfo: [NSLocalizedDescriptionKey: "NearClip manager not initialized"])
+        }
+
+        do {
+            let qrData = try manager.generateQrCode()
+            print("ConnectionManager: Generated QR code data (\(qrData.count) bytes)")
+            return qrData
+        } catch {
+            print("ConnectionManager: Failed to generate QR code: \(error)")
+            throw error
+        }
+    }
+
+    /// Pair with a device by scanning its QR code
+    ///
+    /// Calls Rust FFI to:
+    /// 1. Parse and validate QR code JSON
+    /// 2. Extract device info and public key
+    /// 3. Attempt connection (WiFi + BLE)
+    /// 4. Save to storage on success
+    ///
+    /// - Parameter qrData: JSON string from scanned QR code
+    /// - Returns: Device info on successful pairing
+    /// - Throws: NearClipError if pairing fails
+    func pairWithQRCode(_ qrData: String) throws -> FfiDeviceInfo {
+        guard let manager = nearClipManager else {
+            throw NSError(domain: "com.nearclip", code: -1, userInfo: [NSLocalizedDescriptionKey: "NearClip manager not initialized"])
+        }
+
+        do {
+            let device = try manager.pairWithQrCode(qrData: qrData)
+            print("ConnectionManager: Paired with device via QR code: \(device.name)")
+            refreshDeviceLists()
+            return device
+        } catch {
+            print("ConnectionManager: QR code pairing failed: \(error)")
+            throw error
+        }
+    }
+
     /// Disconnect from a specific device
     func disconnectDevice(_ deviceId: String) {
         guard isRunning else { return }

@@ -1497,6 +1497,131 @@ impl FfiNearClipManager {
         let count = manager.get_count()?;
         Ok(count as u64)
     }
+
+    // ============================================================
+    // QR Code Pairing Methods
+    // ============================================================
+
+    /// Generate QR code data for pairing
+    ///
+    /// Returns a JSON string containing device info and public key for QR code display.
+    /// The platform should display this JSON as a QR code for other devices to scan.
+    ///
+    /// # Returns
+    ///
+    /// JSON string with format:
+    /// ```json
+    /// {
+    ///   "version": 1,
+    ///   "device_id": "uuid-string",
+    ///   "public_key": "base64-encoded-ecdh-public-key"
+    /// }
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - ECDH keypair generation fails
+    /// - JSON serialization fails
+    pub fn generate_qr_code(&self) -> Result<String, NearClipError> {
+        use nearclip_crypto::{EcdhKeyPair, PairingData};
+
+        tracing::info!("Generating QR code for pairing");
+
+        // Generate ECDH keypair for this pairing session
+        let keypair = EcdhKeyPair::generate();
+        let public_key_bytes = keypair.public_key_bytes();
+
+        // Get device ID from manager
+        let device_id = self.inner.device_id().to_string();
+
+        // Create pairing data
+        let pairing_data = PairingData::new(device_id, &public_key_bytes);
+
+        // Serialize to JSON
+        let json = pairing_data.to_json()
+            .map_err(|e| NearClipError::Crypto(e.to_string()))?;
+
+        tracing::info!(
+            json_len = json.len(),
+            "Generated QR code JSON"
+        );
+
+        Ok(json)
+    }
+
+    /// Pair with a device by scanning its QR code
+    ///
+    /// This method:
+    /// 1. Parses and validates the QR code JSON data
+    /// 2. Extracts device info and public key
+    /// 3. Creates device record and attempts connection
+    /// 4. Saves to persistent storage on success
+    ///
+    /// # Arguments
+    ///
+    /// * `qr_data` - JSON string from scanned QR code
+    ///
+    /// # Returns
+    ///
+    /// Device info on successful pairing
+    ///
+    /// # Errors
+    ///
+    /// Returns error if:
+    /// - QR data JSON parsing fails
+    /// - Device validation fails
+    /// - Connection attempt fails
+    pub fn pair_with_qr_code(&self, qr_data: String) -> Result<FfiDeviceInfo, NearClipError> {
+        use nearclip_crypto::PairingData;
+
+        tracing::info!(
+            qr_data_len = qr_data.len(),
+            "Pairing with device from QR code"
+        );
+
+        // Parse QR code JSON
+        let pairing_data = PairingData::from_json(&qr_data)
+            .map_err(|e| NearClipError::Crypto(format!("Invalid QR code data: {}", e)))?;
+
+        // Validate pairing data
+        pairing_data.validate()
+            .map_err(|e| NearClipError::Crypto(format!("QR code validation failed: {}", e)))?;
+
+        tracing::info!(
+            device_id = %pairing_data.device_id,
+            "QR code parsed successfully"
+        );
+
+        // Create device info from pairing data
+        // Note: We don't know the actual platform yet, will be determined during connection
+        let device_info = FfiDeviceInfo {
+            id: pairing_data.device_id.clone(),
+            name: format!("Device {}", &pairing_data.device_id[..8.min(pairing_data.device_id.len())]),
+            platform: DevicePlatform::Unknown,
+            status: DeviceStatus::Disconnected,
+        };
+
+        // Use pair_device to add and connect
+        let paired = self.pair_device(device_info.clone())?;
+
+        if paired {
+            tracing::info!(
+                device_id = %device_info.id,
+                "QR code pairing successful"
+            );
+            Ok(device_info)
+        } else {
+            tracing::warn!(
+                device_id = %device_info.id,
+                "QR code pairing failed - connection unsuccessful"
+            );
+            Err(NearClipError::DeviceNotFound(format!(
+                "Failed to connect to device {}",
+                device_info.id
+            )))
+        }
+    }
 }
 
 // ============================================================

@@ -223,10 +223,11 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     }
 
     /**
-     * Add a device from a pairing code (JSON string).
+     * Add a device from a pairing code (JSON string with QR code data).
+     * Uses Rust FFI to parse, validate, and pair with the device.
      * @return the name of the added device
-     * @throws IllegalArgumentException if the code is invalid or missing required fields
-     * @throws IllegalStateException if the manager is not initialized or device limit reached
+     * @throws IllegalArgumentException if the code is invalid
+     * @throws IllegalStateException if the manager is not initialized or pairing fails
      */
     suspend fun addDeviceFromCode(code: String): String {
         // Check device limit first
@@ -234,67 +235,33 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
             throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached. Remove a device to add a new one.")
         }
 
-        // Parse and validate JSON
-        val json = try {
-            JSONObject(code)
-        } catch (e: JSONException) {
-            throw IllegalArgumentException("Invalid pairing code format: not valid JSON")
-        }
-
-        // Validate required fields
-        val id = json.optString("id", "").takeIf { it.isNotEmpty() }
-            ?: throw IllegalArgumentException("Invalid pairing code: missing 'id' field")
-        val name = json.optString("name", "").takeIf { it.isNotEmpty() }
-            ?: throw IllegalArgumentException("Invalid pairing code: missing 'name' field")
-        val platformStr = json.optString("platform", "").takeIf { it.isNotEmpty() }
-            ?: throw IllegalArgumentException("Invalid pairing code: missing 'platform' field")
-
-        // Check if device already exists (allow re-adding)
-        val isExisting = _pairedDevices.value.any { it.id == id }
-        if (!isExisting && _pairedDevices.value.size >= MAX_PAIRED_DEVICES) {
-            throw IllegalStateException("Maximum $MAX_PAIRED_DEVICES devices reached")
-        }
-
-        // Validate platform enum (handle different naming conventions)
-        val platform = when (platformStr.lowercase()) {
-            "macos", "mac_os" -> DevicePlatform.MAC_OS
-            "android" -> DevicePlatform.ANDROID
-            else -> {
-                val validPlatforms = listOf("macOS", "Android")
-                throw IllegalArgumentException("Invalid pairing code: unknown platform '$platformStr'. Valid: $validPlatforms")
-            }
-        }
-
-        val device = FfiDeviceInfo(
-            id = id,
-            name = name,
-            platform = platform,
-            status = DeviceStatus.DISCONNECTED
-        )
-
         // Ensure manager is initialized
         val mgr = manager
             ?: throw IllegalStateException("Connection manager not initialized")
 
         // Run FFI calls on IO dispatcher
-        withContext(Dispatchers.IO) {
-            // Use Rust's pairDevice which handles:
-            // 1. Adding to memory
-            // 2. Attempting connection (WiFi + BLE, 15s timeout)
-            // 3. Saving to storage via FfiDeviceStorage on success
+        val device = withContext(Dispatchers.IO) {
             try {
-                val success = mgr.pairDevice(device)
-                if (success) {
-                    Log.i(TAG, "Device paired successfully: ${device.name} (${device.id})")
-                } else {
-                    Log.w(TAG, "Device pairing failed (connection timeout): ${device.name}")
-                    throw IllegalStateException("Failed to connect to device. Make sure both devices are on the same network or within Bluetooth range.")
-                }
+                // Use Rust's pairWithQrCode which handles:
+                // 1. JSON parsing and validation (including ECDH public key)
+                // 2. Device info extraction
+                // 3. Adding to memory
+                // 4. Attempting connection (WiFi + BLE, with timeout)
+                // 5. Saving to storage via FfiDeviceStorage on success
+                val pairedDevice = mgr.pairWithQrCode(code)
+                Log.i(TAG, "Device paired successfully via QR code: ${pairedDevice.name} (${pairedDevice.id})")
+                pairedDevice
             } catch (e: NearClipException) {
+                Log.e(TAG, "QR code pairing failed: ${e.message}", e)
                 throw IllegalStateException("Failed to pair device: ${e.message}")
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected error during QR code pairing: ${e.message}", e)
+                throw IllegalArgumentException("Invalid pairing code: ${e.message}")
             }
+        }
 
-            // Refresh devices
+        // Refresh devices
+        withContext(Dispatchers.IO) {
             val paired = manager?.getPairedDevices() ?: emptyList()
             val connected = manager?.getConnectedDevices() ?: emptyList()
             withContext(Dispatchers.Main) {
@@ -303,7 +270,7 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
             }
         }
 
-        return name
+        return device.name
     }
 
     /**
@@ -374,13 +341,30 @@ class ConnectionManager(application: Application) : AndroidViewModel(application
     }
 
     fun generatePairingCode(): String {
-        val deviceId = java.util.UUID.randomUUID().toString()
-        val json = JSONObject().apply {
-            put("id", deviceId)
-            put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
-            put("platform", "ANDROID")
+        return try {
+            // Use Rust FFI to generate QR code data (includes ECDH public key)
+            manager?.generateQrCode() ?: run {
+                // Fallback to simple JSON (without public key - INSECURE)
+                Log.w(TAG, "Manager not initialized, using fallback pairing code")
+                val deviceId = java.util.UUID.randomUUID().toString()
+                val json = JSONObject().apply {
+                    put("id", deviceId)
+                    put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
+                    put("platform", "ANDROID")
+                }
+                json.toString()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to generate QR code: ${e.message}", e)
+            // Fallback to simple JSON
+            val deviceId = java.util.UUID.randomUUID().toString()
+            val json = JSONObject().apply {
+                put("id", deviceId)
+                put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
+                put("platform", "ANDROID")
+            }
+            json.toString()
         }
-        return json.toString()
     }
 
     fun refreshDevices() {

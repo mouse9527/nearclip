@@ -1178,6 +1178,11 @@ internal interface UniffiLib : Library {
         uniffi_out_err: UniffiRustCallStatus,
     ): Unit
 
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_generate_qr_code(
+        `ptr`: Pointer,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
+
     fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_get_connected_devices(
         `ptr`: Pointer,
         uniffi_out_err: UniffiRustCallStatus,
@@ -1263,6 +1268,12 @@ internal interface UniffiLib : Library {
         `device`: RustBuffer.ByValue,
         uniffi_out_err: UniffiRustCallStatus,
     ): Byte
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_pair_with_qr_code(
+        `ptr`: Pointer,
+        `qrData`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): RustBuffer.ByValue
 
     fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_remove_paired_device(
         `ptr`: Pointer,
@@ -1564,6 +1575,8 @@ internal interface UniffiLib : Library {
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_disconnect_device(): Short
 
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_generate_qr_code(): Short
+
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_device_history(): Short
@@ -1591,6 +1604,8 @@ internal interface UniffiLib : Library {
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_device_discovered(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_device(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_with_qr_code(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device(): Short
 
@@ -1697,6 +1712,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_disconnect_device() != 58683.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_generate_qr_code() != 1985.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_get_connected_devices() != 29571.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1737,6 +1755,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_device() != 30453.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_pair_with_qr_code() != 60764.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_remove_paired_device() != 5261.toShort()) {
@@ -2273,6 +2294,8 @@ public interface FfiNearClipManagerInterface {
 
     fun `disconnectDevice`(`deviceId`: kotlin.String)
 
+    fun `generateQrCode`(): kotlin.String
+
     fun `getConnectedDevices`(): List<FfiDeviceInfo>
 
     fun `getDeviceHistory`(
@@ -2317,6 +2340,8 @@ public interface FfiNearClipManagerInterface {
     )
 
     fun `pairDevice`(`device`: FfiDeviceInfo): kotlin.Boolean
+
+    fun `pairWithQrCode`(`qrData`: kotlin.String): FfiDeviceInfo
 
     fun `removePairedDevice`(`deviceId`: kotlin.String)
 
@@ -2506,6 +2531,16 @@ open class FfiNearClipManager :
             }
         }
 
+    @Throws(NearClipException::class)
+    override fun `generateQrCode`(): kotlin.String =
+        FfiConverterString.lift(
+            callWithPointer {
+                uniffiRustCallWithError(NearClipException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_generate_qr_code(it, _status)
+                }
+            },
+        )
+
     override fun `getConnectedDevices`(): List<FfiDeviceInfo> =
         FfiConverterSequenceTypeFfiDeviceInfo.lift(
             callWithPointer {
@@ -2677,6 +2712,20 @@ open class FfiNearClipManager :
                     UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_pair_device(
                         it,
                         FfiConverterTypeFfiDeviceInfo.lower(`device`),
+                        _status,
+                    )
+                }
+            },
+        )
+
+    @Throws(NearClipException::class)
+    override fun `pairWithQrCode`(`qrData`: kotlin.String): FfiDeviceInfo =
+        FfiConverterTypeFfiDeviceInfo.lift(
+            callWithPointer {
+                uniffiRustCallWithError(NearClipException) { _status ->
+                    UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_pair_with_qr_code(
+                        it,
+                        FfiConverterString.lower(`qrData`),
                         _status,
                     )
                 }

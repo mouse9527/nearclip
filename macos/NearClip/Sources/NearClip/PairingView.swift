@@ -266,10 +266,16 @@ struct PairingView: View {
     }
 
     private var pairingCode: String {
-        // Use a fixed order for JSON keys to ensure consistent QR code
-        let id = deviceId
-        let name = deviceName
-        return "{\"id\":\"\(id)\",\"name\":\"\(name)\",\"platform\":\"macOS\"}"
+        // Generate QR code data using Rust FFI (includes ECDH public key)
+        do {
+            return try connectionManager.generateQRCode()
+        } catch {
+            print("Failed to generate QR code: \(error)")
+            // Fallback to simple JSON (without public key - INSECURE)
+            let id = deviceId
+            let name = deviceName
+            return "{\"id\":\"\(id)\",\"name\":\"\(name)\",\"platform\":\"macOS\"}"
+        }
     }
 
     private func generateQRCode() -> NSImage? {
@@ -310,37 +316,13 @@ struct PairingView: View {
         pairingSuccess = false
         isPairing = true
 
-        // Parse the pairing code
-        guard let data = manualPairingCode.data(using: .utf8),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let id = json["id"] as? String,
-              let name = json["name"] as? String else {
-            pairingError = "Invalid pairing code format"
-            isPairing = false
-            return
-        }
-
-        let platform = json["platform"] as? String ?? "Unknown"
-
-        // Store pending device info for retry
-        pendingDevice = (id: id, name: name, platform: platform)
-
-        // Create device display
-        let device = DeviceDisplay(
-            id: id,
-            name: name,
-            platform: platform,
-            isConnected: false
-        )
-
-        // Use Rust FFI to pair device (handles connection + storage)
+        // Use Rust FFI to pair with QR code (handles JSON parsing, validation, connection + storage)
         DispatchQueue.global(qos: .userInitiated).async { [self] in
-            let success = connectionManager.pairDevice(device)
+            do {
+                let device = try connectionManager.pairWithQRCode(manualPairingCode)
 
-            DispatchQueue.main.async {
-                isPairing = false
-
-                if success {
+                DispatchQueue.main.async {
+                    isPairing = false
                     pairingSuccess = true
                     manualPairingCode = ""
                     pendingDevice = nil
@@ -349,9 +331,11 @@ struct PairingView: View {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                         dismiss()
                     }
-                } else {
-                    // Connection failed, show retry dialog
-                    showConnectionFailedAlert = true
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    isPairing = false
+                    pairingError = "Failed to pair: \(error.localizedDescription)"
                 }
             }
         }

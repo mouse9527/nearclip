@@ -1052,6 +1052,7 @@ version = "0.1.6"
 dependencies = [
  "nearclip-ble",
  "nearclip-core",
+ "nearclip-crypto",
  "nearclip-sync",
  "nearclip-transport",
  "thiserror",

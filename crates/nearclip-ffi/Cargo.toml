@@ -19,6 +19,7 @@ thiserror.workspace = true
 tracing.workspace = true
 uniffi = { workspace = true, features = ["cli"] }
 nearclip-core.workspace = true
+nearclip-crypto.workspace = true
 nearclip-transport.workspace = true
 nearclip-sync.workspace = true
 nearclip-ble.workspace = true
