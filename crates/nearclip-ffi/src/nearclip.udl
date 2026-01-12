@@ -228,6 +228,10 @@ interface FfiNearClipManager {
     // This updates the device_id -> peripheral_uuid mapping for connect_with_scan
     void on_ble_device_discovered(string peripheral_uuid, string device_id, string public_key_hash, i32 rssi);
 
+    // BLE ACK received - called by platform when ACK notification is received
+    // data should contain the message_id (4 bytes, little-endian)
+    void on_ble_ack_received(string device_id, bytes data);
+
     // Set BLE hardware interface
     // Platform clients call this to provide full BLE hardware access
     void set_ble_hardware(FfiBleHardware hardware);

@@ -594,6 +594,8 @@ public protocol FfiNearClipManagerProtocol : AnyObject {
     
     func isRunning()  -> Bool
     
+    func onBleAckReceived(deviceId: String, data: Data) 
+    
     func onBleConnectionChanged(deviceId: String, connected: Bool) 
     
     func onBleDataReceived(deviceId: String, data: Data) 
@@ -791,6 +793,14 @@ open func isRunning() -> Bool {
     uniffi_nearclip_ffi_fn_method_ffinearclipmanager_is_running(self.uniffiClonePointer(),$0
     )
 })
+}
+    
+open func onBleAckReceived(deviceId: String, data: Data) {try! rustCall() {
+    uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_ack_received(self.uniffiClonePointer(),
+        FfiConverterString.lower(deviceId),
+        FfiConverterData.lower(data),$0
+    )
+}
 }
     
 open func onBleConnectionChanged(deviceId: String, connected: Bool) {try! rustCall() {
@@ -2666,6 +2676,9 @@ private var initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running() != 27473) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_ack_received() != 49825) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_connection_changed() != 5720) {

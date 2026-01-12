@@ -735,16 +735,32 @@ extension BleManager: CBCentralManagerDelegate {
 extension BleManager: CBPeripheralDelegate {
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        NSLog("BLE: didDiscoverServices called for %@", peripheral.identifier.uuidString)
+
         if let error = error {
             os_log("Error discovering services: %{public}@", log: bleLog, type: .error, error.localizedDescription)
+            NSLog("BLE: Error discovering services: %@", error.localizedDescription)
             return
+        }
+
+        NSLog("BLE: Services count: %d", peripheral.services?.count ?? 0)
+        if let services = peripheral.services {
+            for svc in services {
+                NSLog("BLE: Found service: %@", svc.uuid.uuidString)
+            }
         }
 
         guard let service = peripheral.services?.first(where: { $0.uuid == BleUUID.service }) else {
             os_log("NearClip service not found", log: bleLog, type: .error)
+            NSLog("BLE: NearClip service not found on %@, disconnecting", peripheral.identifier.uuidString)
+            // Disconnect if this was a discovery connection
+            if pendingDiscoveryConnections.contains(peripheral.identifier) {
+                centralManager.cancelPeripheralConnection(peripheral)
+            }
             return
         }
 
+        NSLog("BLE: Discovering characteristics for service %@", service.uuid.uuidString)
         peripheral.discoverCharacteristics(
             [BleUUID.deviceId, BleUUID.publicKeyHash, BleUUID.dataTransfer, BleUUID.dataAck],
             for: service
@@ -752,15 +768,27 @@ extension BleManager: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        NSLog("BLE: didDiscoverCharacteristicsFor called for %@, service %@", peripheral.identifier.uuidString, service.uuid.uuidString)
+
         if let error = error {
             os_log("Error discovering characteristics: %{public}@", log: bleLog, type: .error, error.localizedDescription)
+            NSLog("BLE: Error discovering characteristics: %@", error.localizedDescription)
             return
         }
 
-        guard let characteristics = service.characteristics else { return }
+        guard let characteristics = service.characteristics else {
+            NSLog("BLE: No characteristics found for service %@", service.uuid.uuidString)
+            return
+        }
+
+        NSLog("BLE: Found %d characteristics", characteristics.count)
+        for char in characteristics {
+            NSLog("BLE: Characteristic: %@", char.uuid.uuidString)
+        }
 
         for characteristic in characteristics {
             if characteristic.uuid == BleUUID.deviceId || characteristic.uuid == BleUUID.publicKeyHash {
+                NSLog("BLE: Reading characteristic %@", characteristic.uuid.uuidString)
                 peripheral.readValue(for: characteristic)
             }
             if characteristic.uuid == BleUUID.dataAck || characteristic.uuid == BleUUID.dataTransfer {
@@ -831,7 +859,8 @@ extension BleManager: CBPeripheralDelegate {
 
         case BleUUID.dataTransfer:
             if let data = characteristic.value {
-                 handleIncomingDataFromPeripheral(data, from: peripheral)
+                 os_log("Data chunk received from peripheral: %d bytes", log: bleLog, type: .debug, data.count)
+                 delegate?.bleManager(self, didReceiveData: data, fromPeripheral: peripheralUuid)
             }
 
         default:
@@ -948,9 +977,17 @@ extension BleManager: CBPeripheralManagerDelegate {
 
     func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
-            if request.characteristic.uuid == BleUUID.dataTransfer,
-               let data = request.value {
-                handleIncomingData(data, from: request.central)
+            let centralId = request.central.identifier.uuidString
+            if let data = request.value {
+                if request.characteristic.uuid == BleUUID.dataTransfer {
+                    os_log("Data chunk received from central: %d bytes", log: bleLog, type: .debug, data.count)
+                    delegate?.bleManager(self, didReceiveData: data, fromPeripheral: centralId)
+                } else if request.characteristic.uuid == BleUUID.dataAck {
+                    os_log("ACK received from central: %d bytes", log: bleLog, type: .debug, data.count)
+                    // Try to get device ID for better tracking, fallback to central ID
+                    let deviceId = peripheralDeviceIds[request.central.identifier] ?? centralId
+                    delegate?.bleManager(self, didReceiveAck: data, fromPeripheral: centralId, deviceId: deviceId)
+                }
             }
             // Always respond to write requests to complete the GATT transaction
             peripheral.respond(to: request, withResult: .success)
@@ -979,31 +1016,6 @@ extension BleManager: CBPeripheralManagerDelegate {
 
         // Notify delegate about disconnection
         delegate?.bleManager(self, didDisconnectDevice: centralId, deviceId: nil)
-    }
-
-    private func handleIncomingData(_ data: Data, from central: CBCentral) {
-        let centralId = central.identifier.uuidString
-
-        guard let (messageId, sequence, total, _, payload) = DataChunker.parseChunk(data) else {
-            os_log("Invalid chunk received", log: bleLog, type: .error)
-            return
-        }
-
-        if reassemblers[centralId] == nil {
-            reassemblers[centralId] = DataReassembler()
-        }
-
-        guard let reassembler = reassemblers[centralId] else { return }
-
-        if reassembler.isTimedOut {
-            reassembler.reset()
-        }
-
-        if let completeData = reassembler.addChunk(payload, sequence: Int(sequence), total: Int(total), messageId: messageId) {
-            os_log("Complete message received: %d bytes", log: bleLog, type: .info, completeData.count)
-            delegate?.bleManager(self, didReceiveData: completeData, fromPeripheral: centralId)
-            sendAck(to: central, messageId: messageId)
-        }
     }
 
     private func sendAck(to central: CBCentral, messageId: UInt16) {

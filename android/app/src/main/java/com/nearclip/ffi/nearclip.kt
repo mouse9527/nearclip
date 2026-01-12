@@ -789,7 +789,7 @@ internal interface UniffiCallbackInterfaceFfiBleHardwareMethod4 : com.sun.jna.Ca
     fun callback(
         `uniffiHandle`: Long,
         `peripheralUuid`: RustBuffer.ByValue,
-        `data`: RustBuffer.ByValue,
+        `charUuid`: RustBuffer.ByValue,
         `uniffiOutReturn`: RustBuffer,
         uniffiCallStatus: UniffiRustCallStatus,
     )
@@ -799,7 +799,9 @@ internal interface UniffiCallbackInterfaceFfiBleHardwareMethod5 : com.sun.jna.Ca
     fun callback(
         `uniffiHandle`: Long,
         `peripheralUuid`: RustBuffer.ByValue,
-        `uniffiOutReturn`: IntByReference,
+        `charUuid`: RustBuffer.ByValue,
+        `data`: RustBuffer.ByValue,
+        `uniffiOutReturn`: RustBuffer,
         uniffiCallStatus: UniffiRustCallStatus,
     )
 }
@@ -808,7 +810,8 @@ internal interface UniffiCallbackInterfaceFfiBleHardwareMethod6 : com.sun.jna.Ca
     fun callback(
         `uniffiHandle`: Long,
         `peripheralUuid`: RustBuffer.ByValue,
-        `uniffiOutReturn`: ByteByReference,
+        `charUuid`: RustBuffer.ByValue,
+        `uniffiOutReturn`: RustBuffer,
         uniffiCallStatus: UniffiRustCallStatus,
     )
 }
@@ -816,6 +819,7 @@ internal interface UniffiCallbackInterfaceFfiBleHardwareMethod6 : com.sun.jna.Ca
 internal interface UniffiCallbackInterfaceFfiBleHardwareMethod7 : com.sun.jna.Callback {
     fun callback(
         `uniffiHandle`: Long,
+        `serviceData`: RustBuffer.ByValue,
         `uniffiOutReturn`: Pointer,
         uniffiCallStatus: UniffiRustCallStatus,
     )
@@ -832,9 +836,17 @@ internal interface UniffiCallbackInterfaceFfiBleHardwareMethod8 : com.sun.jna.Ca
 internal interface UniffiCallbackInterfaceFfiBleHardwareMethod9 : com.sun.jna.Callback {
     fun callback(
         `uniffiHandle`: Long,
-        `deviceId`: RustBuffer.ByValue,
-        `publicKeyHash`: RustBuffer.ByValue,
-        `uniffiOutReturn`: Pointer,
+        `peripheralUuid`: RustBuffer.ByValue,
+        `uniffiOutReturn`: ByteByReference,
+        uniffiCallStatus: UniffiRustCallStatus,
+    )
+}
+
+internal interface UniffiCallbackInterfaceFfiBleHardwareMethod10 : com.sun.jna.Callback {
+    fun callback(
+        `uniffiHandle`: Long,
+        `peripheralUuid`: RustBuffer.ByValue,
+        `uniffiOutReturn`: IntByReference,
         uniffiCallStatus: UniffiRustCallStatus,
     )
 }
@@ -944,12 +956,13 @@ internal interface UniffiCallbackInterfaceFfiNearClipCallbackMethod7 : com.sun.j
     "stopScan",
     "connect",
     "disconnect",
-    "writeData",
-    "getMtu",
-    "isConnected",
+    "readCharacteristic",
+    "writeCharacteristic",
+    "subscribeCharacteristic",
     "startAdvertising",
     "stopAdvertising",
-    "configure",
+    "isConnected",
+    "getMtu",
     "uniffiFree",
 )
 internal open class UniffiVTableCallbackInterfaceFfiBleHardware(
@@ -957,12 +970,13 @@ internal open class UniffiVTableCallbackInterfaceFfiBleHardware(
     @JvmField internal var `stopScan`: UniffiCallbackInterfaceFfiBleHardwareMethod1? = null,
     @JvmField internal var `connect`: UniffiCallbackInterfaceFfiBleHardwareMethod2? = null,
     @JvmField internal var `disconnect`: UniffiCallbackInterfaceFfiBleHardwareMethod3? = null,
-    @JvmField internal var `writeData`: UniffiCallbackInterfaceFfiBleHardwareMethod4? = null,
-    @JvmField internal var `getMtu`: UniffiCallbackInterfaceFfiBleHardwareMethod5? = null,
-    @JvmField internal var `isConnected`: UniffiCallbackInterfaceFfiBleHardwareMethod6? = null,
+    @JvmField internal var `readCharacteristic`: UniffiCallbackInterfaceFfiBleHardwareMethod4? = null,
+    @JvmField internal var `writeCharacteristic`: UniffiCallbackInterfaceFfiBleHardwareMethod5? = null,
+    @JvmField internal var `subscribeCharacteristic`: UniffiCallbackInterfaceFfiBleHardwareMethod6? = null,
     @JvmField internal var `startAdvertising`: UniffiCallbackInterfaceFfiBleHardwareMethod7? = null,
     @JvmField internal var `stopAdvertising`: UniffiCallbackInterfaceFfiBleHardwareMethod8? = null,
-    @JvmField internal var `configure`: UniffiCallbackInterfaceFfiBleHardwareMethod9? = null,
+    @JvmField internal var `isConnected`: UniffiCallbackInterfaceFfiBleHardwareMethod9? = null,
+    @JvmField internal var `getMtu`: UniffiCallbackInterfaceFfiBleHardwareMethod10? = null,
     @JvmField internal var `uniffiFree`: UniffiCallbackInterfaceFree? = null,
 ) : Structure() {
     class UniffiByValue(
@@ -970,24 +984,26 @@ internal open class UniffiVTableCallbackInterfaceFfiBleHardware(
         `stopScan`: UniffiCallbackInterfaceFfiBleHardwareMethod1? = null,
         `connect`: UniffiCallbackInterfaceFfiBleHardwareMethod2? = null,
         `disconnect`: UniffiCallbackInterfaceFfiBleHardwareMethod3? = null,
-        `writeData`: UniffiCallbackInterfaceFfiBleHardwareMethod4? = null,
-        `getMtu`: UniffiCallbackInterfaceFfiBleHardwareMethod5? = null,
-        `isConnected`: UniffiCallbackInterfaceFfiBleHardwareMethod6? = null,
+        `readCharacteristic`: UniffiCallbackInterfaceFfiBleHardwareMethod4? = null,
+        `writeCharacteristic`: UniffiCallbackInterfaceFfiBleHardwareMethod5? = null,
+        `subscribeCharacteristic`: UniffiCallbackInterfaceFfiBleHardwareMethod6? = null,
         `startAdvertising`: UniffiCallbackInterfaceFfiBleHardwareMethod7? = null,
         `stopAdvertising`: UniffiCallbackInterfaceFfiBleHardwareMethod8? = null,
-        `configure`: UniffiCallbackInterfaceFfiBleHardwareMethod9? = null,
+        `isConnected`: UniffiCallbackInterfaceFfiBleHardwareMethod9? = null,
+        `getMtu`: UniffiCallbackInterfaceFfiBleHardwareMethod10? = null,
         `uniffiFree`: UniffiCallbackInterfaceFree? = null,
     ) : UniffiVTableCallbackInterfaceFfiBleHardware(
             `startScan`,
             `stopScan`,
             `connect`,
             `disconnect`,
-            `writeData`,
-            `getMtu`,
-            `isConnected`,
+            `readCharacteristic`,
+            `writeCharacteristic`,
+            `subscribeCharacteristic`,
             `startAdvertising`,
             `stopAdvertising`,
-            `configure`,
+            `isConnected`,
+            `getMtu`,
             `uniffiFree`,
         ),
         Structure.ByValue
@@ -997,12 +1013,13 @@ internal open class UniffiVTableCallbackInterfaceFfiBleHardware(
         `stopScan` = other.`stopScan`
         `connect` = other.`connect`
         `disconnect` = other.`disconnect`
-        `writeData` = other.`writeData`
-        `getMtu` = other.`getMtu`
-        `isConnected` = other.`isConnected`
+        `readCharacteristic` = other.`readCharacteristic`
+        `writeCharacteristic` = other.`writeCharacteristic`
+        `subscribeCharacteristic` = other.`subscribeCharacteristic`
         `startAdvertising` = other.`startAdvertising`
         `stopAdvertising` = other.`stopAdvertising`
-        `configure` = other.`configure`
+        `isConnected` = other.`isConnected`
+        `getMtu` = other.`getMtu`
         `uniffiFree` = other.`uniffiFree`
     }
 }
@@ -1210,6 +1227,13 @@ internal interface UniffiLib : Library {
         `ptr`: Pointer,
         uniffi_out_err: UniffiRustCallStatus,
     ): Byte
+
+    fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_ack_received(
+        `ptr`: Pointer,
+        `deviceId`: RustBuffer.ByValue,
+        `data`: RustBuffer.ByValue,
+        uniffi_out_err: UniffiRustCallStatus,
+    ): Unit
 
     fun uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_connection_changed(
         `ptr`: Pointer,
@@ -1558,6 +1582,8 @@ internal interface UniffiLib : Library {
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running(): Short
 
+    fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_ack_received(): Short
+
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_connection_changed(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_data_received(): Short
@@ -1596,17 +1622,19 @@ internal interface UniffiLib : Library {
 
     fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_disconnect(): Short
 
-    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_data(): Short
+    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_read_characteristic(): Short
 
-    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu(): Short
+    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_characteristic(): Short
 
-    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected(): Short
+    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_subscribe_characteristic(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_advertising(): Short
 
-    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure(): Short
+    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected(): Short
+
+    fun uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu(): Short
 
     fun uniffi_nearclip_ffi_checksum_method_ffidevicestorage_save_device(): Short
 
@@ -1696,6 +1724,9 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_is_running() != 27473.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_ack_received() != 49825.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffinearclipmanager_on_ble_connection_changed() != 5720.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1753,22 +1784,25 @@ private fun uniffiCheckApiChecksums(lib: UniffiLib) {
     if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_disconnect() != 19327.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_data() != 2275.toShort()) {
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_read_characteristic() != 10510.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu() != 8130.toShort()) {
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_write_characteristic() != 7268.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected() != 50619.toShort()) {
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_subscribe_characteristic() != 40611.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising() != 53725.toShort()) {
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_start_advertising() != 19708.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_stop_advertising() != 51147.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_configure() != 59760.toShort()) {
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_is_connected() != 50619.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_nearclip_ffi_checksum_method_ffiblehardware_get_mtu() != 8130.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_nearclip_ffi_checksum_method_ffidevicestorage_save_device() != 17485.toShort()) {
@@ -2260,6 +2294,11 @@ public interface FfiNearClipManagerInterface {
 
     fun `isRunning`(): kotlin.Boolean
 
+    fun `onBleAckReceived`(
+        `deviceId`: kotlin.String,
+        `data`: kotlin.ByteArray,
+    )
+
     fun `onBleConnectionChanged`(
         `deviceId`: kotlin.String,
         `connected`: kotlin.Boolean,
@@ -2569,6 +2608,20 @@ open class FfiNearClipManager :
                 }
             },
         )
+
+    override fun `onBleAckReceived`(
+        `deviceId`: kotlin.String,
+        `data`: kotlin.ByteArray,
+    ) = callWithPointer {
+        uniffiRustCall { _status ->
+            UniffiLib.INSTANCE.uniffi_nearclip_ffi_fn_method_ffinearclipmanager_on_ble_ack_received(
+                it,
+                FfiConverterString.lower(`deviceId`),
+                FfiConverterByteArray.lower(`data`),
+                _status,
+            )
+        }
+    }
 
     override fun `onBleConnectionChanged`(
         `deviceId`: kotlin.String,
@@ -3159,23 +3212,29 @@ public interface FfiBleHardware {
 
     fun `disconnect`(`peripheralUuid`: kotlin.String)
 
-    fun `writeData`(
+    fun `readCharacteristic`(
         `peripheralUuid`: kotlin.String,
+        `charUuid`: kotlin.String,
+    ): kotlin.ByteArray
+
+    fun `writeCharacteristic`(
+        `peripheralUuid`: kotlin.String,
+        `charUuid`: kotlin.String,
         `data`: kotlin.ByteArray,
     ): kotlin.String
 
-    fun `getMtu`(`peripheralUuid`: kotlin.String): kotlin.UInt
+    fun `subscribeCharacteristic`(
+        `peripheralUuid`: kotlin.String,
+        `charUuid`: kotlin.String,
+    ): kotlin.String
 
-    fun `isConnected`(`peripheralUuid`: kotlin.String): kotlin.Boolean
-
-    fun `startAdvertising`()
+    fun `startAdvertising`(`serviceData`: kotlin.ByteArray)
 
     fun `stopAdvertising`()
 
-    fun `configure`(
-        `deviceId`: kotlin.String,
-        `publicKeyHash`: kotlin.String,
-    )
+    fun `isConnected`(`peripheralUuid`: kotlin.String): kotlin.Boolean
+
+    fun `getMtu`(`peripheralUuid`: kotlin.String): kotlin.UInt
 
     companion object
 }
@@ -3277,17 +3336,38 @@ internal object uniffiCallbackInterfaceFfiBleHardware {
         }
     }
 
-    internal object `writeData` : UniffiCallbackInterfaceFfiBleHardwareMethod4 {
+    internal object `readCharacteristic` : UniffiCallbackInterfaceFfiBleHardwareMethod4 {
         override fun callback(
             `uniffiHandle`: Long,
             `peripheralUuid`: RustBuffer.ByValue,
+            `charUuid`: RustBuffer.ByValue,
+            `uniffiOutReturn`: RustBuffer,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
+            val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
+            val makeCall = {  uniffiObj.`readCharacteristic`(
+                FfiConverterString.lift(`peripheralUuid`),
+                FfiConverterString.lift(`charUuid`),
+            )
+            }
+            val writeReturn = { value: kotlin.ByteArray -> uniffiOutReturn.setValue(FfiConverterByteArray.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object `writeCharacteristic` : UniffiCallbackInterfaceFfiBleHardwareMethod5 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `peripheralUuid`: RustBuffer.ByValue,
+            `charUuid`: RustBuffer.ByValue,
             `data`: RustBuffer.ByValue,
             `uniffiOutReturn`: RustBuffer,
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
-            val makeCall = {  uniffiObj.`writeData`(
+            val makeCall = {  uniffiObj.`writeCharacteristic`(
                 FfiConverterString.lift(`peripheralUuid`),
+                FfiConverterString.lift(`charUuid`),
                 FfiConverterByteArray.lift(`data`),
             )
             }
@@ -3296,36 +3376,21 @@ internal object uniffiCallbackInterfaceFfiBleHardware {
         }
     }
 
-    internal object `getMtu` : UniffiCallbackInterfaceFfiBleHardwareMethod5 {
+    internal object `subscribeCharacteristic` : UniffiCallbackInterfaceFfiBleHardwareMethod6 {
         override fun callback(
             `uniffiHandle`: Long,
             `peripheralUuid`: RustBuffer.ByValue,
-            `uniffiOutReturn`: IntByReference,
+            `charUuid`: RustBuffer.ByValue,
+            `uniffiOutReturn`: RustBuffer,
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
-            val makeCall = {  uniffiObj.`getMtu`(
+            val makeCall = {  uniffiObj.`subscribeCharacteristic`(
                 FfiConverterString.lift(`peripheralUuid`),
+                FfiConverterString.lift(`charUuid`),
             )
             }
-            val writeReturn = { value: kotlin.UInt -> uniffiOutReturn.setValue(FfiConverterUInt.lower(value)) }
-            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
-        }
-    }
-
-    internal object `isConnected` : UniffiCallbackInterfaceFfiBleHardwareMethod6 {
-        override fun callback(
-            `uniffiHandle`: Long,
-            `peripheralUuid`: RustBuffer.ByValue,
-            `uniffiOutReturn`: ByteByReference,
-            uniffiCallStatus: UniffiRustCallStatus,
-        ) {
-            val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
-            val makeCall = {  uniffiObj.`isConnected`(
-                FfiConverterString.lift(`peripheralUuid`),
-            )
-            }
-            val writeReturn = { value: kotlin.Boolean -> uniffiOutReturn.setValue(FfiConverterBoolean.lower(value)) }
+            val writeReturn = { value: kotlin.String -> uniffiOutReturn.setValue(FfiConverterString.lower(value)) }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
@@ -3333,11 +3398,15 @@ internal object uniffiCallbackInterfaceFfiBleHardware {
     internal object `startAdvertising` : UniffiCallbackInterfaceFfiBleHardwareMethod7 {
         override fun callback(
             `uniffiHandle`: Long,
+            `serviceData`: RustBuffer.ByValue,
             `uniffiOutReturn`: Pointer,
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
-            val makeCall = { uniffiObj.`startAdvertising`() }
+            val makeCall = {  uniffiObj.`startAdvertising`(
+                FfiConverterByteArray.lift(`serviceData`),
+            )
+            }
             val writeReturn = { _: Unit -> Unit }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
@@ -3356,21 +3425,36 @@ internal object uniffiCallbackInterfaceFfiBleHardware {
         }
     }
 
-    internal object `configure` : UniffiCallbackInterfaceFfiBleHardwareMethod9 {
+    internal object `isConnected` : UniffiCallbackInterfaceFfiBleHardwareMethod9 {
         override fun callback(
             `uniffiHandle`: Long,
-            `deviceId`: RustBuffer.ByValue,
-            `publicKeyHash`: RustBuffer.ByValue,
-            `uniffiOutReturn`: Pointer,
+            `peripheralUuid`: RustBuffer.ByValue,
+            `uniffiOutReturn`: ByteByReference,
             uniffiCallStatus: UniffiRustCallStatus,
         ) {
             val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
-            val makeCall = {  uniffiObj.`configure`(
-                FfiConverterString.lift(`deviceId`),
-                FfiConverterString.lift(`publicKeyHash`),
+            val makeCall = {  uniffiObj.`isConnected`(
+                FfiConverterString.lift(`peripheralUuid`),
             )
             }
-            val writeReturn = { _: Unit -> Unit }
+            val writeReturn = { value: kotlin.Boolean -> uniffiOutReturn.setValue(FfiConverterBoolean.lower(value)) }
+            uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
+        }
+    }
+
+    internal object `getMtu` : UniffiCallbackInterfaceFfiBleHardwareMethod10 {
+        override fun callback(
+            `uniffiHandle`: Long,
+            `peripheralUuid`: RustBuffer.ByValue,
+            `uniffiOutReturn`: IntByReference,
+            uniffiCallStatus: UniffiRustCallStatus,
+        ) {
+            val uniffiObj = FfiConverterTypeFfiBleHardware.handleMap.get(uniffiHandle)
+            val makeCall = {  uniffiObj.`getMtu`(
+                FfiConverterString.lift(`peripheralUuid`),
+            )
+            }
+            val writeReturn = { value: kotlin.UInt -> uniffiOutReturn.setValue(FfiConverterUInt.lower(value)) }
             uniffiTraitInterfaceCall(uniffiCallStatus, makeCall, writeReturn)
         }
     }
@@ -3387,12 +3471,13 @@ internal object uniffiCallbackInterfaceFfiBleHardware {
             `stopScan`,
             `connect`,
             `disconnect`,
-            `writeData`,
-            `getMtu`,
-            `isConnected`,
+            `readCharacteristic`,
+            `writeCharacteristic`,
+            `subscribeCharacteristic`,
             `startAdvertising`,
             `stopAdvertising`,
-            `configure`,
+            `isConnected`,
+            `getMtu`,
             uniffiFree,
         )
 

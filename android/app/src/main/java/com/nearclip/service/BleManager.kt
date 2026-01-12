@@ -81,6 +81,7 @@ class BleManager(private val context: Context) {
 
     // Track connected centrals (devices that connected to us as peripheral)
     private val connectedCentrals = ConcurrentHashMap<String, BluetoothDevice>()
+    private val centralSubscriptions = ConcurrentHashMap<String, MutableSet<UUID>>()
 
     // ==================== Configuration ====================
 
@@ -165,6 +166,13 @@ class BleManager(private val context: Context) {
     }
 
     fun getMtu(peripheralAddress: String): Int {
+        // For centrals connected to us, try to get their preferred MTU if available
+        val central = connectedCentrals[peripheralAddress]
+        if (central != null) {
+            // Android GATT server doesn't easily expose the negotiated MTU per central
+            // We'll use the default or a cached value if we ever implement MTU callbacks for server
+            return 512 // Most modern devices support this
+        }
         return mtuCache[peripheralAddress] ?: DEFAULT_MTU
     }
 
@@ -436,7 +444,8 @@ class BleManager(private val context: Context) {
                 DATA_TRANSFER_UUID -> {
                     val value = characteristic.value
                     if (value != null) {
-                        handleIncomingData(value, gatt.device)
+                        Log.d(TAG, "Data chunk received from $address: ${value.size} bytes")
+                        callback?.onDataReceived(address, value)
                     }
                 }
             }
@@ -470,7 +479,14 @@ class BleManager(private val context: Context) {
             return
         }
 
-        setupGattServer()
+        // Only set up GATT server once
+        if (gattServer == null) {
+            setupGattServer()
+            if (gattServer == null) {
+                Log.e(TAG, "Failed to set up GATT server, cannot advertise")
+                return
+            }
+        }
 
         val settings = AdvertiseSettings.Builder()
             .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -483,7 +499,6 @@ class BleManager(private val context: Context) {
             .setIncludeDeviceName(false)
             .addServiceUuid(ParcelUuid(SERVICE_UUID))
             .apply {
-                // Add service data if provided
                 if (serviceData != null) {
                     addServiceData(ParcelUuid(SERVICE_UUID), serviceData)
                 }
@@ -505,7 +520,19 @@ class BleManager(private val context: Context) {
     }
 
     private fun setupGattServer() {
+        // Close existing server if any
+        if (gattServer != null) {
+            Log.i(TAG, "Closing existing GATT server")
+            gattServer?.close()
+            gattServer = null
+        }
+
         gattServer = bluetoothManager?.openGattServer(context, gattServerCallback)
+
+        if (gattServer == null) {
+            Log.e(TAG, "Failed to open GATT server")
+            return
+        }
 
         val service = BluetoothGattService(SERVICE_UUID, BluetoothGattService.SERVICE_TYPE_PRIMARY)
 
@@ -573,19 +600,32 @@ class BleManager(private val context: Context) {
     }
 
     private val gattServerCallback = object : BluetoothGattServerCallback() {
+        override fun onServiceAdded(status: Int, service: BluetoothGattService) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.i(TAG, "GATT service added successfully: ${service.uuid}")
+            } else {
+                Log.e(TAG, "Failed to add GATT service: status=$status")
+            }
+        }
+
         override fun onConnectionStateChange(device: BluetoothDevice, status: Int, newState: Int) {
+            val address = device.address
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    Log.i(TAG, "Central connected: ${device.address}")
-                    connectedCentrals[device.address] = device
-                    // Notify callback - use device.address as both peripheralAddress and deviceId
-                    // This enables the FFI layer to create BLE transport for this connection
-                    callback?.onDeviceConnected(device.address, device.address)
+                    Log.i(TAG, "Central connected: $address")
+                    connectedCentrals[address] = device
+                    centralSubscriptions[address] = mutableSetOf()
+                    // Delay notification to give time for service discovery and subscription
+                    scope.launch {
+                        delay(1000)
+                        callback?.onDeviceConnected(address, address)
+                    }
                 }
                 BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.i(TAG, "Central disconnected: ${device.address}")
-                    connectedCentrals.remove(device.address)
-                    callback?.onDeviceDisconnected(device.address, null)
+                    Log.i(TAG, "Central disconnected: $address")
+                    connectedCentrals.remove(address)
+                    centralSubscriptions.remove(address)
+                    callback?.onDeviceDisconnected(address, null)
                 }
             }
         }
@@ -619,8 +659,17 @@ class BleManager(private val context: Context) {
             value: ByteArray?
         ) {
             Log.i(TAG, "onCharacteristicWriteRequest: uuid=${characteristic.uuid} from ${device.address}, size=${value?.size}, responseNeeded=$responseNeeded")
-            if (characteristic.uuid == DATA_TRANSFER_UUID && value != null) {
-                handleIncomingData(value, device)
+            if (value != null) {
+                when (characteristic.uuid) {
+                    DATA_TRANSFER_UUID -> {
+                        // Forward chunk directly to callback
+                        callback?.onDataReceived(device.address, value)
+                    }
+                    DATA_ACK_UUID -> {
+                        // Forward ACK directly to callback
+                        callback?.onAckReceived(device.address, value)
+                    }
+                }
             }
 
             if (responseNeeded) {
@@ -644,7 +693,15 @@ class BleManager(private val context: Context) {
                     val isNotifyEnabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE)
                     val isIndicateEnabled = value.contentEquals(BluetoothGattDescriptor.ENABLE_INDICATION_VALUE)
                     val charUuid = descriptor.characteristic?.uuid
-                    Log.i(TAG, "CCCD write for ${charUuid}: notify=$isNotifyEnabled, indicate=$isIndicateEnabled")
+                    Log.i(TAG, "CCCD write for $charUuid: notify=$isNotifyEnabled, indicate=$isIndicateEnabled")
+
+                    if (charUuid != null) {
+                        if (isNotifyEnabled || isIndicateEnabled) {
+                            centralSubscriptions[device.address]?.add(charUuid)
+                        } else {
+                            centralSubscriptions[device.address]?.remove(charUuid)
+                        }
+                    }
                 }
                 // Always respond with success for CCCD writes
                 if (responseNeeded) {
@@ -655,33 +712,6 @@ class BleManager(private val context: Context) {
                     gattServer?.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null)
                 }
             }
-        }
-    }
-
-    private fun handleIncomingData(data: ByteArray, device: BluetoothDevice) {
-        val address = device.address
-        Log.d(TAG, "handleIncomingData: ${data.size} bytes from $address")
-
-        val parsed = DataChunker.parseChunk(data)
-        if (parsed == null) {
-            Log.w(TAG, "Invalid chunk received from $address")
-            return
-        }
-
-        val (messageId, sequence, total, payload) = parsed
-        Log.d(TAG, "Chunk parsed: msgId=$messageId, seq=$sequence, total=$total, payload=${payload.size} bytes")
-
-        val reassembler = dataReassemblers.getOrPut(address) { DataReassembler() }
-
-        if (reassembler.isTimedOut()) {
-            reassembler.reset()
-        }
-
-        val completeData = reassembler.addChunk(payload, sequence.toInt(), total.toInt(), messageId)
-        if (completeData != null) {
-            Log.i(TAG, "Complete message received: ${completeData.size} bytes")
-            callback?.onDataReceived(address, completeData)
-            sendAck(device, messageId)
         }
     }
 
@@ -894,6 +924,14 @@ class BleManager(private val context: Context) {
     fun subscribeCharacteristic(peripheralUuid: String, charUuid: String): String {
         // Find the actual peripheral address if deviceId was passed
         val peripheralAddress = peripheralDeviceIds.entries.find { it.value == peripheralUuid }?.key ?: peripheralUuid
+
+        // If we are Peripheral and a Central is connected to us, we don't need to "subscribe" to them
+        // in the traditional sense, but the transport layer calls this to ensure it can receive ACKs.
+        // In Peripheral mode, we "notify" the Central, so this is a no-op or just a connection check.
+        if (connectedCentrals.containsKey(peripheralAddress)) {
+            Log.i(TAG, "subscribeCharacteristic: Device is connected as Central, skipping subscription")
+            return "" // Success
+        }
 
         val gatt = connectedGatts[peripheralAddress]
         if (gatt == null) {

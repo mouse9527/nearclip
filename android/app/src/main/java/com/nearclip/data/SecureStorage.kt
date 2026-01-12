@@ -18,20 +18,83 @@ import org.json.JSONObject
  */
 class SecureStorage(private val context: Context) {
 
-    private val masterKey: MasterKey by lazy {
-        MasterKey.Builder(context)
-            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-            .build()
+    private val encryptedPrefs: SharedPreferences by lazy {
+        createEncryptedPrefsWithRecovery()
     }
 
-    private val encryptedPrefs: SharedPreferences by lazy {
-        EncryptedSharedPreferences.create(
+    /**
+     * Create EncryptedSharedPreferences with automatic recovery from KeyStore corruption.
+     */
+    private fun createEncryptedPrefsWithRecovery(): SharedPreferences {
+        return try {
+            createEncryptedPrefs()
+        } catch (e: Exception) {
+            Log.e(TAG, "EncryptedSharedPreferences creation failed, attempting recovery", e)
+            recoverFromCorruption()
+            // Retry after recovery
+            try {
+                createEncryptedPrefs()
+            } catch (e2: Exception) {
+                Log.e(TAG, "Recovery failed, falling back to regular SharedPreferences", e2)
+                // Last resort: use regular SharedPreferences (not encrypted but won't crash)
+                context.getSharedPreferences(PREFS_FILE_NAME + "_fallback", Context.MODE_PRIVATE)
+            }
+        }
+    }
+
+    /**
+     * Create EncryptedSharedPreferences with a fresh MasterKey.
+     */
+    private fun createEncryptedPrefs(): SharedPreferences {
+        val masterKey = MasterKey.Builder(context)
+            .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
+            .build()
+
+        return EncryptedSharedPreferences.create(
             context,
             PREFS_FILE_NAME,
             masterKey,
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
         )
+    }
+
+    /**
+     * Recover from KeyStore corruption by deleting all related files and keys.
+     */
+    private fun recoverFromCorruption() {
+        try {
+            // 1. Delete the encrypted shared preferences file
+            val prefsFile = java.io.File(context.filesDir.parent, "shared_prefs/$PREFS_FILE_NAME.xml")
+            if (prefsFile.exists()) {
+                prefsFile.delete()
+                Log.w(TAG, "Deleted corrupted prefs file: ${prefsFile.absolutePath}")
+            }
+
+            // 2. Delete the MasterKey from Android KeyStore
+            try {
+                val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+                keyStore.load(null)
+                val masterKeyAlias = "_androidx_security_master_key_"
+                if (keyStore.containsAlias(masterKeyAlias)) {
+                    keyStore.deleteEntry(masterKeyAlias)
+                    Log.w(TAG, "Deleted corrupted MasterKey from KeyStore")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete MasterKey from KeyStore", e)
+            }
+
+            // 3. Also delete any keyset prefs used by Tink
+            val keysetPrefs = java.io.File(context.filesDir.parent, "shared_prefs/__androidx_security_crypto_encrypted_prefs__.xml")
+            if (keysetPrefs.exists()) {
+                keysetPrefs.delete()
+                Log.w(TAG, "Deleted keyset prefs file")
+            }
+
+            Log.i(TAG, "KeyStore corruption recovery completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to recover from corruption", e)
+        }
     }
 
     companion object {

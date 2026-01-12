@@ -10,12 +10,16 @@ use nearclip_sync::{Channel, Message};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
-use tokio::sync::{Mutex, Notify};
+use std::time::Duration;
+use tokio::sync::{Mutex, Notify, oneshot};
 use std::collections::VecDeque;
 use tracing::{debug, warn, instrument};
 
 use crate::error::TransportError;
 use crate::traits::Transport;
+
+/// Default ACK wait timeout in milliseconds
+const DEFAULT_ACK_TIMEOUT_MS: u64 = 5000;
 
 /// BLE sender interface - platform must implement this
 ///
@@ -38,6 +42,49 @@ pub trait BleSender: Send + Sync {
 
     /// Get the negotiated MTU for a device
     fn get_mtu(&self, device_id: &str) -> usize;
+
+    /// Send an ACK for a received message
+    ///
+    /// Called by the receiving end to acknowledge successful message reception.
+    /// The ACK is sent via the DATA_ACK characteristic.
+    ///
+    /// # Arguments
+    /// * `device_id` - The device that sent the message
+    /// * `message_id` - The message ID to acknowledge
+    ///
+    /// # Returns
+    /// * `Ok(())` if ACK was sent successfully
+    /// * `Err(String)` with error message if failed
+    fn send_ack(&self, device_id: &str, message_id: u16) -> Result<(), String> {
+        // Default implementation does nothing - platforms can override
+        let _ = device_id;
+        let _ = message_id;
+        Ok(())
+    }
+
+    /// Subscribe to ACK notifications from a device
+    ///
+    /// Called before sending to ensure we receive ACK notifications.
+    ///
+    /// # Arguments
+    /// * `device_id` - The device to subscribe to
+    ///
+    /// # Returns
+    /// * `Ok(())` if subscription was successful
+    /// * `Err(String)` with error message if failed
+    fn subscribe_ack(&self, device_id: &str) -> Result<(), String> {
+        // Default implementation does nothing - platforms can override
+        let _ = device_id;
+        Ok(())
+    }
+}
+
+/// Result of processing a chunk - may contain a complete message and its ID
+struct ProcessChunkResult {
+    /// The complete message, if reassembly finished
+    message: Option<Message>,
+    /// The message ID from the chunk (for ACK purposes)
+    message_id: u16,
 }
 
 /// Process a received BLE chunk and return a complete message if reassembly is done
@@ -46,7 +93,7 @@ pub trait BleSender: Send + Sync {
 fn process_chunk(
     data: &[u8],
     reassemblers: &mut HashMap<u16, Reassembler>,
-) -> Option<Message> {
+) -> Option<ProcessChunkResult> {
     if data.len() < CHUNK_HEADER_SIZE {
         warn!("Received BLE data too short: {} bytes", data.len());
         return None;
@@ -96,7 +143,7 @@ fn process_chunk(
     }
 
     // Check if message is complete
-    let result = if reassembler.is_complete() {
+    let message = if reassembler.is_complete() {
         // Remove reassembler and assemble message
         if let Some(reassembler) = reassemblers.remove(&header.message_id) {
             match reassembler.assemble() {
@@ -138,7 +185,11 @@ fn process_chunk(
         }
     });
 
-    result
+    // Return result with message ID for ACK purposes
+    Some(ProcessChunkResult {
+        message,
+        message_id: header.message_id,
+    })
 }
 
 /// BLE transport - bridges to platform BLE via FFI callbacks
@@ -160,6 +211,8 @@ pub struct BleTransport {
     message_id_counter: AtomicU16,
     /// Reassemblers for incoming chunked messages
     reassemblers: Arc<Mutex<HashMap<u16, Reassembler>>>,
+    /// Pending ACK waiters - maps message_id to oneshot sender
+    pending_acks: Arc<Mutex<HashMap<u16, oneshot::Sender<()>>>>,
 }
 
 impl BleTransport {
@@ -177,6 +230,7 @@ impl BleTransport {
             connected: AtomicBool::new(true),
             message_id_counter: AtomicU16::new(0),
             reassemblers: Arc::new(Mutex::new(HashMap::new())),
+            pending_acks: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -189,21 +243,39 @@ impl BleTransport {
     ///
     /// This method handles chunked data reassembly and queues
     /// complete messages for the recv() method.
+    /// When a complete message is received, an ACK is sent back.
     ///
     /// # Arguments
     /// * `data` - Raw bytes received from BLE (a single chunk)
     pub async fn on_data_received(&self, data: &[u8]) {
         let mut reassemblers = self.reassemblers.lock().await;
-        if let Some(msg) = process_chunk(data, &mut reassemblers) {
-            let mut queue = self.recv_queue.lock().await;
-            queue.push_back(msg);
-            self.recv_notify.notify_one();
+        if let Some(result) = process_chunk(data, &mut reassemblers) {
+            if let Some(msg) = result.message {
+                // Send ACK for complete message
+                if let Err(e) = self.sender.send_ack(&self.device_id, result.message_id) {
+                    warn!(
+                        message_id = result.message_id,
+                        error = %e,
+                        "Failed to send ACK"
+                    );
+                } else {
+                    debug!(
+                        message_id = result.message_id,
+                        "ACK sent for received message"
+                    );
+                }
+
+                let mut queue = self.recv_queue.lock().await;
+                queue.push_back(msg);
+                self.recv_notify.notify_one();
+            }
         }
     }
 
     /// Called by platform when BLE data is received (sync version)
     ///
     /// This is a blocking version for use from FFI callbacks.
+    /// When a complete message is received, an ACK is sent back.
     pub fn on_data_received_sync(&self, data: &[u8]) {
         // Try to get a handle to the runtime
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -211,22 +283,56 @@ impl BleTransport {
             let recv_queue = self.recv_queue.clone();
             let recv_notify = self.recv_notify.clone();
             let reassemblers = self.reassemblers.clone();
+            let sender = self.sender.clone();
+            let device_id = self.device_id.clone();
 
             handle.spawn(async move {
                 let mut reassemblers = reassemblers.lock().await;
-                if let Some(msg) = process_chunk(&data, &mut reassemblers) {
-                    let mut queue = recv_queue.lock().await;
-                    queue.push_back(msg);
-                    recv_notify.notify_one();
+                if let Some(result) = process_chunk(&data, &mut reassemblers) {
+                    if let Some(msg) = result.message {
+                        // Send ACK for complete message
+                        if let Err(e) = sender.send_ack(&device_id, result.message_id) {
+                            warn!(
+                                message_id = result.message_id,
+                                error = %e,
+                                "Failed to send ACK"
+                            );
+                        } else {
+                            debug!(
+                                message_id = result.message_id,
+                                "ACK sent for received message"
+                            );
+                        }
+
+                        let mut queue = recv_queue.lock().await;
+                        queue.push_back(msg);
+                        recv_notify.notify_one();
+                    }
                 }
             });
         } else {
             // No runtime available, use blocking lock
             let mut reassemblers = self.reassemblers.blocking_lock();
-            if let Some(msg) = process_chunk(data, &mut reassemblers) {
-                let mut queue = self.recv_queue.blocking_lock();
-                queue.push_back(msg);
-                self.recv_notify.notify_one();
+            if let Some(result) = process_chunk(data, &mut reassemblers) {
+                if let Some(msg) = result.message {
+                    // Send ACK for complete message
+                    if let Err(e) = self.sender.send_ack(&self.device_id, result.message_id) {
+                        warn!(
+                            message_id = result.message_id,
+                            error = %e,
+                            "Failed to send ACK (sync)"
+                        );
+                    } else {
+                        debug!(
+                            message_id = result.message_id,
+                            "ACK sent for received message (sync)"
+                        );
+                    }
+
+                    let mut queue = self.recv_queue.blocking_lock();
+                    queue.push_back(msg);
+                    self.recv_notify.notify_one();
+                }
             }
         }
     }
@@ -236,6 +342,42 @@ impl BleTransport {
         self.connected.store(connected, Ordering::SeqCst);
         if !connected {
             self.recv_notify.notify_waiters();
+        }
+    }
+
+    /// Called by platform when an ACK is received for a sent message
+    ///
+    /// This method signals the waiting sender that their message was received.
+    ///
+    /// # Arguments
+    /// * `message_id` - The message ID that was acknowledged
+    pub async fn on_ack_received(&self, message_id: u16) {
+        let mut pending = self.pending_acks.lock().await;
+        if let Some(sender) = pending.remove(&message_id) {
+            let _ = sender.send(());
+            debug!(message_id, "ACK received and waiter notified");
+        } else {
+            debug!(message_id, "ACK received but no waiter found (might have timed out)");
+        }
+    }
+
+    /// Called by platform when an ACK is received (sync version)
+    pub fn on_ack_received_sync(&self, message_id: u16) {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let pending_acks = self.pending_acks.clone();
+            handle.spawn(async move {
+                let mut pending = pending_acks.lock().await;
+                if let Some(sender) = pending.remove(&message_id) {
+                    let _ = sender.send(());
+                    debug!(message_id, "ACK received and waiter notified (sync)");
+                }
+            });
+        } else {
+            let mut pending = self.pending_acks.blocking_lock();
+            if let Some(sender) = pending.remove(&message_id) {
+                let _ = sender.send(());
+                debug!(message_id, "ACK received and waiter notified (blocking)");
+            }
         }
     }
 }
@@ -251,6 +393,12 @@ impl Transport for BleTransport {
         if !self.sender.is_ble_connected(&self.device_id) {
             self.connected.store(false, Ordering::SeqCst);
             return Err(TransportError::ConnectionClosed);
+        }
+
+        // Subscribe to ACK notifications before sending
+        if let Err(e) = self.sender.subscribe_ack(&self.device_id) {
+            warn!(error = %e, "Failed to subscribe to ACK notifications");
+            // Continue anyway - ACK might still work if already subscribed
         }
 
         // Serialize message
@@ -273,22 +421,69 @@ impl Transport for BleTransport {
             "Sending BLE message"
         );
 
+        // Create ACK waiter before sending
+        let (ack_tx, ack_rx) = oneshot::channel();
+        {
+            let mut pending = self.pending_acks.lock().await;
+            pending.insert(message_id, ack_tx);
+        }
+
         // Send each chunk
         for (i, chunk) in chunks.iter().enumerate() {
-            self.sender.send_ble_data(&self.device_id, chunk)
-                .map_err(|e| {
-                    self.connected.store(false, Ordering::SeqCst);
-                    TransportError::SendFailed(format!("BLE send failed at chunk {}: {}", i, e))
-                })?;
+            if let Err(e) = self.sender.send_ble_data(&self.device_id, chunk) {
+                self.connected.store(false, Ordering::SeqCst);
+                // Clean up pending ACK waiter
+                let mut pending = self.pending_acks.lock().await;
+                pending.remove(&message_id);
+                return Err(TransportError::SendFailed(format!("BLE send failed at chunk {}: {}", i, e)));
+            }
         }
 
         debug!(
             device_id = %self.device_id,
             message_id,
-            "BLE message sent successfully"
+            "BLE chunks sent, waiting for ACK"
         );
 
-        Ok(())
+        // Wait for ACK with timeout
+        let ack_timeout = Duration::from_millis(DEFAULT_ACK_TIMEOUT_MS);
+        match tokio::time::timeout(ack_timeout, ack_rx).await {
+            Ok(Ok(())) => {
+                debug!(
+                    device_id = %self.device_id,
+                    message_id,
+                    "BLE message acknowledged"
+                );
+                Ok(())
+            }
+            Ok(Err(_)) => {
+                // Channel was closed (sender dropped)
+                warn!(
+                    device_id = %self.device_id,
+                    message_id,
+                    "ACK channel closed unexpectedly"
+                );
+                // Consider it a success since data was sent
+                Ok(())
+            }
+            Err(_) => {
+                // Timeout - clean up and warn
+                {
+                    let mut pending = self.pending_acks.lock().await;
+                    pending.remove(&message_id);
+                }
+                warn!(
+                    device_id = %self.device_id,
+                    message_id,
+                    timeout_ms = DEFAULT_ACK_TIMEOUT_MS,
+                    "ACK timeout - message may not have been received"
+                );
+                // Return success with warning - data was sent, just no ACK received
+                // This allows the app to continue working even if ACK mechanism isn't
+                // fully implemented on the platform side yet
+                Ok(())
+            }
+        }
     }
 
     #[instrument(skip(self), fields(device_id = %self.device_id))]

@@ -147,6 +147,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Actions
 
     @objc private func togglePopover() {
+        print("AppDelegate: Status item clicked")
         guard let button = statusItem?.button, let popover = popover else { return }
 
         if popover.isShown {

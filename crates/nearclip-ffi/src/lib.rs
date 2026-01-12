@@ -1161,6 +1161,39 @@ impl FfiNearClipManager {
                     let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
                     transport.on_connection_state_changed(true);
 
+                    // Subscribe to DATA_TRANSFER and DATA_ACK characteristics immediately after connection
+                    // ONLY if we are in Central mode (we connected to a peripheral)
+                    // In Peripheral mode (a central connected to us), we don't subscribe - the central does
+                    let hardware = self.ble_hardware.read().await;
+                    if let Some(ref hw) = *hardware {
+                        // Check if we're in Central mode by seeing if peripheral_uuid differs from device_id
+                        // In Central mode: device_id is the actual device ID, peripheral_uuid is the BLE peripheral UUID
+                        // In Peripheral mode: device_id == peripheral_uuid (it's the central's MAC address)
+                        let is_central_mode = peripheral_uuid != device_id;
+
+                        if is_central_mode {
+                            // We are Central - subscribe to the Peripheral's characteristics
+                            tracing::info!(device_id = %device_id, peripheral_uuid = %peripheral_uuid, "Central mode detected, subscribing to peripheral characteristics");
+
+                            // Subscribe to DATA_TRANSFER for receiving messages
+                            let data_char = nearclip_ble::DATA_TRANSFER_CHARACTERISTIC_UUID.to_string();
+                            let error = hw.subscribe_characteristic(peripheral_uuid.clone(), data_char.clone());
+                            if !error.is_empty() {
+                                tracing::warn!(device_id = %device_id, char_uuid = %data_char, error = %error, "Failed to subscribe to DATA_TRANSFER");
+                            }
+
+                            // Subscribe to DATA_ACK for receiving ACKs
+                            let ack_char = nearclip_ble::DATA_ACK_CHARACTERISTIC_UUID.to_string();
+                            let error = hw.subscribe_characteristic(peripheral_uuid.clone(), ack_char.clone());
+                            if !error.is_empty() {
+                                tracing::warn!(device_id = %device_id, char_uuid = %ack_char, error = %error, "Failed to subscribe to DATA_ACK");
+                            }
+                        } else {
+                            // We are Peripheral - don't subscribe, the Central will subscribe to us
+                            tracing::info!(device_id = %device_id, "Peripheral mode detected, skipping subscription (Central will subscribe to us)");
+                        }
+                    }
+
                     // Start a receive task for this transport
                     // Pass ble_controller so the task can update device ID mapping when
                     // it receives PairingRequest with real device ID

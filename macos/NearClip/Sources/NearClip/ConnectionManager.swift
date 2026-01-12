@@ -168,6 +168,13 @@ final class ConnectionManager: ObservableObject {
     /// Timer for periodic device list refresh
     private var refreshTimer: Timer?
 
+    /// Track last auto-pair attempt time for devices to avoid spamming but allow retries
+    private var lastAutoPairAttempt: [String: Date] = [:]
+
+    /// Track last discovery notification time to throttle FFI calls and logs
+    private var lastDiscoveryNotification: [String: Date] = [:]
+    private let discoveryLock = NSLock()
+
     /// BLE Manager for Bluetooth communication
     private(set) var bleManager: BleManager?
 
@@ -292,7 +299,7 @@ final class ConnectionManager: ObservableObject {
                 let publicKeyHash = generatedId.data(using: .utf8)?.sha256Hash ?? ""
                 NSLog("ConnectionManager: Configuring BLE with deviceId=\(generatedId)")
                 bleManager?.configure(deviceId: generatedId, publicKeyHash: publicKeyHash)
-                NSLog("ConnectionManager: Starting BLE advertising")
+                NSLog("ConnectionManager: Starting BLE advertising, bleManager: \(bleManager == nil ? "nil" : "exists")")
                 bleManager?.startAdvertising()
                 NSLog("ConnectionManager: Starting BLE scanning")
                 bleManager?.startScanning()
@@ -330,9 +337,9 @@ final class ConnectionManager: ObservableObject {
             // Refresh device lists
             refreshDeviceLists()
 
-            // Start periodic refresh timer (every 2 seconds)
+            // Start periodic refresh timer (every 10 seconds - reduced from 2s to prevent UI lag)
             refreshTimer?.invalidate()
-            refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            refreshTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] _ in
                 self?.refreshDeviceLists()
             }
 
@@ -592,34 +599,39 @@ final class ConnectionManager: ObservableObject {
     func refreshDeviceLists() {
         guard let manager = nearClipManager else { return }
 
-        // Get connected devices
-        let ffiConnected = manager.getConnectedDevices()
-        let connected = ffiConnected.map { device in
-            DeviceDisplay(
-                id: device.id,
-                name: device.name,
-                platform: platformString(device.platform),
-                isConnected: true,
-                lastSeen: Date()
-            )
-        }
+        // Perform FFI calls on background thread to avoid blocking Main Thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
 
-        // Get paired devices
-        let ffiPaired = manager.getPairedDevices()
-        let paired = ffiPaired.map { device in
-            let isConnected = connected.contains { $0.id == device.id }
-            return DeviceDisplay(
-                id: device.id,
-                name: device.name,
-                platform: platformString(device.platform),
-                isConnected: isConnected
-            )
-        }
+            // Get connected devices
+            let ffiConnected = manager.getConnectedDevices()
+            let connected = ffiConnected.map { device in
+                DeviceDisplay(
+                    id: device.id,
+                    name: device.name,
+                    platform: self.platformString(device.platform),
+                    isConnected: true,
+                    lastSeen: Date()
+                )
+            }
 
-        DispatchQueue.main.async { [weak self] in
-            self?.connectedDevices = connected
-            self?.pairedDevices = paired
-            self?.updateStatus()
+            // Get paired devices
+            let ffiPaired = manager.getPairedDevices()
+            let paired = ffiPaired.map { device in
+                let isConnected = connected.contains { $0.id == device.id }
+                return DeviceDisplay(
+                    id: device.id,
+                    name: device.name,
+                    platform: self.platformString(device.platform),
+                    isConnected: isConnected
+                )
+            }
+
+            DispatchQueue.main.async {
+                self.connectedDevices = connected
+                self.pairedDevices = paired
+                self.updateStatus()
+            }
         }
     }
 
@@ -900,13 +912,23 @@ final class ConnectionManager: ObservableObject {
         notifyStatusChange()
     }
 
+    private var statusUpdateWorkItem: DispatchWorkItem?
+
     private func notifyStatusChange() {
-        // Notify app delegate to update icon
-        DispatchQueue.main.async {
+        // Debounce UI updates to prevent Main Thread starvation during rapid state changes
+        statusUpdateWorkItem?.cancel()
+
+        let item = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            // Notify app delegate to update icon
             if let appDelegate = NSApp.delegate as? AppDelegate {
                 appDelegate.updateStatusIcon(for: self.status)
             }
         }
+        statusUpdateWorkItem = item
+
+        // Wait 0.2s before updating UI (Reduced from 0.25s)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: item)
     }
 
     private func platformString(_ platform: DevicePlatform) -> String {
@@ -1005,8 +1027,41 @@ final class NearClipCallbackHandler: FfiNearClipCallback {
 extension ConnectionManager: BleManagerDelegate {
 
     func bleManager(_ manager: BleManager, didDiscoverDevice peripheralUuid: String, deviceId: String?, publicKeyHash: String?, rssi: Int) {
-        // Forward to FFI layer - Rust BleController will handle the logic
-        print("BLE: Discovered peripheral: \(peripheralUuid), deviceId: \(deviceId ?? "nil"), rssi: \(rssi)")
+        // Throttle discovery notifications to prevent flooding FFI and Main Thread
+        let now = Date()
+        var shouldSkip = false
+
+        discoveryLock.lock()
+        if let lastTime = lastDiscoveryNotification[peripheralUuid],
+           now.timeIntervalSince(lastTime) < 5.0 {
+            shouldSkip = true
+        } else {
+            lastDiscoveryNotification[peripheralUuid] = now
+        }
+        discoveryLock.unlock()
+
+        if shouldSkip {
+            return
+        }
+
+        // Only notify FFI layer if we have a device_id (from auto-discovery connection)
+        guard let deviceId = deviceId, !deviceId.isEmpty else {
+            return
+        }
+
+        // Perform FFI calls on background thread to avoid blocking BLE queue
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
+
+            NSLog("BLE: Discovered peripheral: \(peripheralUuid), deviceId: \(deviceId), rssi: \(rssi)")
+            self.nearClipManager?.onBleDeviceDiscovered(
+                peripheralUuid: peripheralUuid,
+                deviceId: deviceId,
+                publicKeyHash: publicKeyHash ?? "",
+                rssi: Int32(rssi)
+            )
+            NSLog("ConnectionManager: Notified FFI layer of BLE device discovery: \(deviceId) -> \(peripheralUuid)")
+        }
     }
 
     func bleManager(_ manager: BleManager, didLoseDevice peripheralUuid: String) {
@@ -1017,67 +1072,91 @@ extension ConnectionManager: BleManagerDelegate {
     }
 
     func bleManager(_ manager: BleManager, didConnectDevice peripheralUuid: String, deviceId: String) {
-        DispatchQueue.main.async { [weak self] in
+        NSLog("ConnectionManager: BLE didConnectDevice - peripheralUuid: \(peripheralUuid), deviceId: \(deviceId)")
+
+        // Perform FFI calls on background thread to avoid blocking Main Thread
+        // FFI calls like onBleConnectionChanged may trigger read_characteristic which uses semaphore
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
-            NSLog("ConnectionManager: BLE didConnectDevice - peripheralUuid: \(peripheralUuid), deviceId: \(deviceId)")
+            // First, notify FFI layer about device discovery to establish device_id -> peripheral_uuid mapping
+            // This is required before connection state change for BLE-only pairing to work
+            self.nearClipManager?.onBleDeviceDiscovered(
+                peripheralUuid: peripheralUuid,
+                deviceId: deviceId,
+                publicKeyHash: "",  // Will be read separately if needed
+                rssi: 0
+            )
+            NSLog("ConnectionManager: Notified FFI layer of BLE device discovery: \(deviceId) -> \(peripheralUuid)")
 
-            // Notify FFI layer about BLE connection state change
+            // Then notify FFI layer about BLE connection state change
             self.nearClipManager?.onBleConnectionChanged(deviceId: deviceId, connected: true)
             NSLog("ConnectionManager: Notified FFI layer of BLE connection: \(deviceId)")
 
-            print("BLE: Connected to device: \(deviceId)")
+            // Update UI on main thread
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
 
-            // If WiFi connection is not available, use BLE
-            if !self.connectedDevices.contains(where: { $0.id == deviceId }) {
-                // Get device info from paired devices if available
-                let pairedDevice = self.pairedDevices.first { $0.id == deviceId }
-                let deviceName = pairedDevice?.name ?? "BLE Device"
-                let platform = pairedDevice?.platform ?? "Unknown"
+                print("BLE: Connected to device: \(deviceId)")
 
-                // Create a DeviceDisplay for the BLE-connected device
-                let display = DeviceDisplay(
-                    id: deviceId,
-                    name: deviceName,
-                    platform: platform,
-                    isConnected: true,
-                    lastSeen: Date(),
-                    connectionType: .ble
-                )
+                // If WiFi connection is not available, use BLE
+                if !self.connectedDevices.contains(where: { $0.id == deviceId }) {
+                    // Get device info from paired devices if available
+                    let pairedDevice = self.pairedDevices.first { $0.id == deviceId }
+                    let deviceName = pairedDevice?.name ?? "BLE Device"
+                    let platform = pairedDevice?.platform ?? "Unknown"
 
-                // Add to connected devices if not already present via WiFi
-                self.connectedDevices.append(display)
-                self.updateStatus()
-                NSLog("ConnectionManager: Added BLE device to connectedDevices: \(deviceName) (\(deviceId))")
-            } else {
-                // Device already connected via WiFi, update to .both
-                if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
-                    self.connectedDevices[index].connectionType = .both
-                    NSLog("ConnectionManager: Updated device to .both: \(deviceId)")
+                    // Create a DeviceDisplay for the BLE-connected device
+                    let display = DeviceDisplay(
+                        id: deviceId,
+                        name: deviceName,
+                        platform: platform,
+                        isConnected: true,
+                        lastSeen: Date(),
+                        connectionType: .ble
+                    )
+
+                    // Add to connected devices if not already present via WiFi
+                    self.connectedDevices.append(display)
+                    self.updateStatus()
+                    NSLog("ConnectionManager: Added BLE device to connectedDevices: \(deviceName) (\(deviceId))")
+                } else {
+                    // Device already connected via WiFi, update to .both
+                    if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
+                        self.connectedDevices[index].connectionType = .both
+                        NSLog("ConnectionManager: Updated device to .both: \(deviceId)")
+                    }
                 }
             }
         }
     }
 
     func bleManager(_ manager: BleManager, didDisconnectDevice peripheralUuid: String, deviceId: String?) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self else { return }
-            print("BLE: Disconnected from peripheral: \(peripheralUuid), deviceId: \(deviceId ?? "nil")")
+        print("BLE: Disconnected from peripheral: \(peripheralUuid), deviceId: \(deviceId ?? "nil")")
 
-            guard let deviceId = deviceId else { return }
+        guard let deviceId = deviceId else { return }
+
+        // Perform FFI calls on background thread to avoid blocking Main Thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self = self else { return }
 
             // Notify FFI layer about BLE connection state change
             self.nearClipManager?.onBleConnectionChanged(deviceId: deviceId, connected: false)
             NSLog("ConnectionManager: Notified FFI layer of BLE disconnection: \(deviceId)")
 
-            // Update connection type if device was connected via both
-            if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
-                if self.connectedDevices[index].connectionType == .both {
-                    self.connectedDevices[index].connectionType = .wifi
-                } else if self.connectedDevices[index].connectionType == .ble {
-                    // BLE-only device disconnected, remove from list
-                    self.connectedDevices.remove(at: index)
-                    self.updateStatus()
+            // Update UI on main thread
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+
+                // Update connection type if device was connected via both
+                if let index = self.connectedDevices.firstIndex(where: { $0.id == deviceId }) {
+                    if self.connectedDevices[index].connectionType == .both {
+                        self.connectedDevices[index].connectionType = .wifi
+                    } else if self.connectedDevices[index].connectionType == .ble {
+                        // BLE-only device disconnected, remove from list
+                        self.connectedDevices.remove(at: index)
+                        self.updateStatus()
+                    }
                 }
             }
         }
@@ -1086,10 +1165,22 @@ extension ConnectionManager: BleManagerDelegate {
     func bleManager(_ manager: BleManager, didReceiveData data: Data, fromPeripheral peripheralUuid: String) {
         print("BLE: Received \(data.count) bytes from peripheral: \(peripheralUuid)")
 
-        // Forward BLE data to FFI layer for processing
+        // Forward BLE data to FFI layer for processing on background thread
         // Note: We need to map peripheralUuid to deviceId
-        nearClipManager?.onBleDataReceived(deviceId: peripheralUuid, data: data)
-        NSLog("ConnectionManager: Forwarded BLE data to FFI layer: \(data.count) bytes")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.nearClipManager?.onBleDataReceived(deviceId: peripheralUuid, data: data)
+            NSLog("ConnectionManager: Forwarded BLE data to FFI layer: \(data.count) bytes")
+        }
+    }
+
+    func bleManager(_ manager: BleManager, didReceiveAck data: Data, fromPeripheral peripheralUuid: String, deviceId: String) {
+        print("BLE: Received ACK from device: \(deviceId) (peripheral: \(peripheralUuid)), data: \(data.count) bytes")
+
+        // Forward ACK to FFI layer for processing on background thread
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            self?.nearClipManager?.onBleAckReceived(deviceId: deviceId, data: data)
+            NSLog("ConnectionManager: Forwarded BLE ACK to FFI layer: \(data.count) bytes from \(deviceId)")
+        }
     }
 
     func bleManager(_ manager: BleManager, didFailWithError error: Error, forPeripheral peripheralUuid: String?) {
@@ -1107,6 +1198,60 @@ extension ConnectionManager: BleManagerDelegate {
             // Check if this is a paired device and auto-connect
             if let publicKeyHash = device.publicKeyHash {
                 // TODO: Match by public key hash with paired devices
+            }
+
+            // TEST: Auto-pair discovered device if not already paired
+            // Only auto-pair if we haven't seen this device recently to avoid spamming
+
+            // Resolve real Device ID from BleManager if possible
+            // This is CRITICAL: Rust expects the real Device ID for pairing/connection,
+            // not the peripheral UUID (which is random on some platforms)
+            let realDeviceId = self.bleManager?.getDeviceId(for: device.peripheralUuid) ?? device.peripheralUuid
+            let deviceName = device.deviceName ?? "Unknown Device"
+
+            // Check if device is already connected via BLE or WiFi using real ID
+            let isConnected = self.connectedDevices.contains(where: { $0.id == realDeviceId })
+            let isPaired = self.pairedDevices.contains(where: { $0.id == realDeviceId })
+
+            // Check if BLE is already connected for this device
+            let isBleConnected = self.bleManager?.isConnected(peripheralUuid: device.peripheralUuid) == true
+
+            if isPaired && !isConnected && !isBleConnected {
+                // Already paired device discovered via BLE - auto-connect!
+                // Throttle connection attempts to avoid connection storm
+                let lastAttempt = self.lastAutoPairAttempt[realDeviceId]
+                if let lastAttempt = lastAttempt, Date().timeIntervalSince(lastAttempt) < 5 {
+                    return
+                }
+
+                print("BLE: Auto-connecting to paired device: \(realDeviceId) (UUID: \(device.peripheralUuid))")
+                self.lastAutoPairAttempt[realDeviceId] = Date()
+
+                // Connect via BLE using peripheral UUID
+                self.bleManager?.connect(peripheralUuid: device.peripheralUuid)
+            } else if !isPaired && !isConnected {
+                // Check if we already have a pending or recent attempt for this device
+                // This prevents the infinite loop of discovery -> pair -> connect -> discover -> pair...
+                // Allow retry every 15 seconds
+                let lastAttempt = self.lastAutoPairAttempt[realDeviceId]
+                if let lastAttempt = lastAttempt, Date().timeIntervalSince(lastAttempt) < 15 {
+                    return
+                }
+
+                print("TEST: Auto-pairing discovered device: \(realDeviceId) (UUID: \(device.peripheralUuid))")
+                self.lastAutoPairAttempt[realDeviceId] = Date()
+
+                let display = DeviceDisplay(
+                    id: realDeviceId, // Use real ID!
+                    name: deviceName,
+                    platform: "Unknown",
+                    isConnected: false,
+                    connectionType: .ble
+                )
+                if self.pairDevice(display) {
+                    print("TEST: Paired successfully, connecting to \(realDeviceId)...")
+                    self.connectDevice(realDeviceId)
+                }
             }
         }
     }
@@ -1207,10 +1352,16 @@ final class BleHardwareBridge: FfiBleHardware {
     // ========== Status Query ==========
 
     func isConnected(peripheralUuid: String) -> Bool {
-        return bleManager?.isConnected(peripheralUuid: peripheralUuid) ?? false
+        // peripheralUuid can be either a peripheral UUID or a device ID
+        // Try device ID first, then fall back to peripheral UUID
+        return bleManager?.isConnectedByDeviceId(peripheralUuid) ?? false
     }
 
     func getMtu(peripheralUuid: String) -> UInt32 {
+        // Try to resolve device_id to peripheral_uuid first
+        if let realPeripheralUuid = bleManager?.getPeripheralUuid(for: peripheralUuid) {
+            return bleManager?.getMtu(peripheralUuid: realPeripheralUuid) ?? 20
+        }
         return bleManager?.getMtu(peripheralUuid: peripheralUuid) ?? 20
     }
 }
