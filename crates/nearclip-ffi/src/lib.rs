@@ -572,6 +572,9 @@ pub struct FfiNearClipManager {
     history_manager: StdRwLock<Option<Arc<HistoryManager>>>,
     /// Device storage interface (set by platform)
     device_storage: RwLock<Option<Arc<dyn FfiDeviceStorage>>>,
+    /// In-memory cache of device shared secrets for encryption
+    /// Maps device_id -> shared_secret (32 bytes)
+    device_secrets: RwLock<HashMap<String, Vec<u8>>>,
 }
 
 impl FfiNearClipManager {
@@ -617,6 +620,7 @@ impl FfiNearClipManager {
             discovery_active: AtomicBool::new(false),
             history_manager: StdRwLock::new(None),
             device_storage: RwLock::new(None),
+            device_secrets: RwLock::new(HashMap::new()),
         })
     }
 
@@ -820,6 +824,28 @@ impl FfiNearClipManager {
     // ============================================================
     // BLE Methods
     // ============================================================
+
+    /// Get shared secret for a paired device (private helper)
+    ///
+    /// Returns the ECDH shared secret for encryption if the device is paired.
+    async fn get_shared_secret(&self, device_id: &str) -> Option<Vec<u8>> {
+        let secrets = self.device_secrets.read().await;
+        let secret = secrets.get(device_id).cloned();
+
+        if secret.is_some() {
+            tracing::debug!(
+                device_id = %device_id,
+                "Retrieved shared secret from cache"
+            );
+        } else {
+            tracing::debug!(
+                device_id = %device_id,
+                "No shared secret found in cache"
+            );
+        }
+
+        secret
+    }
 
     /// Set the BLE hardware interface
     ///
@@ -1053,7 +1079,15 @@ impl FfiNearClipManager {
                 let sender = self.ble_hardware_sender.read().await;
                 if let Some(ref sender) = *sender {
                     drop(transports);
-                    let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
+                    // Get shared_secret from DeviceManager for encryption
+                    let shared_secret = self.get_shared_secret(&device_id).await;
+                    let transport = Arc::new(
+                        BleTransport::new(
+                            device_id.clone(),
+                            sender.clone(),
+                            shared_secret.as_deref()
+                        ).expect("Failed to create BLE transport")
+                    );
                     transport.on_data_received(&data).await;
 
                     // Start a receive task for this transport
@@ -1158,7 +1192,15 @@ impl FfiNearClipManager {
                 // Create BLE transport if we have BLE hardware
                 let sender = self.ble_hardware_sender.read().await;
                 if let Some(ref sender) = *sender {
-                    let transport = Arc::new(BleTransport::new(device_id.clone(), sender.clone()));
+                    // Get shared_secret from DeviceManager for encryption
+                    let shared_secret = self.get_shared_secret(&device_id).await;
+                    let transport = Arc::new(
+                        BleTransport::new(
+                            device_id.clone(),
+                            sender.clone(),
+                            shared_secret.as_deref()
+                        ).expect("Failed to create BLE transport")
+                    );
                     transport.on_connection_state_changed(true);
 
                     // Subscribe to DATA_TRANSFER and DATA_ACK characteristics immediately after connection

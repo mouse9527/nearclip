@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use nearclip_ble::{ChunkHeader, Chunker, Reassembler, DEFAULT_BLE_MTU, DEFAULT_REASSEMBLE_TIMEOUT, CHUNK_HEADER_SIZE};
+use nearclip_crypto::Aes256Gcm;
 use nearclip_sync::{Channel, Message};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
@@ -93,6 +94,7 @@ struct ProcessChunkResult {
 fn process_chunk(
     data: &[u8],
     reassemblers: &mut HashMap<u16, Reassembler>,
+    encryption: Option<&Aes256Gcm>,
 ) -> Option<ProcessChunkResult> {
     if data.len() < CHUNK_HEADER_SIZE {
         warn!("Received BLE data too short: {} bytes", data.len());
@@ -148,6 +150,20 @@ fn process_chunk(
         if let Some(reassembler) = reassemblers.remove(&header.message_id) {
             match reassembler.assemble() {
                 Ok(data) => {
+                    // Decrypt data if encryption is enabled
+                    let data = if let Some(cipher) = encryption {
+                        debug!(message_id = header.message_id, "Decrypting reassembled message");
+                        match cipher.decrypt(&data) {
+                            Ok(decrypted) => decrypted,
+                            Err(e) => {
+                                warn!("Failed to decrypt BLE message: {}", e);
+                                return None;
+                            }
+                        }
+                    } else {
+                        data
+                    };
+
                     // Deserialize message
                     match Message::deserialize(&data) {
                         Ok(msg) => {
@@ -213,6 +229,8 @@ pub struct BleTransport {
     reassemblers: Arc<Mutex<HashMap<u16, Reassembler>>>,
     /// Pending ACK waiters - maps message_id to oneshot sender
     pending_acks: Arc<Mutex<HashMap<u16, oneshot::Sender<()>>>>,
+    /// Optional encryption cipher for end-to-end encryption
+    encryption: Option<Aes256Gcm>,
 }
 
 impl BleTransport {
@@ -221,8 +239,19 @@ impl BleTransport {
     /// # Arguments
     /// * `device_id` - The peer device ID
     /// * `sender` - Platform BLE sender implementation
-    pub fn new(device_id: String, sender: Arc<dyn BleSender>) -> Self {
-        Self {
+    /// * `shared_secret` - Optional 32-byte shared secret for encryption (from ECDH key exchange)
+    pub fn new(device_id: String, sender: Arc<dyn BleSender>, shared_secret: Option<&[u8]>) -> Result<Self, TransportError> {
+        // Initialize encryption if shared secret is provided
+        let encryption = if let Some(secret) = shared_secret {
+            debug!(device_id = %device_id, "Initializing BLE transport with encryption");
+            Some(Aes256Gcm::new(secret)
+                .map_err(|e| TransportError::Other(format!("Failed to initialize encryption: {}", e)))?)
+        } else {
+            debug!(device_id = %device_id, "Initializing BLE transport without encryption");
+            None
+        };
+
+        Ok(Self {
             device_id,
             sender,
             recv_queue: Arc::new(Mutex::new(VecDeque::new())),
@@ -231,7 +260,8 @@ impl BleTransport {
             message_id_counter: AtomicU16::new(0),
             reassemblers: Arc::new(Mutex::new(HashMap::new())),
             pending_acks: Arc::new(Mutex::new(HashMap::new())),
-        }
+            encryption,
+        })
     }
 
     /// Get the next message ID
@@ -249,7 +279,7 @@ impl BleTransport {
     /// * `data` - Raw bytes received from BLE (a single chunk)
     pub async fn on_data_received(&self, data: &[u8]) {
         let mut reassemblers = self.reassemblers.lock().await;
-        if let Some(result) = process_chunk(data, &mut reassemblers) {
+        if let Some(result) = process_chunk(data, &mut reassemblers, self.encryption.as_ref()) {
             if let Some(msg) = result.message {
                 // Send ACK for complete message
                 if let Err(e) = self.sender.send_ack(&self.device_id, result.message_id) {
@@ -285,10 +315,11 @@ impl BleTransport {
             let reassemblers = self.reassemblers.clone();
             let sender = self.sender.clone();
             let device_id = self.device_id.clone();
+            let encryption = self.encryption.clone();
 
             handle.spawn(async move {
                 let mut reassemblers = reassemblers.lock().await;
-                if let Some(result) = process_chunk(&data, &mut reassemblers) {
+                if let Some(result) = process_chunk(&data, &mut reassemblers, encryption.as_ref()) {
                     if let Some(msg) = result.message {
                         // Send ACK for complete message
                         if let Err(e) = sender.send_ack(&device_id, result.message_id) {
@@ -313,7 +344,7 @@ impl BleTransport {
         } else {
             // No runtime available, use blocking lock
             let mut reassemblers = self.reassemblers.blocking_lock();
-            if let Some(result) = process_chunk(data, &mut reassemblers) {
+            if let Some(result) = process_chunk(data, &mut reassemblers, self.encryption.as_ref()) {
                 if let Some(msg) = result.message {
                     // Send ACK for complete message
                     if let Err(e) = self.sender.send_ack(&self.device_id, result.message_id) {
@@ -404,6 +435,15 @@ impl Transport for BleTransport {
         // Serialize message
         let data = msg.serialize()
             .map_err(|e| TransportError::Serialization(e.to_string()))?;
+
+        // Encrypt data if encryption is enabled
+        let data = if let Some(ref cipher) = self.encryption {
+            debug!(device_id = %self.device_id, "Encrypting message before chunking");
+            cipher.encrypt(&data)
+                .map_err(|e| TransportError::Other(format!("Encryption failed: {}", e)))?
+        } else {
+            data
+        };
 
         // Get MTU and chunk data
         let mtu = self.sender.get_mtu(&self.device_id);
