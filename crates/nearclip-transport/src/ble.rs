@@ -634,7 +634,7 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_send() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = BleTransport::new("device_1".to_string(), sender.clone());
+        let transport = BleTransport::new("device_1".to_string(), sender.clone(), None).unwrap();
 
         let msg = create_test_message("hello");
         transport.send(&msg).await.unwrap();
@@ -647,7 +647,7 @@ mod tests {
     async fn test_ble_transport_send_disconnected() {
         let sender = Arc::new(MockBleSender::new());
         sender.disconnect();
-        let transport = BleTransport::new("device_1".to_string(), sender);
+        let transport = BleTransport::new("device_1".to_string(), sender, None).unwrap();
 
         let msg = create_test_message("hello");
         let result = transport.send(&msg).await;
@@ -658,7 +658,7 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_channel() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = BleTransport::new("device_1".to_string(), sender);
+        let transport = BleTransport::new("device_1".to_string(), sender, None).unwrap();
 
         assert_eq!(transport.channel(), Channel::Ble);
     }
@@ -666,7 +666,7 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_peer_device_id() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = BleTransport::new("device_1".to_string(), sender);
+        let transport = BleTransport::new("device_1".to_string(), sender, None).unwrap();
 
         assert_eq!(transport.peer_device_id(), "device_1");
     }
@@ -674,7 +674,7 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_is_connected() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = BleTransport::new("device_1".to_string(), sender.clone());
+        let transport = BleTransport::new("device_1".to_string(), sender.clone(), None).unwrap();
 
         assert!(transport.is_connected());
 
@@ -685,7 +685,7 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_close() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = BleTransport::new("device_1".to_string(), sender);
+        let transport = BleTransport::new("device_1".to_string(), sender, None).unwrap();
 
         assert!(transport.is_connected());
 
@@ -696,12 +696,13 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_recv_with_injected_data() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = Arc::new(BleTransport::new("device_1".to_string(), sender));
+        let transport = Arc::new(BleTransport::new("device_1".to_string(), sender, None).unwrap());
 
         // Create a message and chunk it
         let msg = create_test_message("hello from BLE");
-        let data = msg.serialize().unwrap();
-        let chunks = Chunker::chunk(&data, 1, DEFAULT_BLE_MTU).unwrap();
+        let serialized = bincode::serialize(&msg).unwrap();
+        let mut chunker = Chunker::new(1, &serialized, DEFAULT_BLE_MTU);
+        let chunks = chunker.create_all_chunks();
 
         // Inject chunks as if received from BLE
         for chunk in chunks {
@@ -716,17 +717,19 @@ mod tests {
     #[tokio::test]
     async fn test_ble_transport_recv_multiple_messages() {
         let sender = Arc::new(MockBleSender::new());
-        let transport = Arc::new(BleTransport::new("device_1".to_string(), sender));
+        let transport = Arc::new(BleTransport::new("device_1".to_string(), sender, None).unwrap());
 
         // Send two messages
         let msg1 = create_test_message("message 1");
         let msg2 = create_test_message("message 2");
 
-        let data1 = msg1.serialize().unwrap();
-        let data2 = msg2.serialize().unwrap();
+        let data1 = bincode::serialize(&msg1).unwrap();
+        let data2 = bincode::serialize(&msg2).unwrap();
 
-        let chunks1 = Chunker::chunk(&data1, 1, DEFAULT_BLE_MTU).unwrap();
-        let chunks2 = Chunker::chunk(&data2, 2, DEFAULT_BLE_MTU).unwrap();
+        let mut chunker1 = Chunker::new(1, &data1, DEFAULT_BLE_MTU);
+        let mut chunker2 = Chunker::new(2, &data2, DEFAULT_BLE_MTU);
+        let chunks1 = chunker1.create_all_chunks();
+        let chunks2 = chunker2.create_all_chunks();
 
         // Inject all chunks
         for chunk in chunks1 {

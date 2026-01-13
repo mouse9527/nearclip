@@ -1111,6 +1111,7 @@ name = "nearclip-transport"
 version = "0.1.6"
 dependencies = [
  "async-trait",
+ "bincode",
  "nearclip-ble",
  "nearclip-crypto",
  "nearclip-net",
