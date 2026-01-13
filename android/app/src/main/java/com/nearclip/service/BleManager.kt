@@ -31,9 +31,6 @@ class BleManager(private val context: Context) {
 
         // Default MTU payload size
         private const val DEFAULT_MTU = 20
-
-        // Chunk header size (Rust format): [messageId: 2 bytes][sequence: 2 bytes][total: 2 bytes][payloadLength: 2 bytes]
-        private const val CHUNK_HEADER_SIZE = 8
     }
 
     // Callback interface
@@ -69,8 +66,6 @@ class BleManager(private val context: Context) {
     private var localPublicKeyHash: String = ""
 
     // Data transfer
-    private val dataReassemblers = ConcurrentHashMap<String, DataReassembler>()
-    private val dataChunker = DataChunker()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // GATT characteristics for peripheral mode
@@ -176,14 +171,6 @@ class BleManager(private val context: Context) {
         return mtuCache[peripheralAddress] ?: DEFAULT_MTU
     }
 
-    // Track devices we're currently connecting to for discovery
-    private val pendingDiscoveryConnections = ConcurrentHashMap<String, Boolean>()
-
-    // Throttle discovery connections - track last connection attempt time
-    private val lastDiscoveryAttempt = ConcurrentHashMap<String, Long>()
-    private val discoveryThrottleMs = 30_000L // 30 seconds between discovery attempts for same device
-    private val maxConcurrentDiscovery = 2 // Max concurrent discovery connections
-
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val device = result.device
@@ -222,125 +209,15 @@ class BleManager(private val context: Context) {
                 return
             }
 
-            // Check if we're already connecting to this device
-            if (pendingDiscoveryConnections.containsKey(address)) {
-                return
-            }
-
-            // Check if already connected
-            if (connectedGatts.containsKey(address)) {
-                return
-            }
-
-            // Throttle: check if we recently tried to connect to this device
-            val now = System.currentTimeMillis()
-            val lastAttempt = lastDiscoveryAttempt[address] ?: 0L
-            if (now - lastAttempt < discoveryThrottleMs) {
-                return
-            }
-
-            // Limit concurrent discovery connections to prevent connection storm
-            if (pendingDiscoveryConnections.size >= maxConcurrentDiscovery) {
-                return
-            }
-
-            // Auto-connect to read device ID (for discovery purposes)
-            Log.i(TAG, "Auto-connecting to $address to read device ID (pending: ${pendingDiscoveryConnections.size})")
-            pendingDiscoveryConnections[address] = true
-            lastDiscoveryAttempt[address] = now
-            scope.launch {
-                try {
-                    device.connectGatt(context, false, discoveryGattCallback, BluetoothDevice.TRANSPORT_LE)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to connect for discovery: ${e.message}")
-                    pendingDiscoveryConnections.remove(address)
-                }
-            }
+            // Notify delegate about discovery with unknown device ID
+            // Rust layer will decide whether to connect for discovery
+            callback?.onDeviceDiscovered(address, null, null, result.rssi)
         }
 
         override fun onScanFailed(errorCode: Int) {
             Log.e(TAG, "Scan failed with error: $errorCode")
             isScanning = false
             callback?.onError(null, "BLE scan failed: $errorCode")
-        }
-    }
-
-    // Separate GATT callback for discovery connections (read device ID then disconnect)
-    private val discoveryGattCallback = object : BluetoothGattCallback() {
-        override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            val address = gatt.device.address
-
-            when (newState) {
-                BluetoothProfile.STATE_CONNECTED -> {
-                    Log.i(TAG, "Discovery: Connected to $address")
-                    gatt.discoverServices()
-                }
-                BluetoothProfile.STATE_DISCONNECTED -> {
-                    Log.i(TAG, "Discovery: Disconnected from $address")
-                    pendingDiscoveryConnections.remove(address)
-                    gatt.close()
-                }
-            }
-        }
-
-        override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            val address = gatt.device.address
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e(TAG, "Discovery: Service discovery failed for $address: $status")
-                gatt.disconnect()
-                return
-            }
-
-            val service = gatt.getService(SERVICE_UUID)
-            if (service == null) {
-                Log.w(TAG, "Discovery: NearClip service not found on $address")
-                gatt.disconnect()
-                return
-            }
-
-            // Read device ID characteristic
-            val deviceIdChar = service.getCharacteristic(DEVICE_ID_UUID)
-            if (deviceIdChar != null) {
-                gatt.readCharacteristic(deviceIdChar)
-            } else {
-                Log.w(TAG, "Discovery: Device ID characteristic not found on $address")
-                gatt.disconnect()
-            }
-        }
-
-        override fun onCharacteristicRead(
-            gatt: BluetoothGatt,
-            characteristic: BluetoothGattCharacteristic,
-            status: Int
-        ) {
-            val address = gatt.device.address
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e(TAG, "Discovery: Failed to read characteristic from $address")
-                gatt.disconnect()
-                return
-            }
-
-            val value = characteristic.value ?: run {
-                gatt.disconnect()
-                return
-            }
-
-            when (characteristic.uuid) {
-                DEVICE_ID_UUID -> {
-                    val deviceId = String(value, Charsets.UTF_8)
-                    peripheralDeviceIds[address] = deviceId
-                    Log.i(TAG, "Discovery: Got device ID from $address: $deviceId")
-
-                    // Notify callback with device ID
-                    callback?.onDeviceDiscovered(address, deviceId, null, 0)
-
-                    // Disconnect after reading device ID (discovery complete)
-                    gatt.disconnect()
-                }
-                else -> {
-                    gatt.disconnect()
-                }
-            }
         }
     }
 
@@ -762,34 +639,18 @@ class BleManager(private val context: Context) {
             return "Data transfer characteristic not found"
         }
 
-        val mtu = mtuCache[address] ?: DEFAULT_MTU
-        val chunks = dataChunker.createChunks(data, mtu)
-        Log.i(TAG, "Sending ${data.size} bytes in ${chunks.size} chunks")
-
-        scope.launch {
-            for (chunk in chunks) {
-                characteristic.value = chunk
-                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                gatt.writeCharacteristic(characteristic)
-                delay(5) // Small delay between chunks
-            }
-        }
+        Log.i(TAG, "Sending ${data.size} bytes to central")
+        characteristic.value = data
+        characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        gatt.writeCharacteristic(characteristic)
 
         return "" // Success
     }
 
     private fun sendDataToPeripheral(address: String, device: BluetoothDevice, data: ByteArray): String {
-        val mtu = mtuCache[address] ?: DEFAULT_MTU
-        val chunks = dataChunker.createChunks(data, mtu)
-        Log.i(TAG, "Sending ${data.size} bytes in ${chunks.size} chunks via notify")
-
-        scope.launch {
-            for (chunk in chunks) {
-                dataTransferCharacteristic?.value = chunk
-                gattServer?.notifyCharacteristicChanged(device, dataTransferCharacteristic, false)
-                delay(5)
-            }
-        }
+        Log.i(TAG, "Sending ${data.size} bytes via notify to peripheral")
+        dataTransferCharacteristic?.value = data
+        gattServer?.notifyCharacteristicChanged(device, dataTransferCharacteristic, false)
 
         return "" // Success
     }
@@ -1041,162 +902,4 @@ class BleManager(private val context: Context) {
         connectedCentrals.clear()
     }
 
-    // ==================== Data Reassembler ====================
-
-    class DataReassembler {
-        private val chunks = mutableMapOf<Int, ByteArray>()
-        private var totalChunks = 0
-        private var messageId: UShort = 0u
-        private var lastActivityTime = System.currentTimeMillis()
-        private val timeoutMs = 30000L
-
-        fun isTimedOut(): Boolean = System.currentTimeMillis() - lastActivityTime > timeoutMs
-
-        fun reset() {
-            chunks.clear()
-            totalChunks = 0
-            messageId = 0u
-        }
-
-        fun addChunk(data: ByteArray, sequence: Int, total: Int, msgId: UShort): ByteArray? {
-            lastActivityTime = System.currentTimeMillis()
-
-            // Reset if different message OR first chunk of a new session
-            if (this.messageId != msgId || chunks.isEmpty()) {
-                chunks.clear()
-                this.messageId = msgId
-                this.totalChunks = total
-            }
-
-            chunks[sequence] = data
-
-            if (chunks.size == totalChunks) {
-                val result = ByteArray(chunks.values.sumOf { it.size })
-                var offset = 0
-                for (i in 0 until totalChunks) {
-                    val chunk = chunks[i] ?: continue
-                    chunk.copyInto(result, offset)
-                    offset += chunk.size
-                }
-                chunks.clear()
-                return result
-            }
-
-            return null
-        }
-    }
-
-    // ==================== Data Chunker ====================
-
-    class DataChunker {
-        private var messageIdCounter: UShort = 0u
-
-        fun createChunks(data: ByteArray, maxPayloadSize: Int): List<ByteArray> {
-            val payloadSize = maxOf(1, maxPayloadSize - CHUNK_HEADER_SIZE)
-            val chunks = mutableListOf<ByteArray>()
-
-            val totalChunks = (data.size + payloadSize - 1) / payloadSize
-            messageIdCounter++
-            val messageId = messageIdCounter
-
-            var offset = 0
-            var sequence: UShort = 0u
-
-            while (offset < data.size) {
-                val chunkPayloadSize = minOf(payloadSize, data.size - offset)
-                val payload = data.copyOfRange(offset, offset + chunkPayloadSize)
-
-                val chunk = ByteArray(CHUNK_HEADER_SIZE + payload.size)
-                val msgId = messageId.toInt()
-                // message_id: 2 bytes (LE)
-                chunk[0] = (msgId and 0xFF).toByte()
-                chunk[1] = ((msgId shr 8) and 0xFF).toByte()
-
-                // sequence: 2 bytes (LE)
-                val seq = sequence.toInt()
-                chunk[2] = (seq and 0xFF).toByte()
-                chunk[3] = ((seq shr 8) and 0xFF).toByte()
-
-                // total_chunks: 2 bytes (LE)
-                chunk[4] = (totalChunks and 0xFF).toByte()
-                chunk[5] = ((totalChunks shr 8) and 0xFF).toByte()
-
-                // payload_length: 2 bytes (LE)
-                chunk[6] = (chunkPayloadSize and 0xFF).toByte()
-                chunk[7] = ((chunkPayloadSize shr 8) and 0xFF).toByte()
-
-                payload.copyInto(chunk, CHUNK_HEADER_SIZE)
-
-                chunks.add(chunk)
-                offset += chunkPayloadSize
-                sequence++
-            }
-
-            if (chunks.isEmpty()) {
-                // Empty message - send header only with 0 payload length
-                val chunk = ByteArray(CHUNK_HEADER_SIZE)
-                val msgId = messageId.toInt()
-                chunk[0] = (msgId and 0xFF).toByte()
-                chunk[1] = ((msgId shr 8) and 0xFF).toByte()
-                // sequence = 0, total = 1, payload_length = 0
-                chunk[4] = 1  // total_chunks = 1
-                chunks.add(chunk)
-            }
-
-            return chunks
-        }
-
-        companion object {
-            fun parseChunk(data: ByteArray): ChunkInfo? {
-                if (data.size < CHUNK_HEADER_SIZE) return null
-
-                // message_id: 2 bytes (LE)
-                val messageId = ((data[0].toInt() and 0xFF) or
-                        ((data[1].toInt() and 0xFF) shl 8)).toUShort()
-
-                // sequence: 2 bytes (LE)
-                val sequence = ((data[2].toInt() and 0xFF) or
-                        ((data[3].toInt() and 0xFF) shl 8)).toUShort()
-
-                // total_chunks: 2 bytes (LE)
-                val total = ((data[4].toInt() and 0xFF) or
-                        ((data[5].toInt() and 0xFF) shl 8)).toUShort()
-
-                // payload_length: 2 bytes (LE)
-                val payloadLength = ((data[6].toInt() and 0xFF) or
-                        ((data[7].toInt() and 0xFF) shl 8)).toUShort()
-
-                val payload = data.copyOfRange(CHUNK_HEADER_SIZE, data.size)
-
-                // Validate payload length
-                if (payload.size != payloadLength.toInt()) {
-                    Log.w(TAG, "Payload length mismatch: header=$payloadLength, actual=${payload.size}")
-                }
-
-                return ChunkInfo(messageId, sequence, total, payload)
-            }
-        }
-    }
-
-    data class ChunkInfo(
-        val messageId: UShort,
-        val sequence: UShort,
-        val total: UShort,
-        val payload: ByteArray
-    ) {
-        override fun equals(other: Any?): Boolean {
-            if (this === other) return true
-            if (javaClass != other?.javaClass) return false
-            other as ChunkInfo
-            return messageId == other.messageId && sequence == other.sequence && total == other.total && payload.contentEquals(other.payload)
-        }
-
-        override fun hashCode(): Int {
-            var result = messageId.hashCode()
-            result = 31 * result + sequence.hashCode()
-            result = 31 * result + total.hashCode()
-            result = 31 * result + payload.contentHashCode()
-            return result
-        }
-    }
 }

@@ -89,23 +89,13 @@ final class BleManager: NSObject, ObservableObject {
     private var peripheralDeviceIds: [UUID: String] = [:]
     private var connectedPeripherals: Set<UUID> = []
 
-    // Track peripherals we're currently connecting to for discovery (read device_id then disconnect)
-    private var pendingDiscoveryConnections: Set<UUID> = []
-
-    // Throttle discovery connections - track last connection attempt time
-    private var lastDiscoveryAttempt: [UUID: Date] = [:]
-    private let discoveryThrottleInterval: TimeInterval = 30.0 // 30 seconds between discovery attempts for same device
-    private let maxConcurrentDiscovery = 2 // Max concurrent discovery connections
-
     private var characteristicReadSemaphores: [String: DispatchSemaphore] = [:]
     private var characteristicReadResults: [String: Data] = [:]
 
     // Central mode (Peripheral server) tracking
     private var connectedCentrals: [UUID: CBCentral] = [:]
 
-    // Data transfer
-    private var reassemblers: [String: DataReassembler] = [:]
-    private var chunker = DataChunker()
+    // MTU cache
     private var mtuCache: [UUID: Int] = [:]
     private let defaultMtu: Int = 20
 
@@ -350,6 +340,7 @@ final class BleManager: NSObject, ObservableObject {
     // MARK: - Data Transfer
 
     /// Write data to a peripheral or connected central
+    /// Data should already be chunked by Rust layer if needed
     func writeData(peripheralUuid: String, data: Data) -> String {
         var targetUuid: UUID?
 
@@ -372,14 +363,8 @@ final class BleManager: NSObject, ObservableObject {
                 return "Data transfer characteristic not found"
             }
 
-            let mtu = mtuCache[uuid] ?? defaultMtu
-            let chunks = chunker.createChunks(from: data, maxPayloadSize: mtu)
-
-            os_log("Sending %d bytes in %d chunks to peripheral %{public}@", log: bleLog, type: .info, data.count, chunks.count, peripheralUuid)
-
-            for chunk in chunks {
-                peripheral.writeValue(chunk, for: characteristic, type: .withResponse)
-            }
+            os_log("Sending %d bytes to peripheral %{public}@", log: bleLog, type: .info, data.count, peripheralUuid)
+            peripheral.writeValue(data, for: characteristic, type: .withResponse)
 
             return "" // Success
         }
@@ -390,21 +375,12 @@ final class BleManager: NSObject, ObservableObject {
                  return "Data transfer characteristic not configured"
              }
 
-             // For notifications, MTU is limited. Default to safe value if unknown,
-             // or use central.maximumUpdateValueLength if available (API 7+)
-             let mtu = central.maximumUpdateValueLength
-             let chunks = chunker.createChunks(from: data, maxPayloadSize: mtu)
+             os_log("Sending %d bytes to central %{public}@", log: bleLog, type: .info, data.count, peripheralUuid)
 
-             os_log("Sending %d bytes in %d chunks to central %{public}@", log: bleLog, type: .info, data.count, chunks.count, peripheralUuid)
-
-             for chunk in chunks {
-                 let sent = peripheralManager.updateValue(chunk, for: characteristic, onSubscribedCentrals: [central])
-                 if !sent {
-                     os_log("Failed to send chunk to central %{public}@ - queue full", log: bleLog, type: .error, peripheralUuid)
-                     // In a robust implementation, we should queue this and retry in peripheralManagerIsReady
-                     // For now, checking return value allows us to at least know it failed
-                     return "Failed to send data - transmission queue full"
-                 }
+             let sent = peripheralManager.updateValue(data, for: characteristic, onSubscribedCentrals: [central])
+             if !sent {
+                 os_log("Failed to send data to central %{public}@ - queue full", log: bleLog, type: .error, peripheralUuid)
+                 return "Failed to send data - transmission queue full"
              }
 
              return "" // Success
@@ -651,50 +627,24 @@ extension BleManager: CBCentralManagerDelegate {
             return
         }
 
-        // Check if we're already connecting to this device for discovery
-        if pendingDiscoveryConnections.contains(peripheral.identifier) {
-            return
-        }
-
-        // Check if already connected
-        if connectedPeripherals.contains(peripheral.identifier) {
-            return
-        }
-
-        // Throttle: check if we recently tried to connect to this device
-        if let lastAttempt = lastDiscoveryAttempt[peripheral.identifier],
-           now.timeIntervalSince(lastAttempt) < discoveryThrottleInterval {
-            return
-        }
-
-        // Limit concurrent discovery connections to prevent connection storm
-        if pendingDiscoveryConnections.count >= maxConcurrentDiscovery {
-            return
-        }
-
-        // Auto-connect to read device ID (for discovery purposes)
-        NSLog("BLE: Auto-connecting to %@ to read device ID (pending: %d)", peripheralUuid, pendingDiscoveryConnections.count)
-        pendingDiscoveryConnections.insert(peripheral.identifier)
-        lastDiscoveryAttempt[peripheral.identifier] = now
-        centralManager.connect(peripheral, options: nil)
+        // Notify delegate about discovery with unknown device ID
+        // Rust layer will decide whether to connect for discovery
+        delegate?.bleManager(self, didDiscoverDevice: peripheralUuid, deviceId: nil, publicKeyHash: nil, rssi: RSSI.intValue)
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         let peripheralUuid = peripheral.identifier.uuidString
-        let isDiscoveryConnection = pendingDiscoveryConnections.contains(peripheral.identifier)
 
-        os_log("Connected to peripheral: %{public}@ (discovery: %{public}@)", log: bleLog, type: .info, peripheralUuid, isDiscoveryConnection ? "yes" : "no")
-        NSLog("BLE: Connected to %@ (discovery: %@)", peripheralUuid, isDiscoveryConnection ? "yes" : "no")
+        os_log("Connected to peripheral: %{public}@", log: bleLog, type: .info, peripheralUuid)
+        NSLog("BLE: Connected to %@", peripheralUuid)
 
         connectedPeripherals.insert(peripheral.identifier)
         peripheral.delegate = self
         peripheral.discoverServices([BleUUID.service])
 
-        // Update MTU (only for non-discovery connections)
-        if !isDiscoveryConnection {
-            let mtu = peripheral.maximumWriteValueLength(for: .withoutResponse)
-            mtuCache[peripheral.identifier] = max(20, mtu - 3)
-        }
+        // Update MTU
+        let mtu = peripheral.maximumWriteValueLength(for: .withoutResponse)
+        mtuCache[peripheral.identifier] = max(20, mtu - 3)
     }
 
     func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
@@ -702,31 +652,21 @@ extension BleManager: CBCentralManagerDelegate {
         os_log("Failed to connect: %{public}@", log: bleLog, type: .error, error?.localizedDescription ?? "Unknown error")
         NSLog("BLE: Failed to connect to %@: %@", peripheralUuid, error?.localizedDescription ?? "Unknown error")
 
-        // Clean up discovery tracking if this was a discovery connection
-        pendingDiscoveryConnections.remove(peripheral.identifier)
-
         delegate?.bleManager(self, didFailWithError: error ?? NSError(domain: "BleManager", code: -1), forPeripheral: peripheralUuid)
     }
 
     func centralManager(_ central: CBCentralManager, didDisconnectPeripheral peripheral: CBPeripheral, error: Error?) {
         let peripheralUuid = peripheral.identifier.uuidString
         let deviceId = peripheralDeviceIds[peripheral.identifier]
-        let wasDiscoveryConnection = pendingDiscoveryConnections.remove(peripheral.identifier) != nil
 
-        os_log("Disconnected from peripheral: %{public}@ (was discovery: %{public}@)", log: bleLog, type: .info, peripheralUuid, wasDiscoveryConnection ? "yes" : "no")
-        NSLog("BLE: Disconnected from %@ (was discovery: %@)", peripheralUuid, wasDiscoveryConnection ? "yes" : "no")
+        os_log("Disconnected from peripheral: %{public}@", log: bleLog, type: .info, peripheralUuid)
+        NSLog("BLE: Disconnected from %@", peripheralUuid)
 
         connectedPeripherals.remove(peripheral.identifier)
-        // Note: Don't remove peripheralDeviceIds for discovery - we want to cache the device_id
-        if !wasDiscoveryConnection {
-            peripheralDeviceIds.removeValue(forKey: peripheral.identifier)
-        }
+        peripheralDeviceIds.removeValue(forKey: peripheral.identifier)
         mtuCache.removeValue(forKey: peripheral.identifier)
 
-        // Only notify delegate for non-discovery disconnections
-        if !wasDiscoveryConnection {
-            delegate?.bleManager(self, didDisconnectDevice: peripheralUuid, deviceId: deviceId)
-        }
+        delegate?.bleManager(self, didDisconnectDevice: peripheralUuid, deviceId: deviceId)
     }
 }
 
@@ -752,11 +692,7 @@ extension BleManager: CBPeripheralDelegate {
 
         guard let service = peripheral.services?.first(where: { $0.uuid == BleUUID.service }) else {
             os_log("NearClip service not found", log: bleLog, type: .error)
-            NSLog("BLE: NearClip service not found on %@, disconnecting", peripheral.identifier.uuidString)
-            // Disconnect if this was a discovery connection
-            if pendingDiscoveryConnections.contains(peripheral.identifier) {
-                centralManager.cancelPeripheralConnection(peripheral)
-            }
+            NSLog("BLE: NearClip service not found on %@", peripheral.identifier.uuidString)
             return
         }
 
@@ -827,19 +763,11 @@ extension BleManager: CBPeripheralDelegate {
         case BleUUID.deviceId:
             if let deviceId = String(data: data, encoding: .utf8) {
                 peripheralDeviceIds[peripheral.identifier] = deviceId
-                let isDiscoveryConnection = pendingDiscoveryConnections.contains(peripheral.identifier)
-                os_log("Device ID read: %{public}@ (discovery: %{public}@)", log: bleLog, type: .info, deviceId, isDiscoveryConnection ? "yes" : "no")
-                NSLog("BLE: Device ID read: %@ from %@ (discovery: %@)", deviceId, peripheralUuid, isDiscoveryConnection ? "yes" : "no")
+                os_log("Device ID read: %{public}@", log: bleLog, type: .info, deviceId)
+                NSLog("BLE: Device ID read: %@ from %@", deviceId, peripheralUuid)
 
-                if isDiscoveryConnection {
-                    // For discovery connections: notify delegate about discovery, then disconnect
-                    delegate?.bleManager(self, didDiscoverDevice: peripheralUuid, deviceId: deviceId, publicKeyHash: nil, rssi: 0)
-                    NSLog("BLE: Discovery complete, disconnecting from %@", peripheralUuid)
-                    centralManager.cancelPeripheralConnection(peripheral)
-                } else {
-                    // For pairing/normal connections: notify delegate about connection
-                    delegate?.bleManager(self, didConnectDevice: peripheralUuid, deviceId: deviceId)
-                }
+                // Notify delegate about connection with device ID
+                delegate?.bleManager(self, didConnectDevice: peripheralUuid, deviceId: deviceId)
             }
 
         case BleUUID.publicKeyHash:
@@ -858,10 +786,9 @@ extension BleManager: CBPeripheralDelegate {
             }
 
         case BleUUID.dataTransfer:
-            if let data = characteristic.value {
-                 os_log("Data chunk received from peripheral: %d bytes", log: bleLog, type: .debug, data.count)
-                 delegate?.bleManager(self, didReceiveData: data, fromPeripheral: peripheralUuid)
-            }
+            // Forward raw data to delegate - Rust layer handles reassembly
+            os_log("Data chunk received from peripheral: %d bytes", log: bleLog, type: .debug, data.count)
+            delegate?.bleManager(self, didReceiveData: data, fromPeripheral: peripheralUuid)
 
         default:
             break
@@ -872,32 +799,6 @@ extension BleManager: CBPeripheralDelegate {
         let nearClipServiceInvalidated = invalidatedServices.contains { $0.uuid == BleUUID.service }
         if nearClipServiceInvalidated {
             peripheral.discoverServices([BleUUID.service])
-        }
-    }
-
-    private func handleIncomingDataFromPeripheral(_ data: Data, from peripheral: CBPeripheral) {
-        let peripheralUuid = peripheral.identifier.uuidString
-
-        guard let (messageId, sequence, total, _, payload) = DataChunker.parseChunk(data) else {
-            os_log("Invalid chunk received from peripheral", log: bleLog, type: .error)
-            return
-        }
-
-        if reassemblers[peripheralUuid] == nil {
-            reassemblers[peripheralUuid] = DataReassembler()
-        }
-
-        guard let reassembler = reassemblers[peripheralUuid] else { return }
-
-        if reassembler.isTimedOut {
-            reassembler.reset()
-        }
-
-        if let completeData = reassembler.addChunk(payload, sequence: Int(sequence), total: Int(total), messageId: messageId) {
-            os_log("Complete message received from peripheral: %d bytes", log: bleLog, type: .info, completeData.count)
-            delegate?.bleManager(self, didReceiveData: completeData, fromPeripheral: peripheralUuid)
-            // Note: We don't send ACK here because the protocol doesn't support writing ACKs to the Server
-            // (DATA_ACK is Read/Notify only on Server)
         }
     }
 }
@@ -1029,125 +930,3 @@ extension BleManager: CBPeripheralManagerDelegate {
     }
 }
 
-// MARK: - Data Reassembler
-
-// Chunk header size (Rust format): [messageId: 2 bytes][sequence: 2 bytes][total: 2 bytes][payloadLength: 2 bytes]
-private let kChunkHeaderSize = 8
-
-class DataReassembler {
-    private var chunks: [Int: Data] = [:]
-    private var totalChunks: Int = 0
-    private var messageId: UInt16 = 0
-    private var lastActivityTime: Date = Date()
-    private let timeout: TimeInterval = 30.0
-
-    var isTimedOut: Bool {
-        return Date().timeIntervalSince(lastActivityTime) > timeout
-    }
-
-    func reset() {
-        chunks.removeAll()
-        totalChunks = 0
-        messageId = 0
-    }
-
-    func addChunk(_ data: Data, sequence: Int, total: Int, messageId: UInt16) -> Data? {
-        lastActivityTime = Date()
-
-        // Reset if different message OR first chunk of a new session
-        if self.messageId != messageId || chunks.isEmpty {
-            self.chunks.removeAll()
-            self.messageId = messageId
-            self.totalChunks = total
-        }
-
-        chunks[sequence] = data
-
-        if chunks.count == totalChunks {
-            var completeData = Data()
-            for i in 0..<totalChunks {
-                if let chunk = chunks[i] {
-                    completeData.append(chunk)
-                }
-            }
-            chunks.removeAll()
-            return completeData
-        }
-
-        return nil
-    }
-}
-
-// MARK: - Data Chunker
-
-class DataChunker {
-    private var messageIdCounter: UInt16 = 0
-
-    func createChunks(from data: Data, maxPayloadSize: Int) -> [Data] {
-        let payloadSize = max(1, maxPayloadSize - kChunkHeaderSize)
-        var chunks: [Data] = []
-
-        let totalChunks = (data.count + payloadSize - 1) / payloadSize
-        messageIdCounter = messageIdCounter &+ 1
-        let messageId = messageIdCounter
-
-        var offset = 0
-        var sequence: UInt16 = 0
-
-        while offset < data.count {
-            let chunkPayloadSize = min(payloadSize, data.count - offset)
-            let payload = data.subdata(in: offset..<(offset + chunkPayloadSize))
-
-            var chunk = Data()
-            // message_id: 2 bytes (LE)
-            var msgId = messageId.littleEndian
-            chunk.append(Data(bytes: &msgId, count: 2))
-            // sequence: 2 bytes (LE)
-            var seq = sequence.littleEndian
-            chunk.append(Data(bytes: &seq, count: 2))
-            // total_chunks: 2 bytes (LE)
-            var total = UInt16(totalChunks).littleEndian
-            chunk.append(Data(bytes: &total, count: 2))
-            // payload_length: 2 bytes (LE)
-            var payloadLen = UInt16(chunkPayloadSize).littleEndian
-            chunk.append(Data(bytes: &payloadLen, count: 2))
-            chunk.append(payload)
-
-            chunks.append(chunk)
-            offset += chunkPayloadSize
-            sequence += 1
-        }
-
-        if chunks.isEmpty {
-            var chunk = Data()
-            var msgId = messageId.littleEndian
-            chunk.append(Data(bytes: &msgId, count: 2))
-            var seq: UInt16 = 0
-            chunk.append(Data(bytes: &seq, count: 2))
-            var total: UInt16 = 1
-            chunk.append(Data(bytes: &total, count: 2))
-            var payloadLen: UInt16 = 0
-            chunk.append(Data(bytes: &payloadLen, count: 2))
-            chunks.append(chunk)
-        }
-
-        return chunks
-    }
-
-    static func parseChunk(_ data: Data) -> (messageId: UInt16, sequence: UInt16, total: UInt16, payloadLength: UInt16, payload: Data)? {
-        guard data.count >= kChunkHeaderSize else { return nil }
-
-        let messageId = data.subdata(in: 0..<2).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
-        let sequence = data.subdata(in: 2..<4).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
-        let total = data.subdata(in: 4..<6).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
-        let payloadLength = data.subdata(in: 6..<8).withUnsafeBytes { $0.load(as: UInt16.self).littleEndian }
-        let payload = data.subdata(in: kChunkHeaderSize..<data.count)
-
-        // Validate payload length
-        if payload.count != Int(payloadLength) {
-            os_log("Payload length mismatch: header=%d, actual=%d", log: bleLog, type: .error, payloadLength, payload.count)
-        }
-
-        return (messageId, sequence, total, payloadLength, payload)
-    }
-}
