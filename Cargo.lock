@@ -198,6 +198,12 @@ checksum = "4c7f02d4ea65f2c1853089ffd8d2787bdbc63de2f0d29dedbcf8ccdfa0ccd4cf"
 
 [[package]]
 name = "base64"
+version = "0.21.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+
+[[package]]
+name = "base64"
 version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
@@ -977,7 +983,7 @@ dependencies = [
 name = "nearclip-ble"
 version = "0.1.6"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "thiserror",
  "tokio",
  "tracing",
@@ -988,7 +994,7 @@ dependencies = [
 name = "nearclip-core"
 version = "0.1.6"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "nearclip-ble",
  "nearclip-crypto",
  "nearclip-net",
@@ -1008,7 +1014,7 @@ name = "nearclip-crypto"
 version = "0.1.6"
 dependencies = [
  "aes-gcm",
- "base64",
+ "base64 0.22.1",
  "hex",
  "image",
  "p256",
@@ -1050,6 +1056,7 @@ dependencies = [
 name = "nearclip-ffi"
 version = "0.1.6"
 dependencies = [
+ "base64 0.21.7",
  "nearclip-ble",
  "nearclip-core",
  "nearclip-crypto",
@@ -1215,7 +1222,7 @@ version = "3.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "serde_core",
 ]
 

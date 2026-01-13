@@ -23,6 +23,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::RwLock as StdRwLock;
 use std::time::Duration;
 
+use base64;
 use nearclip_core::{
     DeviceInfo, DevicePlatform, DeviceStatus, HistoryManager, NearClipCallback, NearClipConfig,
     NearClipError, NearClipManager, SyncHistoryEntry,
@@ -575,6 +576,8 @@ pub struct FfiNearClipManager {
     /// In-memory cache of device shared secrets for encryption
     /// Maps device_id -> shared_secret (32 bytes)
     device_secrets: RwLock<HashMap<String, Vec<u8>>>,
+    /// Local ECDH keypair for pairing (persistent across sessions)
+    local_keypair: nearclip_crypto::EcdhKeyPair,
 }
 
 impl FfiNearClipManager {
@@ -605,6 +608,9 @@ impl FfiNearClipManager {
 
         let inner = NearClipManager::new(core_config, bridge)?;
 
+        // Generate local ECDH keypair for pairing
+        let local_keypair = nearclip_crypto::EcdhKeyPair::generate();
+
         Ok(Self {
             inner,
             runtime,
@@ -621,6 +627,7 @@ impl FfiNearClipManager {
             history_manager: StdRwLock::new(None),
             device_storage: RwLock::new(None),
             device_secrets: RwLock::new(HashMap::new()),
+            local_keypair,
         })
     }
 
@@ -1566,13 +1573,12 @@ impl FfiNearClipManager {
     /// - ECDH keypair generation fails
     /// - JSON serialization fails
     pub fn generate_qr_code(&self) -> Result<String, NearClipError> {
-        use nearclip_crypto::{EcdhKeyPair, PairingData};
+        use nearclip_crypto::PairingData;
 
         tracing::info!("Generating QR code for pairing");
 
-        // Generate ECDH keypair for this pairing session
-        let keypair = EcdhKeyPair::generate();
-        let public_key_bytes = keypair.public_key_bytes();
+        // Use persistent local keypair
+        let public_key_bytes = self.local_keypair.public_key_bytes();
 
         // Get device ID from manager
         let device_id = self.inner.device_id().to_string();
@@ -1634,6 +1640,31 @@ impl FfiNearClipManager {
             device_id = %pairing_data.device_id,
             "QR code parsed successfully"
         );
+
+        // Decode the peer's public key from base64
+        use base64::{Engine as _, engine::general_purpose};
+        let peer_public_key = general_purpose::STANDARD.decode(&pairing_data.public_key)
+            .map_err(|e| NearClipError::Crypto(format!("Failed to decode public key: {}", e)))?;
+
+        // Compute shared secret using ECDH
+        let shared_secret = self.local_keypair.compute_shared_secret(&peer_public_key)
+            .map_err(|e| NearClipError::Crypto(format!("Failed to compute shared secret: {}", e)))?;
+
+        tracing::info!(
+            device_id = %pairing_data.device_id,
+            secret_len = shared_secret.len(),
+            "Computed shared secret for device"
+        );
+
+        // Store shared secret in cache for encryption
+        self.runtime.block_on(async {
+            let mut secrets = self.device_secrets.write().await;
+            secrets.insert(pairing_data.device_id.clone(), shared_secret);
+            tracing::debug!(
+                device_id = %pairing_data.device_id,
+                "Stored shared secret in cache"
+            );
+        });
 
         // Create device info from pairing data
         // Note: We don't know the actual platform yet, will be determined during connection
