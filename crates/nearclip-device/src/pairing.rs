@@ -3,6 +3,7 @@
 //! Handles the bidirectional pairing process between devices.
 
 use crate::{DeviceManager, PairedDevice, DeviceError};
+use nearclip_crypto::EcdhKeyPair;
 use nearclip_protocol::{
     PairingMessage, PairingRequest, PairingResponse, PairingConfirm,
     PairingRejected,
@@ -142,7 +143,7 @@ pub struct PairingManager {
     local_device_id: String,
     local_device_name: String,
     local_platform: DevicePlatform,
-    local_public_key: Vec<u8>,
+    local_keypair: EcdhKeyPair,
     pairing_timeout_ms: u64,
 }
 
@@ -154,7 +155,7 @@ impl PairingManager {
         local_device_id: String,
         local_device_name: String,
         local_platform: DevicePlatform,
-        local_public_key: Vec<u8>,
+        local_keypair: EcdhKeyPair,
     ) -> Self {
         Self {
             device_manager,
@@ -163,7 +164,7 @@ impl PairingManager {
             local_device_id,
             local_device_name,
             local_platform,
-            local_public_key,
+            local_keypair,
             pairing_timeout_ms: 30_000, // 30 seconds default
         }
     }
@@ -199,7 +200,7 @@ impl PairingManager {
             device_id: self.local_device_id.clone(),
             device_name: self.local_device_name.clone(),
             platform: self.local_platform.clone(),
-            public_key: self.local_public_key.clone(),
+            public_key: self.local_keypair.public_key_bytes(),
             nonce,
         });
 
@@ -245,6 +246,11 @@ impl PairingManager {
                 self.transport.send(target_device_id, confirm_data)
                     .map_err(|e| PairingError::TransportError(e))?;
 
+                // Compute shared secret using ECDH
+                let shared_secret = self.local_keypair
+                    .compute_shared_secret(&resp.public_key)
+                    .map_err(|e| PairingError::ProtocolError(format!("Failed to compute shared secret: {}", e)))?;
+
                 // Create paired device
                 let now = now_millis() as i64;
                 let device = PairedDevice {
@@ -252,7 +258,7 @@ impl PairingManager {
                     device_name: resp.device_name.clone(),
                     platform: to_device_platform(resp.platform),
                     public_key: resp.public_key.clone(),
-                    shared_secret: vec![], // TODO: derive shared secret
+                    shared_secret,
                     paired_at: now,
                     last_connected: Some(now),
                     last_seen: Some(now),
@@ -317,7 +323,7 @@ impl PairingManager {
             device_id: self.local_device_id.clone(),
             device_name: self.local_device_name.clone(),
             platform: self.local_platform.clone(),
-            public_key: self.local_public_key.clone(),
+            public_key: self.local_keypair.public_key_bytes(),
             nonce,
             signature: vec![], // TODO: actual signature
         });
@@ -345,6 +351,11 @@ impl PairingManager {
 
                 // TODO: Verify signature
 
+                // Compute shared secret using ECDH
+                let shared_secret = self.local_keypair
+                    .compute_shared_secret(&request.public_key)
+                    .map_err(|e| PairingError::ProtocolError(format!("Failed to compute shared secret: {}", e)))?;
+
                 // Create paired device
                 let now = now_millis() as i64;
                 let device = PairedDevice {
@@ -352,7 +363,7 @@ impl PairingManager {
                     device_name: request.device_name.clone(),
                     platform: to_device_platform(request.platform),
                     public_key: request.public_key.clone(),
-                    shared_secret: vec![], // TODO: derive shared secret
+                    shared_secret,
                     paired_at: now,
                     last_connected: Some(now),
                     last_seen: Some(now),
