@@ -701,8 +701,7 @@ mod tests {
         // Create a message and chunk it
         let msg = create_test_message("hello from BLE");
         let serialized = bincode::serialize(&msg).unwrap();
-        let mut chunker = Chunker::new(1, &serialized, DEFAULT_BLE_MTU);
-        let chunks = chunker.create_all_chunks();
+        let chunks = Chunker::chunk(&serialized, 1, DEFAULT_BLE_MTU).unwrap();
 
         // Inject chunks as if received from BLE
         for chunk in chunks {
@@ -726,10 +725,8 @@ mod tests {
         let data1 = bincode::serialize(&msg1).unwrap();
         let data2 = bincode::serialize(&msg2).unwrap();
 
-        let mut chunker1 = Chunker::new(1, &data1, DEFAULT_BLE_MTU);
-        let mut chunker2 = Chunker::new(2, &data2, DEFAULT_BLE_MTU);
-        let chunks1 = chunker1.create_all_chunks();
-        let chunks2 = chunker2.create_all_chunks();
+        let chunks1 = Chunker::chunk(&data1, 1, DEFAULT_BLE_MTU).unwrap();
+        let chunks2 = Chunker::chunk(&data2, 2, DEFAULT_BLE_MTU).unwrap();
 
         // Inject all chunks
         for chunk in chunks1 {

@@ -7,11 +7,10 @@
 //! - Connection state management
 
 use async_trait::async_trait;
-use nearclip_ble::{Chunker, DEFAULT_BLE_MTU, Reassembler};
+use nearclip_ble::{Chunker, DEFAULT_BLE_MTU, Reassembler, ChunkHeader, CHUNK_HEADER_SIZE, DEFAULT_REASSEMBLE_TIMEOUT};
 use nearclip_crypto::Aes256Gcm;
 use nearclip_sync::{Channel, Message};
-use nearclip_transport::error::TransportError;
-use nearclip_transport::traits::Transport;
+use nearclip_transport::{TransportError, Transport};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 use std::sync::Arc;
@@ -43,7 +42,7 @@ pub struct MockBleTransport {
     /// MTU for chunking
     mtu: usize,
     /// Reassemblers for incoming chunks (message_id -> reassembler)
-    reassemblers: Arc<Mutex<HashMap<u16, Reassembler>>>,
+    pub reassemblers: Arc<Mutex<HashMap<u16, Reassembler>>>,
     /// Next message ID
     next_message_id: Arc<AtomicU16>,
 }
@@ -132,8 +131,8 @@ impl MockBleTransport {
 
         // 3. Chunk
         let message_id = self.next_message_id.fetch_add(1, Ordering::SeqCst);
-        let mut chunker = Chunker::new(message_id, &data, self.mtu);
-        let chunks = chunker.create_all_chunks();
+        let chunks = Chunker::chunk(&data, message_id, self.mtu)
+            .map_err(|e| TransportError::Other(format!("Chunking failed: {}", e)))?;
 
         // 4. Process chunks (simulating receiving them)
         let mut reassemblers = self.reassemblers.lock().await;
@@ -145,13 +144,11 @@ impl MockBleTransport {
     }
 
     /// Process a received chunk
-    async fn process_chunk(
+    pub async fn process_chunk(
         &self,
         chunk: &[u8],
         reassemblers: &mut HashMap<u16, Reassembler>,
     ) -> Result<(), TransportError> {
-        use nearclip_ble::{ChunkHeader, CHUNK_HEADER_SIZE};
-
         if chunk.len() < CHUNK_HEADER_SIZE {
             return Err(TransportError::Other(format!(
                 "Chunk too short: {} bytes",
@@ -163,24 +160,31 @@ impl MockBleTransport {
         let header = ChunkHeader::from_bytes(&chunk[..CHUNK_HEADER_SIZE])
             .map_err(|e| TransportError::Other(format!("Failed to parse chunk header: {}", e)))?;
 
+        // Extract payload
+        let payload = chunk[CHUNK_HEADER_SIZE..].to_vec();
+
         // Get or create reassembler
         let reassembler = reassemblers
             .entry(header.message_id)
-            .or_insert_with(|| Reassembler::new(header.message_id));
+            .or_insert_with(|| Reassembler::new(header.message_id, header.total_chunks, DEFAULT_REASSEMBLE_TIMEOUT));
 
         // Add chunk
-        reassembler.add_chunk(chunk)
+        reassembler.add_chunk(header, payload)
             .map_err(|e| TransportError::Other(format!("Failed to add chunk: {}", e)))?;
 
         // Check if complete
         if reassembler.is_complete() {
-            let complete_data = reassembler.get_complete_data()
-                .ok_or_else(|| TransportError::Other("Failed to get complete data".to_string()))?;
+            // Remove and assemble
+            let reassembler = reassemblers.remove(&header.message_id)
+                .ok_or_else(|| TransportError::Other("Failed to get reassembler".to_string()))?;
+
+            let complete_data = reassembler.assemble()
+                .map_err(|e| TransportError::Other(format!("Failed to assemble: {}", e)))?;
 
             // Decrypt (if encryption enabled)
             let decrypted = if let Some(ref cipher) = self.encryption {
                 cipher.decrypt(&complete_data)
-                    .map_err(|e| TransportError::DecryptionFailed(format!("Decryption failed: {}", e)))?
+                    .map_err(|e| TransportError::Other(format!("Decryption failed: {}", e)))?
             } else {
                 complete_data
             };
@@ -192,9 +196,6 @@ impl MockBleTransport {
             // Add to receive queue
             self.recv_queue.lock().await.push_back(message);
             self.recv_notify.notify_one();
-
-            // Remove reassembler
-            reassemblers.remove(&header.message_id);
         }
 
         Ok(())
@@ -236,8 +237,8 @@ impl Transport for MockBleTransport {
 
         // 4. Chunk
         let message_id = self.next_message_id.fetch_add(1, Ordering::SeqCst);
-        let mut chunker = Chunker::new(message_id, &data, self.mtu);
-        let chunks = chunker.create_all_chunks();
+        let chunks = Chunker::chunk(&data, message_id, self.mtu)
+            .map_err(|e| TransportError::SendFailed(format!("Chunking failed: {}", e)))?;
 
         // 5. Store chunks
         let mut sent_chunks = self.sent_chunks.lock().await;
