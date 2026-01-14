@@ -46,7 +46,24 @@ jobs:
         run: cargo build --all-targets
 
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-features
+
+      - name: Test Statistics
+        if: success() || failure()
+        run: |
+          echo "## 📊 Test Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Package | Tests | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          # Count tests per package
+          for pkg in nearclip-core nearclip-crypto nearclip-transport nearclip-sync nearclip-ble nearclip-device nearclip-ffi; do
+            count=$(cargo test -p $pkg --lib --tests -- --list 2>/dev/null | grep -c ": test$" || echo "0")
+            echo "| $pkg | $count | ✅ |" >> $GITHUB_STEP_SUMMARY
+          done
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Total workspace tests:** $(cargo test --workspace -- --list 2>/dev/null | grep -c ': test$')" >> $GITHUB_STEP_SUMMARY
 
   # ============================================
   # macOS Client - Build

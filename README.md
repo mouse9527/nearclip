@@ -1,6 +1,10 @@
 # NearClip
 
-跨253565e3_20251217141413设备本地剪贴板同步工具 - 在 macOS 和 Android 设备之间无缝同步剪贴板内容。
+[![CI](https://github.com/yourusername/nearclip/workflows/CI/badge.svg)](https://github.com/yourusername/nearclip/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org)
+
+跨设备本地剪贴板同步工具 - 在 macOS 和 Android 设备之间无缝同步剪贴板内容。
 
 ## 功能特性
 
