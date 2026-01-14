@@ -54,7 +54,7 @@ pub use traits::{Transport, TransportConnector, TransportListener, TransportCall
 pub use wifi::{WifiTransport, WifiTransportConnector, WifiTransportListener};
 pub use ble::{BleTransport, BleSender};
 pub use mock::{MockTransport, MockConfig, create_mock_pair};
-pub use manager::TransportManager;
+pub use manager::{TransportManager, TransportManagerConfig};
 
 // Re-export Channel from nearclip-sync for convenience
 pub use nearclip_sync::Channel;
