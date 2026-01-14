@@ -467,7 +467,7 @@ mod tests {
     }
 
     impl Transport for MockTransport {
-        fn send(&self, device_id: &str, data: Vec<u8>) -> Result<(), String> {
+        fn send(&self, _device_id: &str, _data: Vec<u8>) -> Result<(), String> {
             // For testing, just return success
             Ok(())
         }
@@ -564,13 +564,14 @@ mod tests {
         let device_manager = Arc::new(DeviceManager::new(db_path).await.unwrap());
         let transport = Arc::new(MockTransport::new());
 
+        let keypair = EcdhKeyPair::generate();
         let manager = PairingManager::new(
             device_manager,
             transport,
             "local-device".to_string(),
             "Local Device".to_string(),
             DevicePlatform::MacOS,
-            vec![1, 2, 3, 4],
+            keypair,
         );
 
         let state = manager.get_state().await;
@@ -587,13 +588,14 @@ mod tests {
         let device_manager = Arc::new(DeviceManager::new(db_path).await.unwrap());
         let transport = Arc::new(MockTransport::new());
 
+        let keypair = EcdhKeyPair::generate();
         let manager = PairingManager::new(
             device_manager,
             transport,
             "local-device".to_string(),
             "Local Device".to_string(),
             DevicePlatform::MacOS,
-            vec![1, 2, 3, 4],
+            keypair,
         );
 
         // Set to a non-idle state
@@ -628,6 +630,7 @@ mod tests {
             .unwrap();
 
         let transport = Arc::new(MockTransport::new());
+        let keypair = EcdhKeyPair::generate();
 
         PairingManager::new(
             Arc::new(device_manager),
@@ -635,7 +638,7 @@ mod tests {
             "local-device".to_string(),
             "Local Device".to_string(),
             DevicePlatform::MacOS,
-            vec![1, 2, 3, 4],
+            keypair,
         )
     }
 }
