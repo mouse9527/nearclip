@@ -7,7 +7,6 @@ mod common;
 
 use common::*;
 use nearclip_ffi::*;
-use std::sync::Arc;
 
 /// Test 1.1: FFI Manager creation succeeds
 #[test]

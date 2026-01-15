@@ -1,5 +1,7 @@
 //! Mock callback implementation for FFI testing
 
+#![allow(clippy::type_complexity)]
+
 use std::sync::{Arc, Mutex};
 use nearclip_ffi::*;
 

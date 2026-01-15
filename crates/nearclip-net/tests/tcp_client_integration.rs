@@ -115,7 +115,7 @@ async fn test_tcp_client_data_exchange_server_to_client() {
     assert_eq!(received, "Hello from server!");
 
     // 等待服务端完成
-    let _ = server_handle.await.unwrap();
+    server_handle.await.unwrap();
 }
 
 #[tokio::test]

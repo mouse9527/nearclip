@@ -187,13 +187,11 @@ async fn test_discover_multiple_devices() {
         while found_devices.len() < 2 {
             if let Ok(event) = event_rx.recv().await {
                 if let DiscoveryEvent::DeviceFound(device) = event {
-                    if device.device_id == "test-multi-device-1"
-                        || device.device_id == "test-multi-device-2"
-                    {
-                        if !found_devices.contains(&device.device_id) {
+                    if (device.device_id == "test-multi-device-1"
+                        || device.device_id == "test-multi-device-2")
+                        && !found_devices.contains(&device.device_id) {
                             found_devices.push(device.device_id.clone());
                         }
-                    }
                 }
             }
         }

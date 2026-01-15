@@ -47,7 +47,7 @@ fn test_ffi_device_info_conversion_platforms() {
         let ffi_device = FfiDeviceInfo {
             id: "test-id".to_string(),
             name: "Test Device".to_string(),
-            platform: platform.clone(),
+            platform,
             status: DeviceStatus::Disconnected,
         };
 
@@ -74,7 +74,7 @@ fn test_ffi_device_info_conversion_statuses() {
             id: "test-id".to_string(),
             name: "Test Device".to_string(),
             platform: DevicePlatform::MacOS,
-            status: status.clone(),
+            status,
         };
 
         let device: DeviceInfo = ffi_device.clone().into();
@@ -102,9 +102,9 @@ fn test_ffi_config_conversion_full() {
     let config: NearClipConfig = ffi_config.clone().into();
     assert_eq!(config.device_name(), "My Device");
     assert_eq!(config.device_id(), Some("test-id-123"));
-    assert_eq!(config.wifi_enabled(), true);
-    assert_eq!(config.ble_enabled(), true);
-    assert_eq!(config.auto_connect(), true);
+    assert!(config.wifi_enabled());
+    assert!(config.ble_enabled());
+    assert!(config.auto_connect());
     assert_eq!(config.connection_timeout(), Duration::from_secs(30));
     assert_eq!(config.heartbeat_interval(), Duration::from_secs(10));
     assert_eq!(config.max_retries(), 3);
@@ -125,9 +125,9 @@ fn test_ffi_config_conversion_disabled_features() {
     };
 
     let config: NearClipConfig = ffi_config.into();
-    assert_eq!(config.wifi_enabled(), false);
-    assert_eq!(config.ble_enabled(), false);
-    assert_eq!(config.auto_connect(), false);
+    assert!(!config.wifi_enabled());
+    assert!(!config.ble_enabled());
+    assert!(!config.auto_connect());
     assert_eq!(config.connection_timeout(), Duration::from_secs(60));
     assert_eq!(config.heartbeat_interval(), Duration::from_secs(20));
     assert_eq!(config.max_retries(), 5);
@@ -158,9 +158,9 @@ fn test_ffi_config_default() {
 
     assert_eq!(config.device_name, "NearClip Device");
     assert_eq!(config.device_id, ""); // Default is empty string
-    assert_eq!(config.wifi_enabled, true);
-    assert_eq!(config.ble_enabled, true);
-    assert_eq!(config.auto_connect, true);
+    assert!(config.wifi_enabled);
+    assert!(config.ble_enabled);
+    assert!(config.auto_connect);
     assert_eq!(config.connection_timeout_secs, 30);
     assert_eq!(config.heartbeat_interval_secs, 10);
     assert_eq!(config.max_retries, 3);
@@ -178,7 +178,7 @@ fn test_ffi_history_entry_values() {
     assert_eq!(entry.content_preview, "Test content");
     assert_eq!(entry.content_size, 12);
     assert_eq!(entry.direction, "sent");
-    assert_eq!(entry.success, true);
+    assert!(entry.success);
     assert_eq!(entry.error_message, None);
     assert!(entry.timestamp_ms > 0);
 }
@@ -190,7 +190,7 @@ fn test_ffi_history_entry_with_error() {
     entry.success = false;
     entry.error_message = Some("Connection timeout".to_string());
 
-    assert_eq!(entry.success, false);
+    assert!(!entry.success);
     assert_eq!(entry.error_message, Some("Connection timeout".to_string()));
 }
 
@@ -243,7 +243,7 @@ fn test_ffi_ble_controller_config_default() {
 
     assert_eq!(config.scan_timeout_ms, 20000);
     assert_eq!(config.device_lost_timeout_ms, 30000);
-    assert_eq!(config.auto_reconnect, true);
+    assert!(config.auto_reconnect);
     assert_eq!(config.max_reconnect_attempts, 5);
     assert_eq!(config.reconnect_base_delay_ms, 1000);
     assert_eq!(config.health_check_interval_ms, 30000);
@@ -263,7 +263,7 @@ fn test_log_level_values() {
 
     for level in levels {
         // Verify enum can be cloned and compared
-        let level_clone = level.clone();
+        let level_clone = level;
         assert_eq!(level, level_clone);
     }
 }

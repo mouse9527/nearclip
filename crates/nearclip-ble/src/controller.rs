@@ -470,7 +470,7 @@ impl BleController {
         let data_tx_uuid_str = DATA_TRANSFER_CHARACTERISTIC_UUID.to_string();
 
         self.hardware.write_characteristic(&peripheral_uuid, &data_tx_uuid_str, data)
-            .map_err(|e| BleError::DataTransfer(e))?;
+            .map_err(BleError::DataTransfer)?;
 
         Ok(())
     }

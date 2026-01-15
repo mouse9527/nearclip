@@ -146,7 +146,7 @@ mod tests {
     #[test]
     fn test_question_mark_operator() {
         fn inner() -> std::result::Result<(), std::io::Error> {
-            Err(std::io::Error::new(std::io::ErrorKind::Other, "inner error"))
+            Err(std::io::Error::other("inner error"))
         }
 
         fn outer() -> Result<()> {

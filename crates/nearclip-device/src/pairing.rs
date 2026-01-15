@@ -209,7 +209,7 @@ impl PairingManager {
             .map_err(|e| PairingError::ProtocolError(format!("Failed to serialize: {}", e)))?;
 
         self.transport.send(target_device_id, request_data)
-            .map_err(|e| PairingError::TransportError(e))?;
+            .map_err(PairingError::TransportError)?;
 
         // Update state
         *self.state.write().await = PairingState::WaitingResponse {
@@ -244,7 +244,7 @@ impl PairingManager {
                     .map_err(|e| PairingError::ProtocolError(format!("Failed to serialize: {}", e)))?;
 
                 self.transport.send(target_device_id, confirm_data)
-                    .map_err(|e| PairingError::TransportError(e))?;
+                    .map_err(PairingError::TransportError)?;
 
                 // Compute shared secret using ECDH
                 let shared_secret = self.local_keypair
@@ -420,7 +420,7 @@ impl PairingManager {
             .map_err(|e| PairingError::ProtocolError(format!("Failed to serialize: {}", e)))?;
 
         self.transport.send(device_id, data)
-            .map_err(|e| PairingError::TransportError(e))
+            .map_err(PairingError::TransportError)
     }
 
     /// Generate a random nonce

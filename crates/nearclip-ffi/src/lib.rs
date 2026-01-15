@@ -23,7 +23,6 @@ use std::sync::atomic::AtomicBool;
 use std::sync::RwLock as StdRwLock;
 use std::time::Duration;
 
-use base64;
 use nearclip_core::{
     DeviceInfo, DevicePlatform, DeviceStatus, HistoryManager, NearClipCallback, NearClipConfig,
     NearClipError, NearClipManager, SyncHistoryEntry,

@@ -22,7 +22,7 @@
 
 use aes_gcm::{
     aead::{Aead, AeadCore, OsRng},
-    Aes256Gcm as Aes256GcmImpl, KeyInit, Nonce,
+    Aes256Gcm as Aes256GcmImpl, Nonce,
 };
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -208,11 +208,11 @@ impl Aes256Gcm {
         let (nonce_bytes, encrypted_data) = ciphertext.split_at(Self::NONCE_SIZE);
         let nonce_array: [u8; Self::NONCE_SIZE] = nonce_bytes.try_into()
             .map_err(|_| CipherError::InvalidCiphertext("Invalid nonce length".to_string()))?;
-        let nonce = Nonce::from_slice(&nonce_array);
+        let nonce = Nonce::from(nonce_array);
 
         // 解密
         let plaintext = self.cipher
-            .decrypt(nonce, encrypted_data)
+            .decrypt(&nonce, encrypted_data)
             .map_err(|e| CipherError::DecryptionFailed(e.to_string()))?;
 
         debug!("Decrypted {} bytes to {} bytes", ciphertext.len(), plaintext.len());
@@ -278,14 +278,14 @@ impl Aes256Gcm {
         let nonce_bytes: [u8; Self::NONCE_SIZE] = buffer[..Self::NONCE_SIZE]
             .try_into()
             .map_err(|_| CipherError::InvalidCiphertext("Invalid nonce length".to_string()))?;
-        let nonce = Nonce::from_slice(&nonce_bytes);
+        let nonce = Nonce::from(nonce_bytes);
 
         // 复制加密数据
         let encrypted_data = buffer[Self::NONCE_SIZE..].to_vec();
 
         // 解密
         let plaintext = self.cipher
-            .decrypt(nonce, encrypted_data.as_slice())
+            .decrypt(&nonce, encrypted_data.as_slice())
             .map_err(|e| CipherError::DecryptionFailed(e.to_string()))?;
 
         // 替换缓冲区内容
