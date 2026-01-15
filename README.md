@@ -30,31 +30,37 @@
                               │
                       ┌───────┴───────┐
                       │  UniFFI (FFI) │
+                      │ nearclip-ffi  │
                       └───────┬───────┘
                               │
 ┌─────────────────────────────┴───────────────────────────────┐
-│                      Rust Core                               │
+│                      Rust Core (7 crates)                    │
 ├──────────┬──────────┬──────────┬──────────┬─────────────────┤
 │nearclip- │nearclip- │nearclip- │nearclip- │   nearclip-     │
-│  core    │   net    │   ble    │  crypto  │     sync        │
+│  core    │ transport│  device  │  sync    │    crypto       │
 │          │          │          │          │                 │
-│ Manager  │ TCP/mDNS │ BLE GATT │ ECDH     │ ChannelMonitor  │
-│ Config   │ TLS 1.3  │ Scan     │ TLS Cert │ ChannelSwitcher │
-│ Device   │ Client   │ Advertise│ QR Code  │ RetryPolicy     │
-│ Callback │ Server   │ Transfer │          │ LoopGuard       │
-└──────────┴──────────┴──────────┴──────────┴─────────────────┘
+│ Manager  │ TCP/BLE  │ Pairing  │ Monitor  │ ECDH/TLS        │
+│ Config   │ Unified  │ Storage  │ Switcher │ Certificates    │
+│ Callback │ Channel  │ Session  │ Retry    │ QR Code         │
+├──────────┴──────────┴──────────┴──────────┴─────────────────┤
+│  nearclip-net (TCP/mDNS/TLS)  │  nearclip-ble (BLE GATT)    │
+│  nearclip-protocol (Messages) │                              │
+└───────────────────────────────┴─────────────────────────────┘
 ```
 
 ## 项目结构
 
 ```
 nearclip/
-├── crates/                      # Rust 核心库
+├── crates/                      # Rust 核心库 (7 crates)
 │   ├── nearclip-core/          # 核心协调层 & API
 │   ├── nearclip-net/           # 网络层 (TCP/mDNS/TLS)
 │   ├── nearclip-ble/           # 蓝牙层 (BLE GATT)
 │   ├── nearclip-crypto/        # 加密层 (ECDH/TLS证书/QR码)
 │   ├── nearclip-sync/          # 同步层 (通道监控/切换/重试)
+│   ├── nearclip-device/        # 设备管理 (配对/存储)
+│   ├── nearclip-transport/     # 传输抽象层
+│   ├── nearclip-protocol/      # 消息协议定义
 │   └── nearclip-ffi/           # FFI 绑定 (UniFFI)
 ├── macos/                       # macOS 客户端
 │   └── NearClip/               # Swift Package
