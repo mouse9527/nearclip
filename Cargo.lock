@@ -1262,6 +1262,7 @@ dependencies = [
  "aes-gcm",
  "base64 0.22.1",
  "hex",
+ "hkdf",
  "image",
  "p256",
  "qrcode",

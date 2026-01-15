@@ -37,6 +37,7 @@ uuid = { version = "1", features = ["v4"] }
 
 # Crypto & TLS
 sha2 = "0.10"
+hkdf = "0.12"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rcgen = "0.13"
 base64 = "0.22"

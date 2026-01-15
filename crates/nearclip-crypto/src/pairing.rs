@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{debug, info, instrument, warn};
+use zeroize::Zeroize;
 
 /// 配对数据版本
 pub const PAIRING_DATA_VERSION: u8 = 1;
@@ -617,28 +618,36 @@ impl PairingSession {
 
     /// 完成配对，返回已配对设备信息
     ///
-    /// 消费会话并创建 `PairedDevice` 实例。
+    /// 消费会话数据并创建 `PairedDevice` 实例。
+    /// 调用后共享密钥会被清零。
     ///
     /// # Errors
     ///
     /// 返回 `CryptoError::PairingFailed` 如果：
     /// - 配对会话未完成（未调用 `process_peer_data`）
     #[instrument(skip(self))]
-    pub fn complete(self) -> Result<PairedDevice, CryptoError> {
+    pub fn complete(&mut self) -> Result<PairedDevice, CryptoError> {
         let device_id = self
             .peer_device_id
+            .take()
             .ok_or_else(|| CryptoError::PairingFailed("No peer device ID".to_string()))?;
 
         let public_key_bytes = self
             .peer_public_key
+            .take()
             .ok_or_else(|| CryptoError::PairingFailed("No peer public key".to_string()))?;
 
         let shared_secret = self
             .shared_secret
+            .take()
             .ok_or_else(|| CryptoError::PairingFailed("No shared secret computed".to_string()))?;
 
         // 计算共享密钥的哈希（不存储完整密钥）
         let shared_secret_hash = Self::hash_shared_secret(&shared_secret);
+
+        // 清零共享密钥
+        let mut secret_to_clear = shared_secret;
+        secret_to_clear.zeroize();
 
         // 获取当前时间戳
         let paired_at = SystemTime::now()
@@ -651,7 +660,7 @@ impl PairingSession {
         Ok(PairedDevice {
             device_id,
             public_key_bytes,
-            connection_info: self.peer_connection_info,
+            connection_info: self.peer_connection_info.take(),
             shared_secret_hash,
             paired_at,
         })
@@ -672,6 +681,19 @@ impl std::fmt::Debug for PairingSession {
             .field("peer_device_id", &self.peer_device_id)
             .field("has_shared_secret", &self.shared_secret.is_some())
             .finish_non_exhaustive()
+    }
+}
+
+impl Drop for PairingSession {
+    fn drop(&mut self) {
+        // 清零共享密钥以防止内存泄露
+        if let Some(ref mut secret) = self.shared_secret {
+            secret.zeroize();
+        }
+        // 清零对方公钥
+        if let Some(ref mut key) = self.peer_public_key {
+            key.zeroize();
+        }
     }
 }
 
@@ -1137,7 +1159,7 @@ mod tests {
     #[test]
     fn test_pairing_session_complete_without_processing() {
         let local_keypair = EcdhKeyPair::generate();
-        let session = PairingSession::new(local_keypair);
+        let mut session = PairingSession::new(local_keypair);
 
         // 未调用 process_peer_data 就尝试完成
         let result = session.complete();

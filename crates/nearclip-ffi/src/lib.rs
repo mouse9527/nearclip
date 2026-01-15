@@ -28,6 +28,14 @@ use nearclip_core::{
     NearClipError, NearClipManager, SyncHistoryEntry,
 };
 use nearclip_sync::{Message, PairingPayload, ProtocolPlatform};
+
+/// 安全截断 UTF-8 字符串，确保不会在字符中间切断
+fn truncate_utf8(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
 use nearclip_transport::{BleTransport, BleSender, Transport};
 use nearclip_ble::{BleController, BleControllerCallback, BleControllerConfig, ControllerDiscoveredDevice};
 use tokio::sync::RwLock;
@@ -138,7 +146,7 @@ impl BleControllerCallback for BleControllerCallbackBridge {
     fn on_device_connected(&self, device_id: String) {
         let device_info = FfiDeviceInfo {
             id: device_id.clone(),
-            name: format!("BLE Device {}", &device_id[..8.min(device_id.len())]),
+            name: format!("BLE Device {}", truncate_utf8(&device_id, 8)),
             platform: DevicePlatform::Unknown,
             status: DeviceStatus::Connected,
         };
@@ -1087,13 +1095,17 @@ impl FfiNearClipManager {
                     drop(transports);
                     // Get shared_secret from DeviceManager for encryption
                     let shared_secret = self.get_shared_secret(&device_id).await;
-                    let transport = Arc::new(
-                        BleTransport::new(
-                            device_id.clone(),
-                            sender.clone(),
-                            shared_secret.as_deref()
-                        ).expect("Failed to create BLE transport")
-                    );
+                    let transport = match BleTransport::new(
+                        device_id.clone(),
+                        sender.clone(),
+                        shared_secret.as_deref()
+                    ) {
+                        Ok(t) => Arc::new(t),
+                        Err(e) => {
+                            tracing::error!(device_id = %device_id, error = %e, "Failed to create BLE transport");
+                            return;
+                        }
+                    };
                     transport.on_data_received(&data).await;
 
                     // Start a receive task for this transport
@@ -1200,13 +1212,17 @@ impl FfiNearClipManager {
                 if let Some(ref sender) = *sender {
                     // Get shared_secret from DeviceManager for encryption
                     let shared_secret = self.get_shared_secret(&device_id).await;
-                    let transport = Arc::new(
-                        BleTransport::new(
-                            device_id.clone(),
-                            sender.clone(),
-                            shared_secret.as_deref()
-                        ).expect("Failed to create BLE transport")
-                    );
+                    let transport = match BleTransport::new(
+                        device_id.clone(),
+                        sender.clone(),
+                        shared_secret.as_deref()
+                    ) {
+                        Ok(t) => Arc::new(t),
+                        Err(e) => {
+                            tracing::error!(device_id = %device_id, error = %e, "Failed to create BLE transport");
+                            return;
+                        }
+                    };
                     transport.on_connection_state_changed(true);
 
                     // Subscribe to DATA_TRANSFER and DATA_ACK characteristics immediately after connection
@@ -1400,7 +1416,8 @@ impl FfiNearClipManager {
         let path = PathBuf::from(db_path);
         let manager = HistoryManager::new(path)?;
 
-        let mut history = self.history_manager.write().unwrap();
+        let mut history = self.history_manager.write()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         *history = Some(Arc::new(manager));
 
         tracing::info!("History manager initialized");
@@ -1421,7 +1438,8 @@ impl FfiNearClipManager {
     ///
     /// Returns error if history manager is not initialized or database operation fails
     pub fn add_history_entry(&self, entry: FfiSyncHistoryEntry) -> Result<i64, NearClipError> {
-        let history = self.history_manager.read().unwrap();
+        let history = self.history_manager.read()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         let manager = history.as_ref()
             .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
 
@@ -1450,7 +1468,8 @@ impl FfiNearClipManager {
     ///
     /// Returns error if history manager is not initialized or database operation fails
     pub fn get_recent_history(&self, limit: u64) -> Result<Vec<FfiSyncHistoryEntry>, NearClipError> {
-        let history = self.history_manager.read().unwrap();
+        let history = self.history_manager.read()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         let manager = history.as_ref()
             .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
 
@@ -1479,7 +1498,8 @@ impl FfiNearClipManager {
     ///
     /// Returns error if history manager is not initialized or database operation fails
     pub fn get_device_history(&self, device_id: String, limit: u64) -> Result<Vec<FfiSyncHistoryEntry>, NearClipError> {
-        let history = self.history_manager.read().unwrap();
+        let history = self.history_manager.read()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         let manager = history.as_ref()
             .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
 
@@ -1503,7 +1523,8 @@ impl FfiNearClipManager {
     ///
     /// Returns error if history manager is not initialized or database operation fails
     pub fn clear_all_history(&self) -> Result<(), NearClipError> {
-        let history = self.history_manager.read().unwrap();
+        let history = self.history_manager.read()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         let manager = history.as_ref()
             .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
 
@@ -1524,7 +1545,8 @@ impl FfiNearClipManager {
     ///
     /// Returns error if history manager is not initialized or database operation fails
     pub fn clear_old_history(&self, days: u32) -> Result<u64, NearClipError> {
-        let history = self.history_manager.read().unwrap();
+        let history = self.history_manager.read()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         let manager = history.as_ref()
             .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
 
@@ -1538,7 +1560,8 @@ impl FfiNearClipManager {
     ///
     /// Returns error if history manager is not initialized or database operation fails
     pub fn get_history_count(&self) -> Result<u64, NearClipError> {
-        let history = self.history_manager.read().unwrap();
+        let history = self.history_manager.read()
+            .map_err(|_| NearClipError::Io("History manager lock poisoned".to_string()))?;
         let manager = history.as_ref()
             .ok_or_else(|| NearClipError::NotInitialized("History manager not initialized".to_string()))?;
 
@@ -1669,7 +1692,7 @@ impl FfiNearClipManager {
         // Note: We don't know the actual platform yet, will be determined during connection
         let device_info = FfiDeviceInfo {
             id: pairing_data.device_id.clone(),
-            name: format!("Device {}", &pairing_data.device_id[..8.min(pairing_data.device_id.len())]),
+            name: format!("Device {}", truncate_utf8(&pairing_data.device_id, 8)),
             platform: DevicePlatform::Unknown,
             status: DeviceStatus::Disconnected,
         };

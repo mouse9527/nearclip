@@ -24,7 +24,8 @@ use aes_gcm::{
     aead::{Aead, AeadCore, OsRng},
     Aes256Gcm as Aes256GcmImpl, Nonce,
 };
-use sha2::{Digest, Sha256};
+use hkdf::Hkdf;
+use sha2::Sha256;
 use thiserror::Error;
 use tracing::{debug, instrument};
 use zeroize::Zeroize;
@@ -129,13 +130,18 @@ impl Aes256Gcm {
     /// 使用 HKDF-SHA256 从共享密钥派生加密密钥
     ///
     /// HKDF (HMAC-based Key Derivation Function) 提供安全的密钥派生。
+    /// 使用标准的 extract-and-expand 模式。
     fn derive_key(shared_secret: &[u8]) -> [u8; 32] {
-        // 使用空 salt 和 info 进行简单派生
-        let mut hasher = Sha256::new();
-        hasher.update(b"nearclip-encryption-key");
-        hasher.update(shared_secret);
-        hasher.update(b"nearclip-key-derivation");
-        hasher.finalize().into()
+        // 使用固定 salt 和 info 进行域分离
+        // Salt 提供额外的熵，info 提供上下文绑定
+        let salt = b"nearclip-v1-salt";
+        let info = b"nearclip-encryption-key-v1";
+
+        let hk = Hkdf::<Sha256>::new(Some(salt), shared_secret);
+        let mut okm = [0u8; 32];
+        // HKDF expand 不会失败，因为输出长度 <= 255 * HashLen
+        hk.expand(info, &mut okm).expect("HKDF expand failed - this should never happen");
+        okm
     }
 
     /// 加密数据
