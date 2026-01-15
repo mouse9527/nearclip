@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-01-15
+
+### Added
+- **Testing**: Comprehensive test suite with 1321+ tests across 7 crates
+  - Unit tests for all core modules
+  - Integration tests for FFI layer (57 tests)
+  - Cross-crate integration tests
+- **CI/CD**: GitHub Actions workflow with quality gates
+  - Automated testing on push/PR
+  - Clippy linting with warnings-as-errors
+  - Documentation generation
+- **Documentation**: Manual testing guide for platform-specific features
+- **Architecture**: New crates for better separation of concerns
+  - `nearclip-device`: Device management and pairing
+  - `nearclip-transport`: Unified transport abstraction
+  - `nearclip-protocol`: Message protocol definitions
+
+### Changed
+- **Architecture**: Migrated to 7-crate structure for better modularity
+- **BLE**: Bidirectional pairing with ECDH key exchange
+- **macOS**: Device storage migrated from UserDefaults to Keychain
+- **Code Quality**: Fixed all actionable Clippy warnings
+
+### Fixed
+- Deprecated API usage in cipher module (Nonce::from_slice)
+- Redundant field names in test code
+- Unused imports across multiple modules
+- Type complexity warnings in test helpers
+
 ## [0.1.7] - 2025-12-26
 
 ### Changed
